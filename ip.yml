@@ -1,0 +1,103 @@
+# rr_rea - RouteRTL Embedded Analyzer (REA), v0.6
+#
+# First-party on-chip logic analyzer IP. THIS repo (github.com/djmazure/rr-rea)
+# is the PUBLIC home of the routertl/rea package: `rr pkg publish` runs from
+# here, the registry pins this repo's commits, and `rr pkg add routertl/rea`
+# clones it anonymously. The routertl SDK carries a synced builtin copy at
+# ip/routertl/rea (offline convenience for repo-checkout benches).
+
+name: rea
+namespace: routertl
+version: 0.6.2
+description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
+license: MIT
+library: rr_rea
+language: vhdl
+
+hdl:
+  library: rr_rea
+  language: vhdl
+  top_module: rr_rea_top
+  top_sim: rr_rea_capture_fsm
+  files:
+    - rtl/rr_rea_pkg.vhd
+    # NB rr_rea_build_id_pkg is NOT shipped — it is a build-flow-GENERATED input
+    # (RTL-T2.119). A consuming project regenerates it (rr_rea_build_id pre_build
+    # hook) with a real REA source hash and lists its OWN generated copy. See
+    # SPEC.md "Identity / content fingerprint". Standalone sim/lint use the
+    # fixture at sim/cocotb/tests/rea/fixtures/rr_rea_build_id_stub.vhd.
+    - rtl/rr_rea_dpram.vhd
+    - rtl/rr_rea_capture_fsm.vhd
+    - rtl/rr_rea_regbank.vhd
+    - rtl/rr_rea_cdc.vhd
+    - rtl/rr_rea_jtag_iface.vhd
+    - rtl/rr_rea_top.vhd
+    - rtl/rr_rea_trig_xbar.vhd
+
+paths:
+  sources: rtl
+
+synthesis:
+  mode: rtl
+  sources:
+    - rtl/rr_rea_pkg.vhd
+    # NB rr_rea_build_id_pkg is NOT shipped — it is a build-flow-GENERATED input
+    # (RTL-T2.119). A consuming project regenerates it (rr_rea_build_id pre_build
+    # hook) with a real REA source hash and lists its OWN generated copy. See
+    # SPEC.md "Identity / content fingerprint". Standalone sim/lint use the
+    # fixture at sim/cocotb/tests/rea/fixtures/rr_rea_build_id_stub.vhd.
+    - rtl/rr_rea_dpram.vhd
+    - rtl/rr_rea_capture_fsm.vhd
+    - rtl/rr_rea_regbank.vhd
+    - rtl/rr_rea_cdc.vhd
+    - rtl/rr_rea_jtag_iface.vhd
+    - rtl/rr_rea_top.vhd
+    - rtl/rr_rea_trig_xbar.vhd
+  sources_per_vendor:
+    xilinx:
+      - rtl/rr_rea_jtag_xilinx7.vhd
+    altera:
+      - rtl/rr_rea_jtag_intel.vhd
+
+build:
+  simulation:
+    sources: []
+    test_dir: sim/cocotb/tests
+    simulator: nvc
+    waves:
+      formats: [fst]
+
+  # RTL-P3.415: ip.yml-declared generation hook. REA deliberately does NOT ship
+  # rr_rea_build_id_pkg.vhd — it is a build-flow-GENERATED source-hash package
+  # (RTL-T2.119). A consumer that installs REA via `rr pkg add routertl/rea`
+  # gets this hook recorded in ip.lock; the consumer's build runs it (no manual
+  # project.yml wiring) to write generated/rr_rea_build_id_pkg.vhd, and the
+  # `outputs[].library` places that file into library rr_rea (where the regbank's
+  # `use work.rr_rea_build_id_pkg` resolves). ${pkg_root} is substituted to the
+  # IP's installed root at install time; ${generated_dir} → the consumer's
+  # generated/ dir at hook-execution time.
+  hooks:
+    pre_build:
+      - name: rr_rea_build_id
+        script: routertl:sdk/scripts/rr_rea_build_id.py
+        args:
+          # RTL-P3.1213: hash the DECLARED hdl file list, not a directory
+          # glob — every install flavor (demo tree / builtin / --local)
+          # reports the SAME BUILD_ID for the same release.
+          - "--ip-yml"
+          - "${pkg_root}/ip.yml"
+          - "--out"
+          - "${generated_dir}/rr_rea_build_id_pkg.vhd"
+        watch:
+          - "${pkg_root}/rtl/*.vhd"
+          - "${pkg_root}/ip.yml"
+        # Publish-LINT stub for the generated-only package — LINT-ONLY, never a
+        # consumer synth source (RTL-T2.119 stub-collision guard).
+        lint_stub: verif/rr_rea_build_id_stub.vhd
+        outputs:
+          - path: "${generated_dir}/rr_rea_build_id_pkg.vhd"
+            library: rr_rea
+
+requirements: requirements.yml
+
+ips: []

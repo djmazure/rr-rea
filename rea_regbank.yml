@@ -1,0 +1,42 @@
+name: rea_registers
+version: 0.5.0
+address_mode: bytes
+outputs:
+  - vhdl_template
+  - python_host
+artifacts:
+  vhdl_template:
+    path: ip/routertl/rea/rtl/rr_rea_pkg.vhd
+    marker: REGBANK_ADDRESSES
+    prefix: C_REGBANK_ADDR_
+    width: 16
+  python_host:
+    path: sdk/cli/rea/registers.py
+    prefix: ADDR_
+registers:
+  - {name: VERSION, address: 0x0000, access: RO, description: REA magic and feature version}
+  - {name: CTRL, address: 0x0004, access: WO, description: Arm and reset toggles}
+  - {name: STATUS, address: 0x0008, access: RO, description: Capture status flags}
+  - {name: SAMPLE_W, address: 0x000C, access: RO, description: Synthesized sample width}
+  - {name: DEPTH, address: 0x0010, access: RO, description: Synthesized capture depth}
+  - {name: PRETRIG, address: 0x0014, access: RW, description: Pre-trigger sample count}
+  - {name: POSTTRIG, address: 0x0018, access: RW, description: Post-trigger sample count}
+  - {name: CAPTURE_LEN, address: 0x001C, access: RO, description: Captured sample count}
+  - {name: TRIG_MODE, address: 0x0020, access: RW, description: Trigger mode and operator}
+  - {name: TRIG_VALUE, address: 0x0024, access: RW, description: Paged trigger value}
+  - {name: TRIG_MASK, address: 0x0028, access: RW, description: Paged trigger mask}
+  - {name: TRIG_WORD_SEL, address: 0x002C, access: RW, description: Trigger word page selector}
+  - {name: COND_SEL, address: 0x0030, access: RW, description: Comparator-array slot selector}
+  - {name: COND_CFG, address: 0x0034, access: RW, description: Comparator-array slot configuration}
+  - {name: COND_VAL, address: 0x0038, access: RW, description: Comparator-array slot value}
+  - {name: SOURCE, address: 0x003C, access: RW, description: DUT-facing source control bits}
+  - {name: SEQ_BASE, address: 0x0040, access: RW, description: Sequencer stage window base}
+  - {name: CHAN_SEL, address: 0x00A0, access: RW, description: Capture channel selector}
+  - {name: NUM_CHAN, address: 0x00A4, access: RO, description: Synthesized channel count}
+  - {name: DECIM, address: 0x00B0, access: RW, description: Capture decimation ratio}
+  - {name: TIMESTAMP_W, address: 0x00C4, access: RO, description: Synthesized timestamp width}
+  - {name: START_PTR, address: 0x00C8, access: RO, description: Oldest captured sample pointer}
+  - {name: DATA_WORD_SEL, address: 0x00CC, access: RW, description: Capture data word page selector}
+  - {name: FEATURES, address: 0x00D0, access: RO, description: Synthesized feature bitmap}
+  - {name: BUILD_ID, address: 0x00D4, access: RO, description: Source-content fingerprint}
+  - {name: DATA_BASE, address: 0x0100, access: RO, description: Capture data window base}

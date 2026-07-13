@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.o
+work-obj08.cf
+work/
+generated/
+sim/cocotb/waves/
+sim/cocotb/logs/
+sim/cocotb/results/
+build_env.mk
+build_env.tcl
+.routertl_cache/
+libs/
+ip.lock
+routertl.lock

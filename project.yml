@@ -1,0 +1,23 @@
+# Development-workspace project.yml for rr_rea.
+#
+# Companion to ip.yml (the publishable contract). Lets a checkout of this
+# repo run the cocotb suite via `rr sim run <test>` with an installed
+# routertl SDK. Hardware target is a Xilinx-7 placeholder — REA is
+# vendor-portable (per-vendor JTAG wrappers in ip.yml sources_per_vendor);
+# real hardware bring-up examples live in the routertl SDK examples
+# (zybo_rea_demo, de25_rea_demo).
+
+project:
+  name: rr_rea
+  top_module: rr_rea_top
+  top_sim: rr_rea_capture_fsm
+
+hardware:
+  vendor: xilinx
+  part: xc7z020clg400-1     # placeholder for sim; see README for HW demos
+  language: vhdl
+
+simulation:
+  test_dir: sim/cocotb/tests
+  waves_dir: sim/cocotb/waves
+  logs_dir: sim/cocotb/logs
