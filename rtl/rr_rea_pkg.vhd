@@ -51,7 +51,12 @@ package rr_rea_pkg is
     -- comparator op nibble (P3.644-646) + per-condition array (P3.647) + capture
     -- decimation + external-pin trigger + multiword TRIG_VALUE/MASK (P2.658b).
     -- v0.5 adds paged full-width capture readback (RTL-P1.91).
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454105";
+    -- v0.6 (RTL-P2.876) raises the sample-width ceiling 256 → 1024 and extends
+    -- the per-condition field_lsb to 11 bits (lsb_hi in COND_CFG[30:28]) so a
+    -- comparator field can sit above bit 255; advertised by FEATURES[17]
+    -- (wide_cond). NB the on-silicon v0.5 magic 0x52454105 in closed tickets
+    -- (RTL-P3.1198 identity, T2.119 handoff) is HISTORICAL fact — not rewritten.
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454106";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -146,10 +151,16 @@ package rr_rea_pkg is
     --   [7:0]  TRIG_CONDS  = G_TRIG_CONDS   (comparator-array slots)
     --   [15:8] NUM_SOURCE  = G_NUM_SOURCE   (write-side source bits)
     --   [16]   WIDE_SAMPLE = '1' when G_SAMPLE_W > C_DATA_WORD_W (paged readback)
-    --   [31:17] reserved (0)
+    --   [17]   WIDE_COND   = '1' when G_SAMPLE_W > C_COND_LSB8_REACH (RTL-P2.876):
+    --                        this build decodes the 11-bit extended field_lsb, so
+    --                        a comparator condition may address bits >= 256. The
+    --                        host writes lsb_hi (COND_CFG[30:28]) only when set,
+    --                        and REFUSES lsb>=256 when clear (no silent truncation).
+    --   [31:18] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
+    constant C_FEAT_WIDE_COND_BIT   : natural := 17;
 
     -- ── CTRL register bit assignments ────────────────────────────
     constant C_CTRL_BIT_ARM     : natural := 0;
@@ -192,15 +203,21 @@ package rr_rea_pkg is
     constant C_TRIG_MODE_BIT_EXT_EN  : natural := 3;
     constant C_TRIG_MODE_BIT_EXT_AND : natural := 8;
 
-    -- ── Per-condition slot CFG word layout (COND_CFG, RTL-P3.647) ──
-    -- {valid[31], op[27:24], field_width[23:16], field_lsb[15:8], rsvd[7:0]}.
-    -- field_lsb addresses up to C_MAX_SAMPLE_W (256) bits; field_width is the
-    -- contiguous field size (per-condition compare value is ≤32 bits — a
-    -- wider full-width EQ uses the single-comparator path, RTL-P2.658b).
+    -- ── Per-condition slot CFG word layout (COND_CFG, RTL-P3.647/P2.876) ──
+    -- {valid[31], lsb_hi[30:28], op[27:24], field_width[23:16], field_lsb_lo[15:8],
+    --  rsvd[7:0]}. field_lsb = (lsb_hi & lsb_lo) is an 11-bit offset (0..2047,
+    -- RTL-P2.876) so a comparator field can sit anywhere in a probe up to
+    -- C_MAX_SAMPLE_W. field_width stays 8 bits (a field is ≤255 bits wide; a
+    -- wider full-width EQ uses the single-comparator path, RTL-P2.658b). lsb_hi
+    -- occupies the previously-reserved [30:28] gap — a legacy host wrote 0
+    -- there, so an <=256-bit-reach config decodes byte-identically (back-compat).
+    -- rsvd[7:0] stays free (headroom for RTL-P2.881's comparator redesign — this
+    -- encoding does not consume it).
     constant C_COND_VALID_BIT  : natural := 31;
+    constant C_COND_LSB_HI_LSB : natural := 28;   -- 3 bits [30:28] → 11-bit lsb
     constant C_COND_OP_LSB     : natural := 24;   -- 4 bits, reuses C_TRIG_OP_*
     constant C_COND_WIDTH_LSB  : natural := 16;   -- 8 bits
-    constant C_COND_LSB_LSB    : natural := 8;    -- 8 bits
+    constant C_COND_LSB_LSB    : natural := 8;    -- 8 bits (low byte of field_lsb)
 
     -- bits[7:4] = comparator op for the single-comparator (legacy) path
     -- (RTL-P3.644/645/646). bit[0]=value_match stays set for back-compat;
@@ -222,11 +239,23 @@ package rr_rea_pkg is
     -- The trigger comparator covers the full G_SAMPLE_W; the JTAG
     -- datapath is 32-bit, so wide value/mask are banked into
     -- trig_words(G_SAMPLE_W) = ceil(W/32) words paged via TRIG_WORD_SEL.
-    -- C_MAX_SAMPLE_W is the fail-fast elaboration ceiling (256 bits =
-    -- 8 words). Trigger configuration and capture readback each page every
-    -- legal sample width through their independent selectors.
+    -- C_MAX_SAMPLE_W is the fail-fast elaboration ceiling. RTL-P2.876 raised
+    -- it 256 → 1024 bits (32 words) for the field's 704-bit probe; the banked
+    -- trigger value/mask storage sizes to trig_words(G_SAMPLE_W) for the
+    -- INSTANTIATED width (linear), not to the ceiling. TRIG_WORD_SEL is 8-bit
+    -- so it addresses up to 256 words (well beyond 32). Trigger configuration
+    -- and capture readback each page every legal sample width through their
+    -- independent selectors. NB the per-slice serial comparator storage still
+    -- scales ~O(width^2) (RTL-P2.881, out of scope here); this encoding does
+    -- not preclude that redesign — the ceiling and paging are orthogonal to it.
     constant C_TRIG_WORD_W  : positive := 32;
-    constant C_MAX_SAMPLE_W : positive := 256;
+    constant C_MAX_SAMPLE_W : positive := 1024;
+
+    -- RTL-P2.876: the 8-bit COND_CFG field_lsb_lo alone reaches bits 0..255.
+    -- A probe wider than this needs the 3-bit lsb_hi extension to address a
+    -- field above bit 255; FEATURES[17]=wide_cond is set exactly when
+    -- G_SAMPLE_W exceeds this reach, telling the host lsb>=256 is honoured.
+    constant C_COND_LSB8_REACH : positive := 256;
 
     -- Capture readback has its own selector and width contract. Keep it
     -- separate from trigger-value paging even though both use 32-bit JTAG

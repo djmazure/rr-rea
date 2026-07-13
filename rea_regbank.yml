@@ -1,5 +1,6 @@
 name: rea_registers
-version: 0.5.0
+version: 0.6.0   # RTL-P2.876: no address change — COND_CFG/FEATURES bit-field
+                # encoding extended (11-bit field_lsb + wide_cond); ceiling 1024
 address_mode: bytes
 outputs:
   - vhdl_template

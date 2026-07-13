@@ -9,7 +9,7 @@
 -- CDC to/from sample_clk is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x52454105 ('REA' + v0.5 feature tier, RTL-P1.91)
+--   0x00 RO  VERSION       0x52454106 ('REA' + v0.6 feature tier, RTL-P2.876)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed/triggered/done/overflow
 --   0x0C RO  SAMPLE_W      synth-time generic
@@ -206,6 +206,12 @@ architecture rtl of rr_rea_regbank is
         if G_SAMPLE_W > C_DATA_WORD_W then
             v(C_FEAT_WIDE_SAMPLE_BIT) := '1';
         end if;
+        -- RTL-P2.876: advertise the 11-bit extended field_lsb decode when the
+        -- probe is wide enough for a comparator field to sit above bit 255.
+        -- The host writes lsb_hi (COND_CFG[30:28]) only when this bit is set.
+        if G_SAMPLE_W > C_COND_LSB8_REACH then
+            v(C_FEAT_WIDE_COND_BIT) := '1';
+        end if;
         return v;
     end function;
 
@@ -249,7 +255,9 @@ begin
         val_k <= cond_val_flat(k * 32 + 31 downto k * 32);
         process (cfg_k, val_k)
             variable wid_v  : natural range 0 to 255;
-            variable lsb_v  : natural range 0 to 255;
+            -- RTL-P2.876: field_lsb is now 11 bits (lsb_hi[30:28] & lsb_lo[15:8]),
+            -- reaching 0..2047 so a comparator field can address bits above 255.
+            variable lsb_v  : natural range 0 to 2047;
             variable lowm_v : unsigned(G_SAMPLE_W - 1 downto 0);
         begin
             cond_valid_out(k) <= cfg_k(C_COND_VALID_BIT);
@@ -262,11 +270,15 @@ begin
 
             if cfg_k(C_COND_VALID_BIT) = '1' then
                 if is_01(cfg_k(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)) and
+                   is_01(cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB)) and
                    is_01(cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)) and
                    is_01(val_k) then
                     wid_v := to_integer(unsigned(
                         cfg_k(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)));
+                    -- 11-bit field_lsb = {lsb_hi[30:28], lsb_lo[15:8]}. lsb_hi is
+                    -- 0 for a legacy host (reserved bits) → byte-identical decode.
                     lsb_v := to_integer(unsigned(
+                        cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB) &
                         cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
                     lowm_v := field_low_mask(wid_v);
 

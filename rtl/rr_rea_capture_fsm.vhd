@@ -406,19 +406,37 @@ architecture rtl of rr_rea_capture_fsm is
     signal ext_trig_r        : std_logic := '0';
     signal effective_internal : std_logic;
 
-    -- RTL-P2.658(b): the trig value/mask are now banked into ceil(W/32)
-    -- 32-bit JTAG words (paged via TRIG_WORD_SEL), so probes wider than
-    -- 32 bits are supported up to C_MAX_SAMPLE_W. Still fail fast at
-    -- elaboration past the ceiling rather than emit an opaque 'array
-    -- index out of range' deep in synth.
+    -- RTL-P2.658(b): the trig value/mask are banked into ceil(W/32) 32-bit
+    -- JTAG words (paged via TRIG_WORD_SEL), so probes wider than 32 bits are
+    -- supported up to C_MAX_SAMPLE_W (1024 as of RTL-P2.876). Fail fast at
+    -- elaboration past the ceiling rather than emit an opaque 'array index out
+    -- of range' deep in synth.
     constant C_SAMPLE_W_OK : boolean := (G_SAMPLE_W <= C_MAX_SAMPLE_W);
+
+    -- RTL-P2.895 — UN-IGNORABLE elaboration ceiling guard.
+    -- The `assert ... severity failure` below is the FRIENDLY message, but a
+    -- runtime assert is a WARNING to vendor synthesis (Quartus, Vivado): it
+    -- prints, then ships undefined silicon anyway (field signature: any register
+    -- read with bit0=1 returned 0xFFFFFFFF — RTL-P2.895). This constant makes the
+    -- violation a STATIC RANGE ERROR instead: boolean'pos(over_ceiling) is 1 when
+    -- G_SAMPLE_W > C_MAX_SAMPLE_W, and assigning 1 to a `range 0 to 0` subtype is
+    -- an out-of-range constant that EVERY VHDL tool must reject AT ELABORATION —
+    -- it cannot be downgraded to a warning. The build HALTS here; no over-ceiling
+    -- silicon can be produced. In-ceiling the value is 0 (legal, zero cost).
+    -- (A `std_logic_vector(0 to N*2-2)` "negative range" bomb does NOT work —
+    -- 0 to -2 is a legal NULL range; the subtype-constraint bomb genuinely fails.
+    -- Proven against nvc 1.19; Quartus/Vivado enforcement is the integrator-
+    -- validation checkpoint for RTL-P2.895.)
+    constant C_CEILING_GUARD : natural range 0 to 0 :=
+        boolean'pos(G_SAMPLE_W > C_MAX_SAMPLE_W);
 
 begin
 
     assert C_SAMPLE_W_OK
-        report "rr_rea: G_SAMPLE_W exceeds C_MAX_SAMPLE_W (256) - the banked "
-             & "trigger value/mask supports up to 8 words; cap the probe "
-             & "(RTL-P2.658)."
+        report "rr_rea: G_SAMPLE_W exceeds C_MAX_SAMPLE_W (1024) - raise the "
+             & "ceiling in rr_rea_pkg or cap the probe (RTL-P2.876/P2.895). "
+             & "NB this friendly assert is a WARNING to vendor synth; the "
+             & "C_CEILING_GUARD constant hard-fails elaboration in all tools."
         severity failure;
 
     -- ── Per-stage views (combinational slices of flat vectors) ──

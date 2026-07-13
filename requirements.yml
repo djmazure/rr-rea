@@ -98,6 +98,38 @@ functional_contract:
       Both are read-only: a write must not change them and must not alias
       into a RW slot.
 
+  # ── Wide sample-width ceiling + wide conditions (RTL-P2.876/P2.895) ──
+  - id: REA-REQ-016
+    kind: behavioral
+    desc: >-
+      Sample-width ceiling C_MAX_SAMPLE_W is 1024 bits (RTL-P2.876). A probe up
+      to the ceiling (e.g. the field's 704-bit build) SHALL elaborate and the
+      banked trigger value/mask SHALL page into ceil(G_SAMPLE_W/32) 32-bit words
+      via TRIG_WORD_SEL, reassembling into the full-width `trig_value_out` —
+      storage sized by the INSTANTIATED width, not the ceiling. The wide-sample
+      FEATURES fingerprint stays set for any G_SAMPLE_W>32.
+  - id: REA-REQ-017
+    kind: behavioral
+    desc: >-
+      Wide comparator conditions (RTL-P2.876). COND_CFG carries an 11-bit
+      field_lsb {lsb_hi[30:28], lsb_lo[15:8]} (0..2047) so a per-condition
+      comparator field can sit above bit 255. The regbank SHALL expand a slot
+      with field_lsb>=256 into a full-width `cond_masks_out`/`cond_values_out`
+      shifted to that offset, and the capture FSM SHALL assert `triggered` on a
+      masked-field match at that high offset. The wide_cond FEATURES bit SHALL be
+      '1' exactly when G_SAMPLE_W>256, advertising the extended decode; a
+      field_lsb<256 stays byte-identical (lsb_hi=0).
+  - id: REA-REQ-018
+    kind: negative
+    desc: >-
+      Un-ignorable over-ceiling guard (RTL-P2.895). A G_SAMPLE_W > C_MAX_SAMPLE_W
+      instantiation SHALL fail ELABORATION in every tool via a static range
+      violation (a `natural range 0 to 0` constant assigned boolean'pos of the
+      over-ceiling test), not merely a runtime `assert severity failure` that
+      vendor synthesis downgrades to a warning (the mechanism that shipped
+      undefined out-of-ceiling silicon). The friendly assert also remains for a
+      readable message. In-ceiling widths SHALL elaborate cleanly.
+
   # ── rr_rea_cdc (clock-domain crossings) ───────────────────────────
   - id: REA-REQ-020
     kind: behavioral

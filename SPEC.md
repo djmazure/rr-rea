@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.5 Spec
+# `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.6 Spec
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Drop-in compatible at the JTAG register interface with `fcapz_ela_xilinx7`** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses fcapz's transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; fcapz owns the JTAG transport layer.
@@ -27,7 +27,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x52454105` ('REA' + v0.5 feature tier; minor tracks features so the host refuses, not silently degrades — RTL-P3.740/RTL-P1.91) |
+| `0x00` | RO  | VERSION     | Magic `0x52454106` ('REA' + v0.6 feature tier; minor tracks features so the host refuses, not silently degrades — RTL-P3.740/RTL-P2.876). v0.5 shipped `0x52454105` (on-silicon-confirmed, historical). |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
 | `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
@@ -40,7 +40,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0x28` | RW  | TRIG_MASK   | Comparator bitmask — 32-bit window into word `TRIG_WORD_SEL` |
 | `0x2C` | RW  | TRIG_WORD_SEL | Bank index for wide TRIG_VALUE/MASK (`G_SAMPLE_W>32`); resets to 0 (RTL-P2.658) |
 | `0x30` | RW  | COND_SEL    | Comparator-array slot select (paged); resets to 0 (RTL-P3.647) |
-| `0x34` | RW  | COND_CFG    | Slot `COND_SEL`: `{valid[31],op[27:24],width[23:16],field_lsb[15:8]}` (RTL-P3.647) |
+| `0x34` | RW  | COND_CFG    | Slot `COND_SEL`: `{valid[31],lsb_hi[30:28],op[27:24],width[23:16],lsb_lo[15:8]}`; `field_lsb = (lsb_hi<<8)\|lsb_lo` is 11-bit (0..2047, RTL-P2.876/P3.647) |
 | `0x38` | RW  | COND_VAL    | Slot `COND_SEL`: 32-bit compare value, right-aligned in the field (RTL-P3.647) |
 | `0x3C` | RW  | SOURCE      | Write-side control bits INTO the design; low `G_NUM_SOURCE` bits → `source_out` (sample_clk). Resets to 0 = gated/safe (RTL-P2.837) |
 | `0xA0` | RW  | CHAN_SEL    | Must be 0 in v0.1 |
@@ -49,7 +49,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xC4` | RO  | TIMESTAMP_W | 0 if no timestamps, else width |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample (RTL-P3.1198) |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample (`G_SAMPLE_W>32`), `[17]`=wide-cond (`G_SAMPLE_W>256`, RTL-P2.876) (RTL-P3.1198) |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
 | `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` of its sample |
@@ -62,8 +62,48 @@ word *k*, write *k* to `TRIG_WORD_SEL` (0x2C) then write/read `TRIG_VALUE`/
 `TRIG_MASK` — those addresses are a 32-bit window onto word *k*. `TRIG_WORD_SEL`
 resets to 0, so a `SAMPLE_W≤32` core — or any host that never touches it — sees
 the exact legacy single-word behaviour. The fail-fast elaboration ceiling is
-`C_MAX_SAMPLE_W` = 256 bits (8 words). The host (`REAClient.configure`) pages
-trigger values automatically.
+`C_MAX_SAMPLE_W` = **1024 bits** (32 words) as of RTL-P2.876 (was 256); the
+banked value/mask storage sizes to `⌈SAMPLE_W/32⌉` for the **instantiated**
+width, not the ceiling. `TRIG_WORD_SEL` is 8-bit (256 words of headroom). The
+host (`REAClient.configure`) pages trigger values automatically.
+
+### Wide sample-width ceiling + un-ignorable guard (RTL-P2.876/P2.895)
+
+`C_MAX_SAMPLE_W` is **1024**. A probe up to the ceiling (e.g. the field's
+704-bit build) elaborates; the trigger value/mask page across `⌈SAMPLE_W/32⌉`
+words (22 for 704) and capture readback pages `⌈SAMPLE_W/32⌉` words per cell.
+
+**Over-ceiling is a HARD elaboration error (RTL-P2.895).** A `G_SAMPLE_W >
+C_MAX_SAMPLE_W` instantiation fails elaboration in **every** tool via a static
+range violation (`constant C_CEILING_GUARD : natural range 0 to 0 :=
+boolean'pos(G_SAMPLE_W > C_MAX_SAMPLE_W)` in `rr_rea_capture_fsm`). This exists
+because the field shipped 704-bit silicon out of the old 256-bit contract: the
+readable `assert … severity failure` is downgraded to a *warning* by vendor
+synthesis (Quartus/Vivado), which then produced undefined silicon — the field
+signature being that any register read whose value had bit0=1 returned
+`0xFFFFFFFF`. The static-range bomb cannot be downgraded to a warning: the build
+**halts**. (A `std_logic_vector(0 to N*2-2)` "negative range" bomb does **not**
+work — `0 to -2` is a legal NULL range; the subtype-constraint form genuinely
+fails.) The friendly assert stays for a readable message. Quartus/Vivado
+enforcement is the on-hardware integrator-validation checkpoint (nvc is proven).
+
+### Wide comparator conditions — `field_lsb ≥ 256` (RTL-P2.876)
+
+The per-condition comparator field (`COND_CFG`) previously carried an 8-bit
+`field_lsb`, reaching only bits 0..255. RTL-P2.876 extends it to **11 bits** by
+adding `lsb_hi` in `COND_CFG[30:28]` (the previously-reserved gap):
+`field_lsb = (lsb_hi << 8) | lsb_lo`, range 0..2047, so a condition field can sit
+anywhere in a probe up to the ceiling. `field_width` stays 8-bit (a field is
+≤255 bits; a wider full-width `==` uses the single-comparator `TRIG_VALUE`/`MASK`
+path, RTL-P2.658b). `COND_CFG[7:0]` remains reserved (headroom for RTL-P2.881's
+comparator redesign — this encoding does not consume it).
+
+A core advertises the extended decode via `FEATURES[17]=wide_cond`, set exactly
+when `G_SAMPLE_W > 256`. `REAClient` writes `lsb_hi` only when the core advertises
+`wide_cond` and **refuses** a `field_lsb ≥ 256` on a core that doesn't (it would
+decode only the low 8 bits and silently compare the WRONG bits) — plus it rejects
+an un-encodable `field_width > 255` or `field_lsb > 2047`. A `field_lsb < 256`
+leaves `lsb_hi = 0`, byte-identical to the legacy encoding (back-compat).
 
 ### Wide capture readback (`G_SAMPLE_W > 32`, RTL-P1.91)
 
@@ -90,9 +130,10 @@ would reintroduce the cap P2.658b removed. See the WIDTH CONTRACT note in
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x52454105`). Its minor byte is bumped by
-hand when the feature tier changes, so a diverged fork — even one that dropped a
-fix or rewrote the capture FSM — copies the magic verbatim and reports as canonical.
+`VERSION` (0x00) is a **hand-set magic** (`0x52454106` at the v0.6 tier). Its minor
+byte is bumped by hand when the feature tier changes, so a diverged fork — even one
+that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
+as canonical.
 The magic cannot identify what is actually on silicon. Two RO registers close that
 gap along the two axes a fork can diverge on:
 
@@ -351,6 +392,9 @@ The on-chip RTL is unchanged from v0.1. v0.2 ships:
 | v0.4 | Storage qualification | (new) | Parked |
 | v0.5 | Multi-channel mux | (new) | Parked |
 | v0.5 | Intel JTAG vendor wrapper (`sld_virtual_jtag`) | RTL-P3.427 | **Shipped** |
+| v0.6 | Sample-width ceiling 256 → 1024 + un-ignorable over-ceiling guard | RTL-P2.876/P2.895 | **Shipped** |
+| v0.6 | Wide comparator conditions (11-bit `field_lsb`, `wide_cond`) | RTL-P2.876 | **Shipped** |
+| —    | Serial comparator O(width²) → near-linear storage redesign | RTL-P2.881 | Parked (silicon resource quantification deferred) |
 
 ### v0.1 (host-side) — Synthetic clock anchor channel
 
