@@ -9,7 +9,7 @@
 -- CDC to/from sample_clk is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x52454106 ('REA' + v0.6 feature tier, RTL-P2.876)
+--   0x00 RO  VERSION       0x52454107 ('REA' + v0.7 feature tier, RTL-T2.123)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed/triggered/done/overflow
 --   0x0C RO  SAMPLE_W      synth-time generic
@@ -23,6 +23,7 @@
 --   0xA0 RW  CHAN_SEL      v0.1: must be 0
 --   0xA4 RO  NUM_CHAN      v0.1: =1
 --   0xC4 RO  TIMESTAMP_W   synth-time generic
+--   0xD8 RW  DATA_PLANE_SEL 0=sample, 1=timestamp
 --   0xC8 RO  START_PTR     captured address of oldest sample (post-done)
 --   0xCC RW  DATA_WORD_SEL capture-data word selector (RTL-P1.91)
 --   0xD0 RO  FEATURES      generic-derived config fingerprint (RTL-P3.1198)
@@ -85,6 +86,7 @@ entity rr_rea_regbank is
         chan_sel_out     : out std_logic_vector(7 downto 0);
         decim_ratio_out  : out std_logic_vector(23 downto 0);
         data_word_sel_out : out std_logic_vector(7 downto 0);
+        data_plane_sel_out : out std_logic;
 
         -- ── Per-condition comparator array (RTL-P3.647) ──────────
         -- Expanded full-width per slot: the compact {valid,op,width,lsb}
@@ -132,6 +134,7 @@ architecture rtl of rr_rea_regbank is
                                  := (others => '0');
     signal trig_word_sel_r : unsigned(7 downto 0) := (others => '0');
     signal data_word_sel_r : unsigned(7 downto 0) := (others => '0');
+    signal data_plane_sel_r : std_logic := '0';
     signal chan_sel_r   : std_logic_vector(31 downto 0) := (others => '0');
     signal decim_r      : std_logic_vector(31 downto 0) := (others => '0');
     -- RTL-P2.837: write-side source storage. Resets to 0 so the low
@@ -212,6 +215,9 @@ architecture rtl of rr_rea_regbank is
         if G_SAMPLE_W > C_COND_LSB8_REACH then
             v(C_FEAT_WIDE_COND_BIT) := '1';
         end if;
+        if G_TIMESTAMP_W > 0 then
+            v(C_FEAT_TIMESTAMP_BIT) := '1';
+        end if;
         return v;
     end function;
 
@@ -227,6 +233,7 @@ begin
     -- Drive config outputs (lower bits sliced for the FSM's bus widths)
     pretrig_len_out  <= pretrig_r(C_PTR_W - 1 downto 0);
     posttrig_len_out <= posttrig_r(C_PTR_W - 1 downto 0);
+    data_plane_sel_out <= data_plane_sel_r;
     -- Full-width trigger value/mask to the FSM comparator. The flat
     -- vector is C_TRIG_WORDS*32 bits (>= G_SAMPLE_W), so the slice is
     -- always in range; bits above G_SAMPLE_W in the top word are unused.
@@ -308,6 +315,7 @@ begin
             trig_mask_flat  <= (others => '0');
             trig_word_sel_r <= (others => '0');
             data_word_sel_r <= (others => '0');
+            data_plane_sel_r <= '0';
             cond_cfg_flat  <= (others => '0');
             cond_val_flat  <= (others => '0');
             cond_sel_r     <= (others => '0');
@@ -362,6 +370,8 @@ begin
                         trig_word_sel_r <= unsigned(wr_data(7 downto 0));
                     when C_ADDR_DATA_WORD_SEL =>
                         data_word_sel_r <= unsigned(wr_data(7 downto 0));
+                    when C_ADDR_DATA_PLANE_SEL =>
+                        data_plane_sel_r <= wr_data(0);
                     when C_ADDR_COND_SEL =>
                         -- RTL-P3.647: select which comparator-array slot the
                         -- next COND_CFG/COND_VAL write targets (paged, like
@@ -415,6 +425,7 @@ begin
              pretrig_r, posttrig_r, trig_mode_r, trig_value_flat,
              trig_mask_flat, trig_word_sel_r, chan_sel_r, decim_r,
              data_word_sel_r,
+             data_plane_sel_r,
              source_r,
              cond_cfg_flat, cond_val_flat, cond_sel_r,
              armed_in, triggered_in, done_in, overflow_in,
@@ -489,6 +500,9 @@ begin
                 rd_data(7 downto 0) <= std_logic_vector(data_word_sel_r);
             when C_ADDR_FEATURES    => rd_data <= C_REG_FEATURES;
             when C_ADDR_BUILD_ID    => rd_data <= C_REA_BUILD_ID;
+            when C_ADDR_DATA_PLANE_SEL =>
+                rd_data <= (others => '0');
+                rd_data(0) <= data_plane_sel_r;
             when others             => rd_data <= (others => '0');
         end case;
     end process;

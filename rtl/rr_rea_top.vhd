@@ -114,6 +114,7 @@ architecture rtl of rr_rea_top is
     signal chan_sel_jclk     : std_logic_vector(7 downto 0);
     signal decim_ratio_jclk  : std_logic_vector(23 downto 0);
     signal data_word_sel_jclk : std_logic_vector(7 downto 0);
+    signal data_plane_sel_jclk : std_logic;
     signal decim_ratio_sclk  : std_logic_vector(23 downto 0);
 
     -- ── Write-side source (RTL-P2.837): regbank → CDC → DUT port ──
@@ -169,6 +170,9 @@ architecture rtl of rr_rea_top is
     -- ── DPRAM read-port (jtag_clk domain) ────────────────────────
     signal dpram_addr_b : std_logic_vector(C_PTR_W - 1 downto 0);
     signal dpram_dout_b : std_logic_vector(G_SAMPLE_W - 1 downto 0);
+    constant C_TIMESTAMP_STORAGE_W : positive := max_nat(1, G_TIMESTAMP_W);
+    signal timestamp_dout_b : std_logic_vector(
+        C_TIMESTAMP_STORAGE_W - 1 downto 0);
 
     -- ── reg_rdata mux: regbank vs dpram window ───────────────────
     signal regbank_rdata : std_logic_vector(31 downto 0);
@@ -259,6 +263,7 @@ begin
             chan_sel_out     => chan_sel_jclk,
             decim_ratio_out  => decim_ratio_jclk,
             data_word_sel_out => data_word_sel_jclk,
+            data_plane_sel_out => data_plane_sel_jclk,
             cond_values_out  => cond_values_jclk,
             cond_masks_out   => cond_masks_jclk,
             cond_ops_out     => cond_ops_jclk,
@@ -297,14 +302,27 @@ begin
     -- RTL-P1.91: DATA_WORD_SEL pages a full-width cell through the frozen
     -- one-address-per-cell DATA_BASE window. shift_right + resize naturally
     -- zero-pads the final partial word and returns zero out of range.
-    process (dpram_dout_b, data_word_sel_jclk)
+    process (dpram_dout_b, timestamp_dout_b, data_word_sel_jclk,
+             data_plane_sel_jclk)
     begin
         if is_01(data_word_sel_jclk) then
-            dpram_rdata <= std_logic_vector(resize(
-                shift_right(
-                    unsigned(dpram_dout_b),
-                    to_integer(unsigned(data_word_sel_jclk)) * C_DATA_WORD_W),
-                C_DATA_WORD_W));
+            if data_plane_sel_jclk = '0' then
+                dpram_rdata <= std_logic_vector(resize(
+                    shift_right(
+                        unsigned(dpram_dout_b),
+                        to_integer(unsigned(data_word_sel_jclk)) *
+                            C_DATA_WORD_W),
+                    C_DATA_WORD_W));
+            elsif data_plane_sel_jclk = '1' then
+                dpram_rdata <= std_logic_vector(resize(
+                    shift_right(
+                        unsigned(timestamp_dout_b),
+                        to_integer(unsigned(data_word_sel_jclk)) *
+                            C_DATA_WORD_W),
+                    C_DATA_WORD_W));
+            else
+                dpram_rdata <= (others => 'X');
+            end if;
         else
             dpram_rdata <= (others => 'X');
         end if;
@@ -510,5 +528,43 @@ begin
             addr_b => dpram_addr_b,
             dout_b => dpram_dout_b
         );
+
+    -- RTL-T2.123: a free-running sample-clock counter is written through the
+    -- exact same WE/address pair as the sample plane. Each stored sample cell
+    -- therefore has one aligned timestamp, including across ring wrap and
+    -- decimation gaps. Soft capture reset preserves time continuity; only
+    -- sample_rst restarts the counter. G_TIMESTAMP_W=0 elaborates no plane.
+    g_timestamp_plane : if G_TIMESTAMP_W > 0 generate
+        signal timestamp_r : unsigned(G_TIMESTAMP_W - 1 downto 0) :=
+            (others => '0');
+        signal timestamp_dout : std_logic_vector(G_TIMESTAMP_W - 1 downto 0);
+    begin
+        process (sample_clk, sample_rst)
+        begin
+            if sample_rst = '1' then
+                timestamp_r <= (others => '0');
+            elsif rising_edge(sample_clk) then
+                timestamp_r <= timestamp_r + 1;
+            end if;
+        end process;
+
+        u_timestamp_dpram : entity work.rr_rea_dpram
+            generic map (G_WIDTH => G_TIMESTAMP_W, G_DEPTH => G_DEPTH)
+            port map (
+                clk_a  => sample_clk,
+                we_a   => dpram_we_sclk,
+                addr_a => dpram_addr_sclk,
+                din_a  => std_logic_vector(timestamp_r),
+                dout_a => open,
+                clk_b  => reg_clk,
+                addr_b => dpram_addr_b,
+                dout_b => timestamp_dout
+            );
+        timestamp_dout_b <= timestamp_dout;
+    end generate;
+
+    g_no_timestamp_plane : if G_TIMESTAMP_W = 0 generate
+        timestamp_dout_b <= (others => '0');
+    end generate;
 
 end architecture;

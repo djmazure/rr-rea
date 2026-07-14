@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.6 Spec
+# `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.7 Spec
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Drop-in compatible at the JTAG register interface with `fcapz_ela_xilinx7`** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses fcapz's transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; fcapz owns the JTAG transport layer.
@@ -27,7 +27,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x52454106` ('REA' + v0.6 feature tier; minor tracks features so the host refuses, not silently degrades — RTL-P3.740/RTL-P2.876). v0.5 shipped `0x52454105` (on-silicon-confirmed, historical). |
+| `0x00` | RO  | VERSION     | Magic `0x52454107` ('REA' + v0.7 timestamp-plane tier; minor tracks features so the host refuses, not silently degrades). |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
 | `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
@@ -46,13 +46,37 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xA0` | RW  | CHAN_SEL    | Must be 0 in v0.1 |
 | `0xA4` | RO  | NUM_CHAN    | = 1 in v0.1 |
 | `0xB0` | RW  | DECIM       | Decimation ratio — store every (N+1)th sample (24-bit, v0.3) |
-| `0xC4` | RO  | TIMESTAMP_W | 0 if no timestamps, else width |
+| `0xC4` | RO  | TIMESTAMP_W | Exact `G_TIMESTAMP_W`; zero means no timestamp plane |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample (`G_SAMPLE_W>32`), `[17]`=wide-cond (`G_SAMPLE_W>256`, RTL-P2.876) (RTL-P3.1198) |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`) |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
+| `0xD8` | RW  | DATA_PLANE_SEL | Capture read plane: 0=sample, 1=timestamp; resets to 0 |
 | `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
-| `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` of its sample |
+| `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
+
+`VERSION` is the exact 32-bit protocol magic `0x52454107`. `CAPTURE_LEN`
+updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
+using 32-bit unsigned arithmetic; the host may read it before arm or done.
+`TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
+paired with `FEATURES[18]=1` and exposes the timestamp plane below. A v0.6 core
+may report nonzero metadata without a plane; the host therefore reads timestamps
+only from v0.7 or newer.
+
+### Timestamp capture plane (RTL-T2.123)
+
+When `G_TIMESTAMP_W > 0`, a modulo-`2**G_TIMESTAMP_W` free-running counter
+increments on every `sample_clk`. The current counter value and sample are
+written to their respective DPRAM planes using the exact same write-enable and
+address, preserving one-to-one alignment across decimation gaps, trigger, and
+ring wrap. `sample_rst` resets the counter; arm and the CTRL soft-reset pulse do
+not, preserving time continuity between capture sessions.
+
+Write 1 to `DATA_PLANE_SEL` and page timestamp words through `DATA_WORD_SEL` and
+the existing `DATA_BASE` window. Write 0 to select samples. The host rotates both
+planes by the same `START_PTR`, trims both to `CAPTURE_LEN`, and restores both
+selectors to 0. `G_TIMESTAMP_W=0` elaborates no timestamp DPRAM, clears
+`FEATURES[18]`, and plane 1 reads zero.
 
 ### Wide trigger value/mask (`G_SAMPLE_W > 32`, RTL-P2.658)
 
@@ -130,7 +154,7 @@ would reintroduce the cap P2.658b removed. See the WIDTH CONTRACT note in
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x52454106` at the v0.6 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x52454107` at the v0.7 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -287,8 +311,7 @@ rr_rea_top                       ← integration
 ├── rr_rea_regbank               ← register map (jtag_clk domain)
 ├── rr_rea_cdc                   ← jtag_clk ↔ sample_clk syncs
 ├── rr_rea_capture_fsm           ← trigger detect + sliding-window pointer math
-├── rr_rea_dpram (sample buffer) ← BRAM-inferred dual-port
-└── rr_rea_dpram (ts buffer)     ← BRAM-inferred dual-port (gen by TIMESTAMP_W>0)
+└── rr_rea_dpram (sample buffer) ← BRAM-inferred dual-port
 ```
 
 Each block has its own VHDL file, package-of-types, and cocotb testbench. None depend on a vendor primitive except `rr_rea_jtag_xilinx7`, which has a behavioral `_sim.vhd` mock for testbenches.
@@ -334,6 +357,7 @@ hard-pinned to USER1, so a second core on USER2+ was uncapturable.
 - `arm_pulse` sets `armed <= 1`, clears `triggered/done`. Does **not** touch `wr_ptr`.
 - On the cycle `trigger_hit` fires (and `armed && !triggered`): `trig_ptr <= wr_ptr` AND `triggered <= 1`.
 - After trigger: count `posttrig_len` more cycles, then `done <= 1`, `start_ptr <= (trig_ptr - pretrig_len) mod DEPTH`.
+- On arm: `overflow` asserts when `pretrig_len + posttrig_len >= DEPTH`; a legal re-arm or reset clears it.
 - `dpram_we` is `!done` (always writes when capture is permitted).
 
 This is where we explicitly diverge from fcapz.
@@ -394,6 +418,7 @@ The on-chip RTL is unchanged from v0.1. v0.2 ships:
 | v0.5 | Intel JTAG vendor wrapper (`sld_virtual_jtag`) | RTL-P3.427 | **Shipped** |
 | v0.6 | Sample-width ceiling 256 → 1024 + un-ignorable over-ceiling guard | RTL-P2.876/P2.895 | **Shipped** |
 | v0.6 | Wide comparator conditions (11-bit `field_lsb`, `wide_cond`) | RTL-P2.876 | **Shipped** |
+| v0.7 | Aligned per-sample timestamp capture plane | RTL-T2.123 | **Shipped** |
 | —    | Serial comparator O(width²) → near-linear storage redesign | RTL-P2.881 | Parked (silicon resource quantification deferred) |
 
 ### v0.1 (host-side) — Synthetic clock anchor channel

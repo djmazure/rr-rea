@@ -50,7 +50,7 @@ ADDR_FEATURES      = 0xD0
 # At G_SAMPLE_W=64 (>32) the FEATURES wide-sample bit[16] must be set;
 # entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 give the low bytes
 # (RTL-P3.1198). Hard-coded per ROUTERTL-002.
-EXPECTED_FEATURES_WIDE = (4 << 0) | (1 << 8) | (1 << 16)  # 0x0001_0104
+EXPECTED_FEATURES_WIDE = (4 << 0) | (1 << 8) | (1 << 16) | (1 << 18)
 
 
 def main() -> None:

@@ -1,6 +1,6 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.6 (VERSION magic 0x52454106) as of RTL-P2.876:
-# sample-width ceiling 256 → 1024 + 11-bit per-condition field_lsb (wide_cond).
+# On-chip protocol tier v0.7 (VERSION magic 0x52454107) as of RTL-T2.123:
+# aligned per-sample timestamp plane selected through DATA_PLANE_SEL.
 #
 # First-party on-chip logic analyzer IP. THIS repo (github.com/djmazure/rr-rea)
 # is the PUBLIC home of the routertl/rea package: `rr pkg publish` runs from

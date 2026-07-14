@@ -1,6 +1,5 @@
 name: rea_registers
-version: 0.6.0   # RTL-P2.876: no address change — COND_CFG/FEATURES bit-field
-                # encoding extended (11-bit field_lsb + wide_cond); ceiling 1024
+version: 0.7.0   # RTL-T2.123: timestamp capture plane + DATA_PLANE_SEL
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -40,4 +39,5 @@ registers:
   - {name: DATA_WORD_SEL, address: 0x00CC, access: RW, description: Capture data word page selector}
   - {name: FEATURES, address: 0x00D0, access: RO, description: Synthesized feature bitmap}
   - {name: BUILD_ID, address: 0x00D4, access: RO, description: Source-content fingerprint}
+  - {name: DATA_PLANE_SEL, address: 0x00D8, access: RW, description: Capture read plane selector}
   - {name: DATA_BASE, address: 0x0100, access: RO, description: Capture data window base}

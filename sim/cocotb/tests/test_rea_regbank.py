@@ -51,14 +51,15 @@ ADDR_TIMESTAMP_W = 0xC4
 ADDR_START_PTR   = 0xC8
 ADDR_FEATURES    = 0xD0
 ADDR_BUILD_ID    = 0xD4
+ADDR_DATA_PLANE_SEL = 0xD8
 
-EXPECTED_VERSION = 0x52454106  # 'REA' + v0.6 feature tier (RTL-P2.876; was …105/v0.5)
+EXPECTED_VERSION = 0x52454107
 
 # FEATURES (0xD0) is derived from the synth-time generics. This elaboration
 # uses the regbank entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 (GENERICS
 # above overrides neither) and G_SAMPLE_W=12 (<=32 → wide-sample bit clear),
 # so the expected fingerprint is fixed and hard-coded per ROUTERTL-002.
-EXPECTED_FEATURES = (4 << 0) | (1 << 8) | (0 << 16)  # 0x0000_0104
+EXPECTED_FEATURES = (4 << 0) | (1 << 8) | (1 << 18)
 
 
 def main() -> None:
@@ -141,6 +142,7 @@ async def test_rea_req_010_rw_round_trip(dut):
         (ADDR_TRIG_VALUE, 0x0000_0042),  # counter==0x42
         (ADDR_TRIG_MASK,  0x0000_00FF),  # low byte mask
         (ADDR_CHAN_SEL,   0x0000_0000),  # v0.1: must be 0
+        (ADDR_DATA_PLANE_SEL, 0x0000_0001),
     ]
     for addr, value in cases:
         await _write(dut, addr, value)
@@ -150,15 +152,52 @@ async def test_rea_req_010_rw_round_trip(dut):
             f"wrote 0x{value:08X}, read 0x{observed:08X}"
         )
 
-    # Bonus: change PRETRIG/POSTTRIG and verify CAPTURE_LEN updates.
-    await _write(dut, ADDR_PRETRIG,  100)
-    await _write(dut, ADDR_POSTTRIG, 50)
-    cap_len = await _read(dut, ADDR_CAPTURE_LEN)
-    assert cap_len == 100 + 50 + 1, (
-        f"CAPTURE_LEN should equal pretrig+posttrig+1 = 151, got {cap_len}"
+    dut._log.info("REA-REQ-010 PASS — all RW slots round-trip cleanly")
+
+
+# ── REA-REQ-019/022/023: identity and configured-width metadata ────
+
+
+@cocotb.test()
+@requires("REA-REQ-019")
+async def test_rea_req_019_version_magic(dut):
+    await _start_clk(dut)
+    await _reset(dut)
+
+    observed = await _read(dut, ADDR_VERSION)
+    assert observed == 0x52454107, (
+        f"VERSION = 0x{observed:08X}, expected v0.7 magic 0x52454107"
     )
 
-    dut._log.info("REA-REQ-010 PASS — all RW slots round-trip cleanly")
+
+@cocotb.test()
+@requires("REA-REQ-022")
+async def test_rea_req_022_capture_len_arithmetic(dut):
+    await _start_clk(dut)
+    await _reset(dut)
+
+    for pretrig, posttrig, expected in (
+        (0, 0, 1),
+        (100, 50, 151),
+        (2048, 2047, 4096),
+    ):
+        await _write(dut, ADDR_PRETRIG, pretrig)
+        await _write(dut, ADDR_POSTTRIG, posttrig)
+        observed = await _read(dut, ADDR_CAPTURE_LEN)
+        assert observed == expected, (
+            f"CAPTURE_LEN({pretrig}, {posttrig}) = {observed}, "
+            f"expected {expected}"
+        )
+
+
+@cocotb.test()
+@requires("REA-REQ-023")
+async def test_rea_req_023_timestamp_width_metadata(dut):
+    await _start_clk(dut)
+    await _reset(dut)
+
+    observed = await _read(dut, ADDR_TIMESTAMP_W)
+    assert observed == 32, f"TIMESTAMP_W = {observed}, expected G_TIMESTAMP_W=32"
 
 
 # ── REA-REQ-011: STATUS reflects input wires combinationally ────────
@@ -317,7 +356,7 @@ async def test_rea_req_015_identity_fingerprint(dut):
     await _reset(dut)
 
     # FEATURES packs the generics: [7:0]=G_TRIG_CONDS, [15:8]=G_NUM_SOURCE,
-    # [16]=wide-sample. For this elaboration that is exactly 0x0104.
+    # [16]=wide-sample, [18]=timestamp plane.
     feat = await _read(dut, ADDR_FEATURES)
     assert feat == EXPECTED_FEATURES, (
         f"FEATURES mismatch: read 0x{feat:08X}, "

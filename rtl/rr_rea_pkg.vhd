@@ -41,6 +41,7 @@ package rr_rea_pkg is
     constant C_REGBANK_ADDR_DATA_WORD_SEL      : unsigned(15 downto 0) := x"00CC";  -- RW
     constant C_REGBANK_ADDR_FEATURES           : unsigned(15 downto 0) := x"00D0";  -- RO
     constant C_REGBANK_ADDR_BUILD_ID           : unsigned(15 downto 0) := x"00D4";  -- RO
+    constant C_REGBANK_ADDR_DATA_PLANE_SEL     : unsigned(15 downto 0) := x"00D8";  -- RW
     constant C_REGBANK_ADDR_DATA_BASE          : unsigned(15 downto 0) := x"0100";  -- RO
     -- rr-regbank-end REGBANK_ADDRESSES
 
@@ -56,7 +57,8 @@ package rr_rea_pkg is
     -- comparator field can sit above bit 255; advertised by FEATURES[17]
     -- (wide_cond). NB the on-silicon v0.5 magic 0x52454105 in closed tickets
     -- (RTL-P3.1198 identity, T2.119 handoff) is HISTORICAL fact — not rewritten.
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454106";
+    -- v0.7 adds the per-sample timestamp plane and DATA_PLANE_SEL (RTL-T2.123).
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454107";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -141,6 +143,10 @@ package rr_rea_pkg is
     --               reports a different id (catches SOURCE drift).
     constant C_ADDR_FEATURES    : unsigned(15 downto 0) := C_REGBANK_ADDR_FEATURES;
     constant C_ADDR_BUILD_ID    : unsigned(15 downto 0) := C_REGBANK_ADDR_BUILD_ID;
+    -- RTL-T2.123: DATA_BASE is a shared address window. Plane 0 is samples;
+    -- plane 1 is timestamps. DATA_WORD_SEL pages 32-bit words in either plane.
+    constant C_ADDR_DATA_PLANE_SEL : unsigned(15 downto 0) :=
+        C_REGBANK_ADDR_DATA_PLANE_SEL;
     constant C_ADDR_DATA_BASE   : unsigned(15 downto 0) := C_REGBANK_ADDR_DATA_BASE;
 
     -- ── FEATURES register (0xD0) field layout (RTL-P3.1198) ──────
@@ -156,11 +162,14 @@ package rr_rea_pkg is
     --                        a comparator condition may address bits >= 256. The
     --                        host writes lsb_hi (COND_CFG[30:28]) only when set,
     --                        and REFUSES lsb>=256 when clear (no silent truncation).
-    --   [31:18] reserved (0)
+    --   [18]   TIMESTAMP = '1' when G_TIMESTAMP_W > 0; DATA_PLANE_SEL=1
+    --                    exposes a timestamp cell aligned with each sample.
+    --   [31:19] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
     constant C_FEAT_WIDE_COND_BIT   : natural := 17;
+    constant C_FEAT_TIMESTAMP_BIT   : natural := 18;
 
     -- ── CTRL register bit assignments ────────────────────────────
     constant C_CTRL_BIT_ARM     : natural := 0;
