@@ -31,7 +31,7 @@ GENERICS = {
     "G_TIMESTAMP_W": 16,
     "G_NUM_CHAN": 1,
 }
-_RTL_DIR = Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"
+_RTL_DIR = Path(__file__).resolve().parents[3] / "rtl"
 _FIX = Path(__file__).resolve().parent / "fixtures"
 
 ADDR_CTRL = 0x04
