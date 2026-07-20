@@ -324,6 +324,7 @@ architecture rtl of rr_rea_capture_fsm is
     signal decim_ratio_r : unsigned(23 downto 0)         := (others => '0');
     signal decim_count_r : unsigned(23 downto 0)         := (others => '0');
     signal decim_tick    : std_logic;
+    signal store_sample  : std_logic;
 
     -- ── Sequencer state (v0.3, REA-REQ-600..607) ─────────────────
     -- seq_state_r tracks the current stage (0..G_TRIG_STAGES-1).
@@ -449,11 +450,29 @@ begin
 
     trig_op <= to_integer(unsigned(trig_mode_r(7 downto 4)));
 
+    -- These wide sample-data stages carry no meaning unless valid_width_r is
+    -- set. Keeping them off sample_rst removes a reset tree that scales with
+    -- G_SAMPLE_W without changing the validity-gated interface contract.
+    process (sample_clk)
+    begin
+        if rising_edge(sample_clk) then
+            if reset_pulse = '0' and arm_pulse = '0' then
+                probe_pipe_r(0) <= probe_in;
+                previous_pipe_r(0) <= probe_prev_r;
+                for width_stage in 1 to C_WIDTH_STAGES - 1 loop
+                    probe_pipe_r(width_stage) <= probe_pipe_r(width_stage - 1);
+                    previous_pipe_r(width_stage) <=
+                        previous_pipe_r(width_stage - 1);
+                end loop;
+            end if;
+        end if;
+    end process;
+
     process (sample_clk, sample_rst)
     begin
         if sample_rst = '1' then
-            probe_pipe_r <= (others => (others => '0'));
-            previous_pipe_r <= (others => (others => '0'));
+            -- Wide sample data is qualified by valid_width_r, so resetting it
+            -- would add recovery arcs without changing observable behaviour.
             pointer_width_r <= (others => (others => '0'));
             token_width_r <= (others => (others => C_CMP_EQUAL));
             rise_width_r <= (others => (others => '0'));
@@ -468,8 +487,6 @@ begin
                 valid_width_r <= (others => '0');
                 ext_width_r <= (others => '0');
             else
-                probe_pipe_r(0) <= probe_in;
-                previous_pipe_r(0) <= probe_prev_r;
                 pointer_width_r(0) <= wr_ptr_r;
                 valid_width_r(0) <= armed_r and not triggered_r and not done_r;
                 ext_width_r(0) <= ext_trig_r;
@@ -530,9 +547,6 @@ begin
                 end loop;
 
                 for width_stage in 1 to C_WIDTH_STAGES - 1 loop
-                    probe_pipe_r(width_stage) <= probe_pipe_r(width_stage - 1);
-                    previous_pipe_r(width_stage) <=
-                        previous_pipe_r(width_stage - 1);
                     pointer_width_r(width_stage) <=
                         pointer_width_r(width_stage - 1);
                     valid_width_r(width_stage) <= valid_width_r(width_stage - 1);
@@ -809,9 +823,32 @@ begin
     -- v0.3: also gated by decim_tick so only every (decim_ratio+1)
     -- sample is stored. With decim_ratio=0 the tick is always 1 and
     -- behavior matches v0.1/v0.2 exactly. ───────────────────────
-    dpram_we   <= '1' when (done_r = '0' and decim_tick = '1') else '0';
+    store_sample <= '1' when (
+        done_r = '0' and decim_tick = '1' and not (
+            armed_r = '1' and triggered_r = '1' and
+            post_count_r >= posttrig_len_r
+        )
+    ) else '0';
+    dpram_we   <= store_sample;
     dpram_addr <= std_logic_vector(wr_ptr_r);
     dpram_din  <= probe_in;
+
+    -- Wide comparator data is atomic arm-time configuration. The resettable
+    -- enable/state registers below keep it unobservable until this load.
+    process (sample_clk)
+    begin
+        if rising_edge(sample_clk) then
+            probe_prev_r <= probe_in;
+            if arm_pulse = '1' then
+                trig_value_r    <= trig_value_in;
+                trig_mask_r     <= trig_mask_in;
+                seq_value_r_flat <= seq_values_in;
+                seq_mask_r_flat  <= seq_masks_in;
+                cond_values_r   <= cond_values_in;
+                cond_masks_r    <= cond_masks_in;
+            end if;
+        end if;
+    end process;
 
     -- ── Capture FSM ──────────────────────────────────────────────
     process (sample_clk, sample_rst)
@@ -827,21 +864,16 @@ begin
             post_count_r   <= (others => '0');
             pretrig_len_r  <= (others => '0');
             posttrig_len_r <= (others => '0');
-            trig_value_r   <= (others => '0');
-            trig_mask_r    <= (others => '0');
             trig_mode_r    <= (others => '0');
-            probe_prev_r   <= (others => '0');
             decim_ratio_r  <= (others => '0');
             decim_count_r  <= (others => '0');
             seq_enable_r   <= '0';
             seq_state_r    <= (others => '0');
-            seq_value_r_flat        <= (others => '0');
-            seq_mask_r_flat         <= (others => '0');
             seq_count_target_r_flat <= (others => '0');
             seq_counter_r_flat      <= (others => '0');
             array_enable_r <= '0';
-            cond_values_r  <= (others => '0');
-            cond_masks_r   <= (others => '0');
+            -- Wide comparator configuration is loaded atomically on arm and
+            -- ignored while its reset control enables remain low.
             cond_ops_r     <= (others => '0');
             cond_valid_r   <= (others => '0');
             ext_enable_r   <= '0';
@@ -854,11 +886,6 @@ begin
             -- Default: trigger_out is a 1-cycle pulse.
             trigger_out_r <= '0';
 
-            -- Previous-sample register for edge detection (RTL-P3.644).
-            -- Updated every cycle so the rising/falling comparator always
-            -- sees sample(N-1) alongside the current sample(N).
-            probe_prev_r <= probe_in;
-
             -- External board-pin: register every cycle (RTL-P3.266). The pin
             -- is already sample_clk-synced in rr_rea_top; this is the local
             -- pipeline flop so the fold above sees a clean registered level.
@@ -870,7 +897,7 @@ begin
             -- reset wr_ptr — pre-arm context is preserved.
             -- v0.3: also gated by decim_tick so wr_ptr only advances
             -- on stored samples (one per decim_ratio+1 cycles).
-            if done_r = '0' and decim_tick = '1' then
+            if store_sample = '1' then
                 wr_ptr_r <= wr_ptr_r + 1;
             end if;
 
@@ -911,22 +938,16 @@ begin
                 post_count_r   <= (others => '0');
                 pretrig_len_r  <= unsigned(pretrig_len_in);
                 posttrig_len_r <= unsigned(posttrig_len_in);
-                trig_value_r   <= trig_value_in;
-                trig_mask_r    <= trig_mask_in;
                 trig_mode_r    <= trig_mode_in;
                 decim_ratio_r  <= unsigned(decim_ratio_in);
                 -- REA-REQ-606: arm_pulse resets seq_state to 0 and
                 -- clears all counters; latches the per-stage config.
                 seq_enable_r   <= seq_enable_in;
                 seq_state_r    <= (others => '0');
-                seq_value_r_flat        <= seq_values_in;
-                seq_mask_r_flat         <= seq_masks_in;
                 seq_count_target_r_flat <= seq_counts_in;
                 seq_counter_r_flat      <= (others => '0');
                 -- RTL-P3.647: latch the comparator-array config on arm too.
                 array_enable_r <= array_enable_in;
-                cond_values_r  <= cond_values_in;
-                cond_masks_r   <= cond_masks_in;
                 cond_ops_r     <= cond_ops_in;
                 cond_valid_r   <= cond_valid_in;
                 -- RTL-P3.266: latch external-trigger enable + combine mode on
@@ -1002,8 +1023,10 @@ begin
                     triggered_r <= '1';
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
+                        post_count_r <= wr_ptr_r - local_fire_ptr;
                     else
                         trig_ptr_r <= wr_ptr_r;
+                        post_count_r <= (others => '0');
                     end if;
                     if local_fire_pipe = '1' then
                         -- LOCAL fire only (drives trig_xbar). In ext-AND mode

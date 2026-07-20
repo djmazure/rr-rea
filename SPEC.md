@@ -97,6 +97,14 @@ host (`REAClient.configure`) pages trigger values automatically.
 704-bit build) elaborates; the trigger value/mask page across `⌈SAMPLE_W/32⌉`
 words (22 for 704) and capture readback pages `⌈SAMPLE_W/32⌉` words per cell.
 
+**Wide datapath/config registers are validity-gated, not asynchronously
+reset (RTL-P2.897).** `probe_pipe_r`, comparator values/masks, sequencer
+values/masks, and the previous-sample register carry no observable state until
+their resettable valid/enable controls are asserted. They therefore remain off
+the `sample_rst` tree and load on normal sample clocks or atomically on arm.
+This prevents reset-recovery fanout from scaling with `G_SAMPLE_W`; FSM state,
+pipeline-valid bits, enables, pointers, and counters retain async assertion.
+
 **Over-ceiling is a HARD elaboration error (RTL-P2.895).** A `G_SAMPLE_W >
 C_MAX_SAMPLE_W` instantiation fails elaboration in **every** tool via a static
 range violation (`constant C_CEILING_GUARD : natural range 0 to 0 :=

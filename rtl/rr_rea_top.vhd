@@ -302,29 +302,39 @@ begin
     -- RTL-P1.91: DATA_WORD_SEL pages a full-width cell through the frozen
     -- one-address-per-cell DATA_BASE window. shift_right + resize naturally
     -- zero-pads the final partial word and returns zero out of range.
-    process (dpram_dout_b, timestamp_dout_b, data_word_sel_jclk,
-             data_plane_sel_jclk)
+    -- DATA_PLANE_SEL (RTL-T2.123) picks the sample vs timestamp plane.
+    --
+    -- RTL-P1.96: the paging mux output is REGISTERED on reg_clk (tck) before
+    -- the DR capture — at wide G_SAMPLE_W this shift is a ~22:1 word mux over
+    -- the full sample width, the same class of comb cone that Quartus Pro
+    -- 26.1/Arria 10 miscompiled at the regbank read-mux (bit0=1 reads
+    -- captured as all-ones). DATA-window reads are therefore valid one
+    -- reg_clk edge after dpram_dout_b (two after the read command commits);
+    -- the two-scan read flow every host uses gives it several.
+    process (reg_clk)
     begin
-        if is_01(data_word_sel_jclk) then
-            if data_plane_sel_jclk = '0' then
-                dpram_rdata <= std_logic_vector(resize(
-                    shift_right(
-                        unsigned(dpram_dout_b),
-                        to_integer(unsigned(data_word_sel_jclk)) *
-                            C_DATA_WORD_W),
-                    C_DATA_WORD_W));
-            elsif data_plane_sel_jclk = '1' then
-                dpram_rdata <= std_logic_vector(resize(
-                    shift_right(
-                        unsigned(timestamp_dout_b),
-                        to_integer(unsigned(data_word_sel_jclk)) *
-                            C_DATA_WORD_W),
-                    C_DATA_WORD_W));
+        if rising_edge(reg_clk) then
+            if is_01(data_word_sel_jclk) then
+                if data_plane_sel_jclk = '0' then
+                    dpram_rdata <= std_logic_vector(resize(
+                        shift_right(
+                            unsigned(dpram_dout_b),
+                            to_integer(unsigned(data_word_sel_jclk)) *
+                                C_DATA_WORD_W),
+                        C_DATA_WORD_W));
+                elsif data_plane_sel_jclk = '1' then
+                    dpram_rdata <= std_logic_vector(resize(
+                        shift_right(
+                            unsigned(timestamp_dout_b),
+                            to_integer(unsigned(data_word_sel_jclk)) *
+                                C_DATA_WORD_W),
+                        C_DATA_WORD_W));
+                else
+                    dpram_rdata <= (others => 'X');
+                end if;
             else
                 dpram_rdata <= (others => 'X');
             end if;
-        else
-            dpram_rdata <= (others => 'X');
         end if;
     end process;
 

@@ -152,7 +152,10 @@ functional_contract:
       banked trigger value/mask SHALL page into ceil(G_SAMPLE_W/32) 32-bit words
       via TRIG_WORD_SEL, reassembling into the full-width `trig_value_out` —
       storage sized by the INSTANTIATED width, not the ceiling. The wide-sample
-      FEATURES fingerprint stays set for any G_SAMPLE_W>32.
+      FEATURES fingerprint stays set for any G_SAMPLE_W>32. Wide sample and
+      comparator data/config registers SHALL be excluded from the asynchronous
+      sample reset tree and qualified by resettable valid/enable control state,
+      so reset-recovery fanout does not scale with G_SAMPLE_W (RTL-P2.897).
   - id: REA-REQ-017
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Wide comparator conditions — `field_lsb ≥ 256` (RTL-P2.876)" }]

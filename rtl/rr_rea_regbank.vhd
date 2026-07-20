@@ -416,23 +416,25 @@ begin
         end if;
     end process;
 
-    -- ── Read port (combinational decode → registered driver) ─────
+    -- ── Read port (combinational decode → REGISTERED output) ─────
     --
-    -- Pure-combinational read keeps the protocol simple for the JTAG
-    -- iface; rd_addr stable for one jtag_clk → rd_data presented same
-    -- cycle. The iface registers it on its TDO output.
-    process (rd_addr,
-             pretrig_r, posttrig_r, trig_mode_r, trig_value_flat,
-             trig_mask_flat, trig_word_sel_r, chan_sel_r, decim_r,
-             data_word_sel_r,
-             data_plane_sel_r,
-             source_r,
-             cond_cfg_flat, cond_val_flat, cond_sel_r,
-             armed_in, triggered_in, done_in, overflow_in,
-             start_ptr_in, capture_len_w)
+    -- RTL-P1.96: the case-mux output is REGISTERED on jtag_clk before it
+    -- reaches the JTAG iface's DR capture. At wide G_SAMPLE_W the
+    -- combinational read cone (this case-mux + the paged TRIG/COND words)
+    -- grew to ~100:1 restructured muxes feeding the DR capture directly,
+    -- and Quartus Pro 26.1 on Arria 10 miscompiled that cone: any read
+    -- value with bit0=1 captured as all-ones across the whole 49-bit DR
+    -- (silicon-proven width-dependent — 12-bit clean, 704-bit broken,
+    -- same source). Registering here breaks the cone into a plain
+    -- reg-to-reg load. Protocol cost: rd_data is valid ONE jtag_clk edge
+    -- after rd_addr commits (the read command's Update-DR); the earliest
+    -- possible DR capture is two TAP states later, so every 1149.1 walk
+    -- satisfies it by construction.
+    process (jtag_clk)
         variable status : std_logic_vector(31 downto 0);
         variable spr    : std_logic_vector(31 downto 0);
     begin
+        if rising_edge(jtag_clk) then
         status := (others => '0');
         status(C_STATUS_BIT_ARMED)     := armed_in;
         status(C_STATUS_BIT_TRIGGERED) := triggered_in;
@@ -505,6 +507,7 @@ begin
                 rd_data(0) <= data_plane_sel_r;
             when others             => rd_data <= (others => '0');
         end case;
+        end if;
     end process;
 
 end architecture;

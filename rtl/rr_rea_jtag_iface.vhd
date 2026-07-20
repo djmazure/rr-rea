@@ -57,6 +57,35 @@ end entity;
 architecture rtl of rr_rea_jtag_iface is
 
     signal sr        : std_logic_vector(48 downto 0) := (others => '0');
+
+    -- RTL-P1.96: keep vendor synthesis away from the DR shift register.
+    -- Quartus Pro 26.1 (Arria 10, wide G_SAMPLE_W) restructured the ~100:1
+    -- capture-mux cones feeding sr and miscompiled them (any captured value
+    -- with bit0=1 read back as all-ones across the whole 49-bit DR). The
+    -- registered read-data stages (rr_rea_regbank / rr_rea_top, same ticket)
+    -- remove the cone; these attributes pin the DR itself so no future
+    -- restructuring/merging pass can recreate the shape. Ignored by
+    -- simulators and non-Quartus tools.
+    attribute preserve   : boolean;
+    attribute dont_merge : boolean;
+    attribute keep       : boolean;
+    attribute preserve of sr   : signal is true;
+    attribute dont_merge of sr : signal is true;
+
+    -- RTL-P1.96 (0.7.2): hold-safe DR shift chain. On Arria 10 the fitter
+    -- placed adjacent sr bits as same-LAB direct FF-to-FF hops with ~20 ps
+    -- hold slack ("met", but inside silicon variation — the root cause of
+    -- the bit0/all-ones readback corruption), and router hold-fixing could
+    -- not pad those direct connections even under an explicit set_min_delay.
+    -- sr_shift_buf is a kept combinational copy of sr: every shift hop then
+    -- goes FF -> LUT buffer -> FF, carrying a guaranteed cell+routing delay
+    -- on every family. 49 LUTs in a debug core — free; the DR runs at JTAG
+    -- rates so the added setup delay is irrelevant.
+    signal sr_shift_buf : std_logic_vector(48 downto 0);
+    attribute keep       of sr_shift_buf : signal is true;
+    attribute preserve   of sr_shift_buf : signal is true;
+    attribute dont_merge of sr_shift_buf : signal is true;
+    signal tdo_r       : std_logic := '0';
     signal reg_wr_en_r : std_logic := '0';
     signal reg_rd_en_r : std_logic := '0';
     signal reg_addr_r  : std_logic_vector(15 downto 0) := (others => '0');
@@ -64,7 +93,25 @@ architecture rtl of rr_rea_jtag_iface is
 
 begin
 
-    tdo       <= sr(0);
+    sr_shift_buf <= sr;
+
+    -- RTL-P1.96 (0.7.4): TDO is registered on the FALLING edge of tck, per
+    -- 1149.1 (TDO changes on the falling edge). Stream-identical for every
+    -- compliant sampler (sr only changes on rising edges), but the freshly
+    -- captured DR LSB is no longer exposed on TDO during the Capture-DR /
+    -- early-shift window — on Arria 10 the wide-readback silicon corrupted
+    -- deterministically (bit0=1 -> all-ones DR at 704 bits, whole-DR <<1 at
+    -- 256 bits) across three fitter seeds, with the readout window through
+    -- the encrypted JTAG atom as the remaining unmodeled suspect. Also gives
+    -- any downstream posedge TDO sampler (the SLD hub's int_tdo_reg) half a
+    -- tck period of hold margin by construction.
+    process (tck)
+    begin
+        if falling_edge(tck) then
+            tdo_r <= sr(0);
+        end if;
+    end process;
+    tdo       <= tdo_r;
     reg_clk   <= tck;
     reg_rst   <= arst;
     reg_wr_en <= reg_wr_en_r;
@@ -91,8 +138,9 @@ begin
                     -- CAPTURE: load current rdata into low half of sr.
                     sr(31 downto 0) <= reg_rdata;
                 elsif shift_en = '1' then
-                    -- SHIFT: shift LSB-first toward TDO.
-                    sr <= tdi & sr(48 downto 1);
+                    -- SHIFT: shift LSB-first toward TDO (via the kept
+                    -- LUT-buffer stage — see sr_shift_buf above).
+                    sr <= tdi & sr_shift_buf(48 downto 1);
                 elsif update = '1' then
                     -- UPDATE: decode rnw bit and pulse the bus.
                     if sr(48) = '1' then
