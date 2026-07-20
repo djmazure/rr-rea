@@ -101,5 +101,10 @@ build:
             library: rr_rea
 
 requirements: requirements.yml
+# Register bank association (RTL-P3.1312): REA's bank is `rea_regbank.yml`, not
+# the conventional `project_regbank.yml`. This manifest-owned pointer (mirroring
+# `requirements:`) lets `rr fdd` and any regbank consumer find it. `rr fdd`
+# digest-covers the pointed file, so an edit to it marks the FDD stale.
+regbank: rea_regbank.yml
 
 ips: []
