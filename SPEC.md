@@ -29,7 +29,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 |-------:|:---:|:------------|:------|
 | `0x00` | RO  | VERSION     | Magic `0x52454107` ('REA' + v0.7 timestamp-plane tier; minor tracks features so the host refuses, not silently degrades). |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
-| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow |
+| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
 | `0x10` | RO  | DEPTH       | Synth-time generic |
 | `0x14` | RW  | PRETRIG     | Pretrigger sample count |
@@ -49,9 +49,14 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xC4` | RO  | TIMESTAMP_W | Exact `G_TIMESTAMP_W`; zero means no timestamp plane |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`) |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
 | `0xD8` | RW  | DATA_PLANE_SEL | Capture read plane: 0=sample, 1=timestamp; resets to 0 |
+| `0xDC` | RW  | SELFTEST_CTRL | bit[0]=fill_toggle; inverse writes request a readback selftest fill |
+| `0xE0` | RW  | SELFTEST_SEED | LFSR seed sampled at fill acceptance; 0 selects `0x52454108` |
+| `0xE4` | RO  | CRC_SAMPLE  | CRC-32 of the canonical sample-plane page stream; valid when STATUS[4] |
+| `0xE8` | RO  | CRC_TS      | Independent CRC-32 of the timestamp-plane page stream; 0 without timestamps |
+| `0xEC` | RO  | CAPTURE_EPOCH | Capture generation counter used as the anti-tear anchor |
 | `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
@@ -215,6 +220,21 @@ gap along the two axes a fork can diverge on:
   against the released build's known id. **On-silicon** readback of a non-zero
   `BUILD_ID` is the field-validation checkpoint (the register + generic + hook are
   proven in sim: `test_rea_build_id_p3_1203.py` reads an injected id back over JTAG).
+
+### Readback integrity (v0.8, REA-P2.1..3 — in progress)
+
+The v0.8 trust tier adds an automatic CRC-32 sweep over the physical sample and
+timestamp page streams after capture, serialized in the exact canonical order and
+little-endian byte format read through `DATA_BASE`. `CRC_SAMPLE` and `CRC_TS` publish
+atomically; `STATUS[4]` marks them valid. `CAPTURE_EPOCH` brackets host readback so
+the pages and CRCs cannot silently come from different capture generations.
+The selftest contract fills the sample plane with a deterministic seeded LFSR
+pattern, then exercises the same sweep and production readback window; busy, mode,
+and refused-command state is reported in `STATUS[5..7]`. `FEATURES[19]` may assert
+only when the sweep/selftest logic is elaborated. VERSION stays `0x52454107` until
+the tier completes; v0.8 magic will be `0x52454109` — tier byte stays ODD.
+[`docs/FDD_REA_TRUST_TIER_V08.md`](docs/FDD_REA_TRUST_TIER_V08.md) is the
+authoritative design document.
 
 ### Mixed-op AND comparator array (`TRIG_MODE` bit[2], RTL-P3.647)
 

@@ -42,6 +42,11 @@ package rr_rea_pkg is
     constant C_REGBANK_ADDR_FEATURES           : unsigned(15 downto 0) := x"00D0";  -- RO
     constant C_REGBANK_ADDR_BUILD_ID           : unsigned(15 downto 0) := x"00D4";  -- RO
     constant C_REGBANK_ADDR_DATA_PLANE_SEL     : unsigned(15 downto 0) := x"00D8";  -- RW
+    constant C_REGBANK_ADDR_SELFTEST_CTRL      : unsigned(15 downto 0) := x"00DC";  -- RW
+    constant C_REGBANK_ADDR_SELFTEST_SEED      : unsigned(15 downto 0) := x"00E0";  -- RW
+    constant C_REGBANK_ADDR_CRC_SAMPLE         : unsigned(15 downto 0) := x"00E4";  -- RO
+    constant C_REGBANK_ADDR_CRC_TS             : unsigned(15 downto 0) := x"00E8";  -- RO
+    constant C_REGBANK_ADDR_CAPTURE_EPOCH      : unsigned(15 downto 0) := x"00EC";  -- RO
     constant C_REGBANK_ADDR_DATA_BASE          : unsigned(15 downto 0) := x"0100";  -- RO
     -- rr-regbank-end REGBANK_ADDRESSES
 
@@ -164,12 +169,17 @@ package rr_rea_pkg is
     --                        and REFUSES lsb>=256 when clear (no silent truncation).
     --   [18]   TIMESTAMP = '1' when G_TIMESTAMP_W > 0; DATA_PLANE_SEL=1
     --                    exposes a timestamp cell aligned with each sample.
-    --   [31:19] reserved (0)
+    --   [19]   READBACK_INTEGRITY = '1' only when the sweep/selftest logic exists.
+    --   [31:20] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
     constant C_FEAT_WIDE_COND_BIT   : natural := 17;
     constant C_FEAT_TIMESTAMP_BIT   : natural := 18;
+    constant C_FEAT_READBACK_INTEGRITY_BIT : natural := 19;
+    -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
+    -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
+    constant C_HAS_READBACK_INTEGRITY : boolean := false;  -- TODO(REA-P2.2)
 
     -- ── CTRL register bit assignments ────────────────────────────
     constant C_CTRL_BIT_ARM     : natural := 0;
@@ -180,6 +190,10 @@ package rr_rea_pkg is
     constant C_STATUS_BIT_TRIGGERED  : natural := 1;
     constant C_STATUS_BIT_DONE       : natural := 2;
     constant C_STATUS_BIT_OVERFLOW   : natural := 3;
+    constant C_STATUS_BIT_CRC_VALID        : natural := 4;
+    constant C_STATUS_BIT_SELFTEST_BUSY    : natural := 5;
+    constant C_STATUS_BIT_SELFTEST_MODE    : natural := 6;
+    constant C_STATUS_BIT_SELFTEST_REFUSED : natural := 7;
 
     -- ── TRIG_MODE values ─────────────────────────────────────────
     constant C_TRIG_MODE_VALUE_MATCH : std_logic_vector(31 downto 0) := x"00000001";

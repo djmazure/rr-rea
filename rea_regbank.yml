@@ -1,12 +1,12 @@
 name: rea_registers
-version: 0.7.0   # RTL-T2.123: timestamp capture plane + DATA_PLANE_SEL
+version: 0.8.0   # REA-P2.1: readback-integrity register window
 address_mode: bytes
 outputs:
   - vhdl_template
   - python_host
 artifacts:
   vhdl_template:
-    path: ip/routertl/rea/rtl/rr_rea_pkg.vhd
+    path: rtl/rr_rea_pkg.vhd
     marker: REGBANK_ADDRESSES
     prefix: C_REGBANK_ADDR_
     width: 16
@@ -40,4 +40,9 @@ registers:
   - {name: FEATURES, address: 0x00D0, access: RO, description: Synthesized feature bitmap}
   - {name: BUILD_ID, address: 0x00D4, access: RO, description: Source-content fingerprint}
   - {name: DATA_PLANE_SEL, address: 0x00D8, access: RW, description: Capture read plane selector}
+  - {name: SELFTEST_CTRL, address: 0x00DC, access: RW, description: Readback selftest fill toggle}
+  - {name: SELFTEST_SEED, address: 0x00E0, access: RW, description: Readback selftest LFSR seed}
+  - {name: CRC_SAMPLE, address: 0x00E4, access: RO, description: Sample-plane readback CRC}
+  - {name: CRC_TS, address: 0x00E8, access: RO, description: Timestamp-plane readback CRC}
+  - {name: CAPTURE_EPOCH, address: 0x00EC, access: RO, description: Capture generation counter}
   - {name: DATA_BASE, address: 0x0100, access: RO, description: Capture data window base}

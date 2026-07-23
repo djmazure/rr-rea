@@ -17,6 +17,12 @@ hardware:
   part: xc7z020clg400-1     # placeholder for sim; see README for HW demos
   language: vhdl
 
+linting:
+  # REA-T1.1 / AGENTS.md: v0.8 trust-tier RTL is held to the strictest ESA bar
+  # from line one. Pre-existing findings on shipped v0.7 RTL are a tracked
+  # triage backlog, not a land-blocker.
+  profile: esa-vhdl-strict-provisional
+
 simulation:
   test_dir: sim/cocotb/tests
   waves_dir: sim/cocotb/waves
