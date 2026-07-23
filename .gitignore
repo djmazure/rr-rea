@@ -13,3 +13,6 @@ build_env.tcl
 libs/
 ip.lock
 routertl.lock
+formal/
+sim/results/
+sim/work.lock

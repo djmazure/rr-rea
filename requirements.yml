@@ -623,3 +623,157 @@ functional_contract:
       captured window, the selected sample and the pointer tag are identical to
       the combinational design (REA-REQ-325); only the `triggered` report cycle
       moves.
+
+  # ── v0.8 Trust Tier — readback integrity (REA-P2.1..3, REA-P3.1) ──
+  # Contract-first per docs/FDD_REA_TRUST_TIER_V08.md rev2. The formal:
+  # blocks below name FORWARD-CONTRACT signals the sweep/selftest RTL must
+  # implement with these exact names: crc_valid, sweep_busy, fill_busy,
+  # fill_we, sweep_rd_en, dpram_we (capture write), ts_dpram_we,
+  # capture_epoch. Every formal property is subject to the rr-formal
+  # ANTI-VACUITY GATE: each must be shown to yield a COUNTEREXAMPLE when
+  # tightened (REA-P3.1) before its PASS counts — a vacuous green on a
+  # trust feature is the exact failure mode this tier exists to kill.
+  - id: REA-REQ-800
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    desc: >-
+      The CRC sweep auto-runs on the rising edge of done (and on selftest
+      fill completion) with no host action; crc_valid asserts only after
+      BOTH plane results are published atomically (never between planes).
+    formal: { psl: "always (crc_valid = '1' -> sweep_busy = '0')" }
+  - id: REA-REQ-801
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.4 Contract: canonical page-stream serialization" }]
+    desc: >-
+      CRC_SAMPLE (0xE4) equals the hard-coded golden CRC-32 (reflected poly
+      0xEDB88320, init 0xFFFFFFFF, final XOR 0xFFFFFFFF) of the canonical
+      page stream: plane 0, cells in physical order 0..DEPTH-1, pages in
+      DATA_WORD_SEL order, each page serialized LSByte-first, including the
+      zero-padded partial tail page. Golden values hard-coded per
+      ROUTERTL-002 (host reference = zlib.crc32 over the raw '<u4' pages).
+  - id: REA-REQ-802
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    desc: >-
+      A sweep in progress MUST NOT perturb concurrent port-B JTAG readback:
+      interleaving DATA_BASE reads with an active sweep returns exactly the
+      same values as reading after the sweep completes (port A ownership
+      never touches port B).
+  - id: REA-REQ-803
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    desc: >-
+      arm_pulse or soft reset during a sweep or a fill ABORTS it, clears
+      crc_valid, and increments CAPTURE_EPOCH — before any subsequent
+      port-A write can become externally observable.
+    formal: { psl: "always (capture_epoch /= prev(capture_epoch) -> crc_valid = '0')" }
+  - id: REA-REQ-804
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    desc: >-
+      When G_TIMESTAMP_W > 0, CRC_TS (0xE8) equals the golden CRC-32 of the
+      plane-1 page stream with an INDEPENDENT init (never continuing plane
+      0's state), pages sized ceil(G_TIMESTAMP_W/32). G_TIMESTAMP_W=0 reads
+      CRC_TS as 0 and elaborates no plane-1 sweep.
+  - id: REA-REQ-805
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.4 Contract: canonical page-stream serialization" }]
+    desc: >-
+      Wide-sample CRC: the swept page values are bit-identical to what the
+      DATA_BASE/DATA_WORD_SEL window returns for every (cell, page),
+      including zero-padding of the final partial word. Goldens pinned at
+      G_SAMPLE_W = 33, 64, and 704 (the field's real operating point).
+  - id: REA-REQ-806
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    desc: >-
+      FEATURES[19] (readback_integrity) is derived from the same elaboration
+      constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
+      logic — never hand-set — preserving the generic-derived fingerprint
+      invariant. VERSION reads the v0.8 magic 0x52454109; the tier byte is
+      ODD (structural test: VERSION bit0 = 1, permanent contract for the
+      odd-VERSION acceptance probe).
+  - id: REA-REQ-807
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    desc: >-
+      CAPTURE_EPOCH (0xEC) increments on every accepted arm, accepted
+      selftest fill, soft reset, and sweep/fill abort — and on NOTHING else
+      (a completed sweep, a JTAG read, or a refused fill do not change it).
+      The host's anti-tear anchor: epoch equality across a window read plus
+      crc_valid proves the buffer and CRC belong to one generation.
+  - id: REA-REQ-808
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.5 CDC — snapshot-and-toggle publication" }]
+    desc: >-
+      Torn publication is impossible: crc_valid is NEVER observable on the
+      JTAG side while any CRC register bit still carries a pre-latch value.
+      Publication latches both results + epoch, waits a >=8-sample-clk
+      settle, then flips the publish toggle; an invalidation (arm / fill /
+      reset) racing an in-flight publish always wins (the publish is
+      suppressed, crc_valid stays low).
+  - id: REA-REQ-810
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    desc: >-
+      Port-A single-owner arbiter: at most one of {capture write (dpram_we),
+      selftest fill write (fill_we), sweep read (sweep_rd_en)} is active on
+      any sample_clk cycle, under the fixed priority reset > arm > accepted
+      fill > capture > sweep. Formal-first requirement: the mutual-exclusion
+      invariants are proven exhaustively, the priority order by directed sim.
+    formal:
+      psl: >-
+        always (not (fill_we = '1' and dpram_we = '1')) and
+        always (not (sweep_rd_en = '1' and (fill_we = '1' or dpram_we = '1')))
+  - id: REA-REQ-811
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    desc: >-
+      Any port-A write outside the sweep engine's own sweep (a capture write
+      or a fill write) implies crc_valid is already clear on that cycle — a
+      stale CRC can never coexist with a mutating buffer.
+    formal: { psl: "always ((dpram_we = '1' or fill_we = '1') -> crc_valid = '0')" }
+  - id: REA-REQ-850
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    desc: >-
+      An accepted fill writes the exact specified LFSR sequence: 32-bit
+      maximal Fibonacci LFSR, taps 32,22,2,1 (b = x[31] xor x[21] xor x[1]
+      xor x[0]; x_next = (x >> 1) | (b << 31)); the PRE-step state is the
+      emitted word (seed = word 0); order cell-major then page-minor; unused
+      high bits of a cell's final partial page zeroed after generation.
+      Hard-coded golden prefix per ROUTERTL-002.
+  - id: REA-REQ-851
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    desc: >-
+      SELFTEST_SEED is sampled ATOMICALLY at fill acceptance (a seed write
+      after acceptance has no effect on the in-flight fill); seed 0 is
+      substituted with 0x52454108 (LFSR lockup guard).
+  - id: REA-REQ-852
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    desc: >-
+      A fill toggle while armed, while a fill is active, or mid-capture is
+      REFUSED (not queued): no port-A write occurs, the sticky
+      selftest_refused STATUS bit sets (cleared on the next accepted fill,
+      arm, or reset), and capture state — done, triggered, START_PTR,
+      CAPTURE_LEN — is untouched by any fill, accepted or refused.
+  - id: REA-REQ-853
+    kind: behavioral
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    desc: >-
+      An accepted fill sets selftest_mode BEFORE its first pattern write and
+      bumps CAPTURE_EPOCH; selftest_mode clears on arm or reset. Reading the
+      filled buffer back through the production DATA_BASE/DATA_WORD_SEL path
+      is word-exact against the host LFSR reference, and the subsequent
+      sweep publishes the pattern's CRC_SAMPLE.
+  - id: REA-REQ-854
+    kind: negative
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    desc: >-
+      The timestamp plane is NEVER written by a fill — its din remains the
+      free-running counter and its write enable stays low for the entire
+      fill (the v0.7 stored-timestamp-equals-counter semantic survives
+      selftest).
+    formal: { psl: "always (fill_busy = '1' -> ts_dpram_we = '0')" }
