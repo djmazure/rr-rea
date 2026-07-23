@@ -32,7 +32,7 @@ G_SAMPLE_W = 16
 G_TRIG_CONDS = 4
 DERIVED_PIPE_STAGES = 4
 GENERICS = {"G_SAMPLE_W": G_SAMPLE_W, "G_DEPTH": 256, "G_TRIG_CONDS": G_TRIG_CONDS}
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 
 # Op codes — mirror rr_rea_pkg C_TRIG_OP_*.
 OP_EQ, OP_NE, OP_LT, OP_GT, OP_RISE, OP_FALL = 0, 1, 2, 3, 4, 5

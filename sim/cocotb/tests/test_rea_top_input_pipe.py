@@ -44,7 +44,7 @@ GENERICS = {
     "G_TIMESTAMP_W": 0,
     "G_NUM_CHAN": 1,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIX = str(_Path(__file__).resolve().parent / "fixtures")
 
 

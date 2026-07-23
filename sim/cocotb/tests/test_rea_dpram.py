@@ -29,7 +29,7 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 # Default generics — overridable per-test by instantiating with new values.
 GENERICS = {"G_WIDTH": 12, "G_DEPTH": 4096}
 
-_RTL_DIR = str((__import__("pathlib").Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"))
+_RTL_DIR = str((__import__("pathlib").Path(__file__).resolve().parents[3] / "rtl"))
 
 
 def main() -> None:

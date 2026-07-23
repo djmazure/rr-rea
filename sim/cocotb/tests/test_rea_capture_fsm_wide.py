@@ -35,7 +35,7 @@ GENERICS = {
     "G_DEPTH": 256,
     "G_TRIG_CONDS": G_TRIG_CONDS,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 
 FULL_MASK = (1 << G_SAMPLE_W) - 1
 PIPE_STAGES = (G_SAMPLE_W + 7) // 8 + (G_TRIG_CONDS - 1).bit_length()

@@ -29,7 +29,7 @@ GENERICS = {
 }
 DERIVED_PIPE_STAGES = 4
 _RTL_DIR = str(
-    Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"
+    Path(__file__).resolve().parents[3] / "rtl"
 )
 
 

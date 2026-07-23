@@ -16,3 +16,5 @@ routertl.lock
 formal/
 sim/results/
 sim/work.lock
+.rr_pending_job
+sim/waves/

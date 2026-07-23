@@ -32,7 +32,7 @@ GENERICS = {
     "G_TRIG_STAGES": 3,
 }
 _RTL_DIR = str(
-    Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"
+    Path(__file__).resolve().parents[3] / "rtl"
 )
 
 

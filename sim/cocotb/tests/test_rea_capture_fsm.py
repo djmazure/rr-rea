@@ -31,7 +31,7 @@ from engine.simulation import run_simulation  # noqa: E402
 from sdk.cocotb_helpers import requires  # noqa: E402
 
 GENERICS = {"G_SAMPLE_W": 12, "G_DEPTH": 4096}
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 
 
 def main() -> None:

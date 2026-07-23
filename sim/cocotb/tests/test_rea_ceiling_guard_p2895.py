@@ -28,7 +28,7 @@ import pytest
 
 from sdk.cocotb_helpers import requires
 
-_RTL_DIR = Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"
+_RTL_DIR = Path(__file__).resolve().parents[3] / "rtl"
 _PKG = _RTL_DIR / "rr_rea_pkg.vhd"
 _FSM = _RTL_DIR / "rr_rea_capture_fsm.vhd"
 

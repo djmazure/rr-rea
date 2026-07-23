@@ -58,7 +58,7 @@ GENERICS = {
     "G_TRIG_CONDS": 4,
     "G_NUM_SOURCE": 3,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIX = str(_Path(__file__).resolve().parent / "fixtures")
 
 ADDR_VERSION = 0x00

@@ -36,7 +36,7 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 G_SAMPLE_W = 704
 G_TRIG_CONDS = 1
 GENERICS = {"G_SAMPLE_W": G_SAMPLE_W, "G_DEPTH": 1024, "G_TRIG_CONDS": G_TRIG_CONDS}
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 
 OP_EQ = 0
 # Width-slice pipe depth: ceil(W/8) + clog2(G_TRIG_CONDS). G_TRIG_CONDS=1 → +0.

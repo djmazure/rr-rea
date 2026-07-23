@@ -35,7 +35,7 @@ GENERICS = {
     "G_SAMPLE_W": 12, "G_DEPTH": 256,
     "G_TIMESTAMP_W": 0, "G_NUM_CHAN": 1,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIXTURES = str(_Path(__file__).resolve().parent / "fixtures")
 
 ADDR_VERSION  = 0x00

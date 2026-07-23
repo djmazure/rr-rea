@@ -38,7 +38,7 @@ GENERICS = {
     "G_SAMPLE_W": G_SAMPLE_W, "G_DEPTH": 4096,
     "G_TIMESTAMP_W": 32, "G_NUM_CHAN": 1,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIX = str(_Path(__file__).resolve().parent / "fixtures")
 
 # Register addresses — must match rr_rea_pkg.vhd (ROUTERTL-002).

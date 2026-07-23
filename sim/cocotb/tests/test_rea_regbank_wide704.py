@@ -44,7 +44,7 @@ GENERICS = {
     "G_TIMESTAMP_W": 0, "G_NUM_CHAN": 1,
     "G_TRIG_CONDS": G_TRIG_CONDS, "G_NUM_SOURCE": 3,
 }
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIX = str(_Path(__file__).resolve().parent / "fixtures")
 
 ADDR_TRIG_VALUE    = 0x24

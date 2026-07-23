@@ -22,7 +22,7 @@ SAMPLE_W = 33
 TRIG_CONDS = 3
 PIPE_STAGES = 7
 _RTL_DIR = str(
-    Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl"
+    Path(__file__).resolve().parents[3] / "rtl"
 )
 
 

@@ -30,7 +30,7 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 
 GENERICS = {"G_SAMPLE_W": 12, "G_DEPTH": 4096}
 DERIVED_PIPE_STAGES = 4
-_RTL_DIR = str(_Path(__file__).resolve().parents[4] / "ip" / "routertl" / "rea" / "rtl")
+_RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 CLK_PERIOD_NS = 8.0
 
 
