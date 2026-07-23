@@ -85,7 +85,6 @@ architecture rtl of rr_rea_jtag_iface is
     attribute keep       of sr_shift_buf : signal is true;
     attribute preserve   of sr_shift_buf : signal is true;
     attribute dont_merge of sr_shift_buf : signal is true;
-    signal tdo_r       : std_logic := '0';
     signal reg_wr_en_r : std_logic := '0';
     signal reg_rd_en_r : std_logic := '0';
     signal reg_addr_r  : std_logic_vector(15 downto 0) := (others => '0');
@@ -95,23 +94,22 @@ begin
 
     sr_shift_buf <= sr;
 
-    -- RTL-P1.96 (0.7.4): TDO is registered on the FALLING edge of tck, per
-    -- 1149.1 (TDO changes on the falling edge). Stream-identical for every
-    -- compliant sampler (sr only changes on rising edges), but the freshly
-    -- captured DR LSB is no longer exposed on TDO during the Capture-DR /
-    -- early-shift window — on Arria 10 the wide-readback silicon corrupted
-    -- deterministically (bit0=1 -> all-ones DR at 704 bits, whole-DR <<1 at
-    -- 256 bits) across three fitter seeds, with the readout window through
-    -- the encrypted JTAG atom as the remaining unmodeled suspect. Also gives
-    -- any downstream posedge TDO sampler (the SLD hub's int_tdo_reg) half a
-    -- tck period of hold margin by construction.
-    process (tck)
-    begin
-        if falling_edge(tck) then
-            tdo_r <= sr(0);
-        end if;
-    end process;
-    tdo       <= tdo_r;
+    -- TDO is the standard combinational DR shift-out: the bit currently at
+    -- sr(0). The shift register advances ONLY on rising_edge(tck) (below), so
+    -- TDO is a pure function of rising-edge state — NO falling-edge logic.
+    --
+    -- History (REA-T1.1): 0.7.4 registered TDO on the FALLING edge of tck as an
+    -- RTL-level hold-margin hack for the Arria-10 SLD-hub readback corruption
+    -- (RTL-P1.96). That hack (a) introduced dual-edge clocking — a design smell
+    -- now forbidden (AGENTS.md: no falling_edge unless completely justified),
+    -- and (b) did NOT hold up in silicon — REA readback stayed faulty (the
+    -- 2026-07 odd-address fault). The corruption is an intra-tck HOLD-slack
+    -- problem in the SLD fabric domain; the PROVEN fix is the SDC
+    -- `set_clock_uncertainty` hold pad on that domain (an integration timing
+    -- constraint), not an RTL edge trick. The v0.8 trust tier (CRC sweep +
+    -- readback selftest) is the on-silicon instrument that validates the
+    -- readback is finally correct end-to-end.
+    tdo       <= sr(0);
     reg_clk   <= tck;
     reg_rst   <= arst;
     reg_wr_en <= reg_wr_en_r;
