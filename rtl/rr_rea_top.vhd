@@ -134,6 +134,13 @@ architecture rtl of rr_rea_top is
     signal arm_pulse_sclk   : std_logic;
     signal reset_pulse_sclk : std_logic;
 
+    -- ── v0.8 CAPTURE_EPOCH (REA-P2.2, REQ-807): sample-domain generation
+    --    counter, crossed to jtag_clk_i for the regbank. The host's anti-tear
+    --    anchor — increments on accepted arm / soft reset (and sweep abort /
+    --    accepted fill once P2.2p2-sweep / P2.3 land). ─────────────────────
+    signal capture_epoch_r    : std_logic_vector(31 downto 0) := (others => '0');
+    signal capture_epoch_jclk : std_logic_vector(31 downto 0);
+
     -- ── Comparator-array config (RTL-P3.647): regbank → CDC → FSM ──
     -- array_enable rides in trig_mode bit[2] (already CDC'd); only the
     -- per-condition value/mask/op/valid arrays need their own sync.
@@ -255,6 +262,16 @@ begin
             done_i      => done_jclk(0),
             overflow_i  => overflow_jclk(0),
             start_ptr_i => start_ptr_jclk,
+            -- v0.8 readback integrity (REA-P2.2). CRC values + crc_valid arrive
+            -- with the sweep (P2.2p2-sweep); selftest bits with fill (P2.3).
+            -- Wired to their inert defaults until then; the epoch counter is live.
+            crc_sample_i       => (others => '0'),
+            crc_ts_i           => (others => '0'),
+            capture_epoch_i    => capture_epoch_jclk,
+            crc_valid_i        => '0',
+            selftest_busy_i    => '0',
+            selftest_mode_i    => '0',
+            selftest_refused_i => '0',
             pretrig_len_o  => pretrig_jclk,
             posttrig_len_o => posttrig_jclk,
             trig_value_o   => trig_value_jclk,
@@ -437,6 +454,29 @@ begin
             dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
             dst_pulse_o => reset_pulse_sclk
         );
+
+    -- ── CAPTURE_EPOCH counter (REA-P2.2, REQ-807) ────────────────────
+    -- Bumps on exactly: accepted arm, soft reset (and sweep abort / accepted
+    -- fill once those land). sample_rst_i is the hard reset to 0. Nothing else
+    -- moves it — a completed sweep / JTAG read / refused op does NOT.
+    process (sample_clk_i, sample_rst_i)
+    begin
+        if sample_rst_i = '1' then
+            capture_epoch_r <= (others => '0');
+        elsif rising_edge(sample_clk_i) then
+            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
+                capture_epoch_r <= std_logic_vector(unsigned(capture_epoch_r) + 1);
+            end if;
+        end if;
+    end process;
+
+    -- CAPTURE_EPOCH crossed sample_clk_i → jtag_clk_i (reg_clk_o) for regbank
+    -- readback. A word sync is adequate: the host reads it, brackets a window
+    -- read, and re-reads — a one-off skewed sample self-corrects on re-read.
+    u_cdc_epoch : rr_rea_sync_word
+        generic map (G_WIDTH => 32)
+        port map (dst_clk_i => reg_clk_o, din_i => capture_epoch_r,
+                  dout_o => capture_epoch_jclk);
 
     -- ── Capture FSM ──────────────────────────────────────────────
     u_fsm : entity work.rr_rea_capture_fsm

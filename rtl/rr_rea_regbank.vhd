@@ -77,6 +77,18 @@ entity rr_rea_regbank is
         overflow_i  : in std_logic;
         start_ptr_i : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
 
+        -- ── v0.8 readback-integrity status (jtag_clk_i domain; crossed
+        --    from sample_clk_i in rr_rea_top). REA-P2.2. ───────────────
+        -- Defaults let the regbank unit tests instantiate without wiring the
+        -- v0.8 surface; rr_rea_top drives them explicitly.
+        crc_sample_i       : in std_logic_vector(31 downto 0) := (others => '0');
+        crc_ts_i           : in std_logic_vector(31 downto 0) := (others => '0');
+        capture_epoch_i    : in std_logic_vector(31 downto 0) := (others => '0');
+        crc_valid_i        : in std_logic := '0';
+        selftest_busy_i    : in std_logic := '0';  -- 0 in P2.2 (fill lands in P2.3)
+        selftest_mode_i    : in std_logic := '0';  -- 0 in P2.2
+        selftest_refused_i : in std_logic := '0';  -- 0 in P2.2
+
         -- ── Config outputs (to sample-clk domain, will be sync'd) ─
         pretrig_len_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         posttrig_len_o : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
@@ -217,6 +229,12 @@ architecture rtl of rr_rea_regbank is
         end if;
         if G_TIMESTAMP_W > 0 then
             v(C_FEAT_TIMESTAMP_BIT) := '1';
+        end if;
+        -- REA-P2.2/P2.3: FEATURES[19] derives from the elaboration constant that
+        -- gates the sweep/selftest logic (never hand-set) — false through P2.2,
+        -- true when P2.3 completes the tier (REQ-806).
+        if C_HAS_READBACK_INTEGRITY then
+            v(C_FEAT_READBACK_INTEGRITY_BIT) := '1';
         end if;
         return v;
     end function;
@@ -440,6 +458,10 @@ begin
         status(C_STATUS_BIT_TRIGGERED) := triggered_i;
         status(C_STATUS_BIT_DONE)      := done_i;
         status(C_STATUS_BIT_OVERFLOW)  := overflow_i;
+        status(C_STATUS_BIT_CRC_VALID)        := crc_valid_i;
+        status(C_STATUS_BIT_SELFTEST_BUSY)    := selftest_busy_i;
+        status(C_STATUS_BIT_SELFTEST_MODE)    := selftest_mode_i;
+        status(C_STATUS_BIT_SELFTEST_REFUSED) := selftest_refused_i;
 
         spr := (others => '0');
         spr(C_PTR_W - 1 downto 0) := start_ptr_i;
@@ -505,6 +527,10 @@ begin
             when C_ADDR_DATA_PLANE_SEL =>
                 rd_data_o <= (others => '0');
                 rd_data_o(0) <= data_plane_sel_r;
+            -- v0.8 readback integrity (REA-P2.2). RO; valid gated by STATUS[4].
+            when C_ADDR_CRC_SAMPLE    => rd_data_o <= crc_sample_i;
+            when C_ADDR_CRC_TS        => rd_data_o <= crc_ts_i;
+            when C_ADDR_CAPTURE_EPOCH => rd_data_o <= capture_epoch_i;
             when others             => rd_data_o <= (others => '0');
         end case;
         end if;

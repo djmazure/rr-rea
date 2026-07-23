@@ -152,6 +152,12 @@ package rr_rea_pkg is
     -- plane 1 is timestamps. DATA_WORD_SEL pages 32-bit words in either plane.
     constant C_ADDR_DATA_PLANE_SEL : unsigned(15 downto 0) :=
         C_REGBANK_ADDR_DATA_PLANE_SEL;
+    -- v0.8 readback integrity (REA-P2.2)
+    constant C_ADDR_SELFTEST_CTRL  : unsigned(15 downto 0) := C_REGBANK_ADDR_SELFTEST_CTRL;
+    constant C_ADDR_SELFTEST_SEED  : unsigned(15 downto 0) := C_REGBANK_ADDR_SELFTEST_SEED;
+    constant C_ADDR_CRC_SAMPLE     : unsigned(15 downto 0) := C_REGBANK_ADDR_CRC_SAMPLE;
+    constant C_ADDR_CRC_TS         : unsigned(15 downto 0) := C_REGBANK_ADDR_CRC_TS;
+    constant C_ADDR_CAPTURE_EPOCH  : unsigned(15 downto 0) := C_REGBANK_ADDR_CAPTURE_EPOCH;
     constant C_ADDR_DATA_BASE   : unsigned(15 downto 0) := C_REGBANK_ADDR_DATA_BASE;
 
     -- ── FEATURES register (0xD0) field layout (RTL-P3.1198) ──────
