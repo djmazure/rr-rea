@@ -86,39 +86,39 @@ CLK_NS = 25.0  # 40 MHz JTAG clock — slow on purpose
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.jtag_clk, CLK_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.jtag_clk_i, CLK_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.jtag_rst.value = 1
-    dut.wr_en.value = 0
-    dut.wr_addr.value = 0
-    dut.wr_data.value = 0
-    dut.rd_addr.value = 0
-    dut.armed_in.value = 0
-    dut.triggered_in.value = 0
-    dut.done_in.value = 0
-    dut.overflow_in.value = 0
-    dut.start_ptr_in.value = 0
-    await ClockCycles(dut.jtag_clk, 4)
-    dut.jtag_rst.value = 0
-    await ClockCycles(dut.jtag_clk, 1)
+    dut.jtag_rst_i.value = 1
+    dut.wr_en_i.value = 0
+    dut.wr_addr_i.value = 0
+    dut.wr_data_i.value = 0
+    dut.rd_addr_i.value = 0
+    dut.armed_i.value = 0
+    dut.triggered_i.value = 0
+    dut.done_i.value = 0
+    dut.overflow_i.value = 0
+    dut.start_ptr_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 4)
+    dut.jtag_rst_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 1)
 
 
 async def _write(dut, addr: int, data: int):
-    dut.wr_addr.value = addr
-    dut.wr_data.value = data
-    dut.wr_en.value = 1
-    await RisingEdge(dut.jtag_clk)
-    dut.wr_en.value = 0
+    dut.wr_addr_i.value = addr
+    dut.wr_data_i.value = data
+    dut.wr_en_i.value = 1
+    await RisingEdge(dut.jtag_clk_i)
+    dut.wr_en_i.value = 0
 
 
 async def _read(dut, addr: int) -> int:
     """Combinational read: drive rd_addr, wait one cycle for the
     decoder to settle, sample rd_data."""
-    dut.rd_addr.value = addr
-    await ClockCycles(dut.jtag_clk, 2)
-    return int(dut.rd_data.value)
+    dut.rd_addr_i.value = addr
+    await ClockCycles(dut.jtag_clk_i, 2)
+    return int(dut.rd_data_o.value)
 
 
 # ── REA-REQ-010: every RW addr round-trips arbitrary 32-bit values ──
@@ -218,14 +218,14 @@ async def test_rea_req_011_status_reflects_inputs(dut):
     # Pulse each status bit individually; read STATUS while held.
     test_pattern = [
         # (signal, bit_position)
-        (dut.armed_in,     0),
-        (dut.triggered_in, 1),
-        (dut.done_in,      2),
-        (dut.overflow_in,  3),
+        (dut.armed_i,     0),
+        (dut.triggered_i, 1),
+        (dut.done_i,      2),
+        (dut.overflow_i,  3),
     ]
     for signal, bit in test_pattern:
         signal.value = 1
-        await ClockCycles(dut.jtag_clk, 1)  # let combinational settle
+        await ClockCycles(dut.jtag_clk_i, 1)  # let combinational settle
         observed = await _read(dut, ADDR_STATUS)
         expected = 1 << bit
         assert observed == expected, (
@@ -235,11 +235,11 @@ async def test_rea_req_011_status_reflects_inputs(dut):
         signal.value = 0
 
     # All four together → low-nibble = 0xF.
-    dut.armed_in.value = 1
-    dut.triggered_in.value = 1
-    dut.done_in.value = 1
-    dut.overflow_in.value = 1
-    await ClockCycles(dut.jtag_clk, 1)
+    dut.armed_i.value = 1
+    dut.triggered_i.value = 1
+    dut.done_i.value = 1
+    dut.overflow_i.value = 1
+    await ClockCycles(dut.jtag_clk_i, 1)
     observed = await _read(dut, ADDR_STATUS)
     assert observed == 0x0F, (
         f"REA-REQ-011 failed: all status bits on → "

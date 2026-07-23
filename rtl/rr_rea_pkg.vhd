@@ -54,9 +54,9 @@ package rr_rea_pkg is
     -- 'REA' (0x524541) in the upper 24 bits + minor version in low 8.
     -- RTL-P3.740: the minor MUST track the feature tier so the host can refuse
     -- (not silently degrade) a trigger the core can't honour. v0.4 = rich
-    -- comparator op nibble (P3.644-646) + per-condition array (P3.647) + capture
+    -- comparator op nibble (P3.644-646) + per-condition array (P3.647) + capture_i
     -- decimation + external-pin trigger + multiword TRIG_VALUE/MASK (P2.658b).
-    -- v0.5 adds paged full-width capture readback (RTL-P1.91).
+    -- v0.5 adds paged full-width capture_i readback (RTL-P1.91).
     -- v0.6 (RTL-P2.876) raises the sample-width ceiling 256 → 1024 and extends
     -- the per-condition field_lsb to 11 bits (lsb_hi in COND_CFG[30:28]) so a
     -- comparator field can sit above bit 255; advertised by FEATURES[17]
@@ -94,7 +94,7 @@ package rr_rea_pkg is
     -- RTL-P2.837: write-side SOURCE register — ISSP-style JTAG-writable
     -- control bits driven INTO the design (the counterpart to the read-only
     -- probe path). Low G_NUM_SOURCE bits are exposed on rr_rea_top's
-    -- `source_out` port, crossed jtag_clk → sample_clk by rr_rea_sync_word.
+    -- `source_o` port, crossed jtag_clk_i → sample_clk_i by rr_rea_sync_word.
     -- Resets to 0 so every source bit powers up in its safe/inactive state —
     -- the gated DUT signal stays held until the host explicitly writes it
     -- (no auto-release on config load / arm). 0x3C sits below SEQ_BASE (0x40),
@@ -116,7 +116,7 @@ package rr_rea_pkg is
     --
     -- WIDTH CONTRACT (RTL-P3.691, sibling of RTL-P2.658b): the per-stage
     -- value_a/mask_a (and value_b/mask_b) RW slots are NOT YET implemented
-    -- in rr_rea_regbank. The capture-FSM already carries them full-width
+    -- in rr_rea_regbank. The capture_i-FSM already carries them full-width
     -- (G_SAMPLE_W bits per stage), so WHEN these JTAG slots are added they
     -- MUST be banked exactly like TRIG_VALUE/TRIG_MASK — a 32-bit window
     -- into trig_words(G_SAMPLE_W) words, paged by TRIG_WORD_SEL (0x2C) or a
@@ -129,8 +129,8 @@ package rr_rea_pkg is
     constant C_SEQ_STRIDE       : positive := 20;  -- bytes per stage
     constant C_ADDR_TIMESTAMP_W : unsigned(15 downto 0) := C_REGBANK_ADDR_TIMESTAMP_W;
     constant C_ADDR_START_PTR   : unsigned(15 downto 0) := C_REGBANK_ADDR_START_PTR;
-    -- RTL-P1.91: independent bank selector for capture data. DATA_BASE keeps
-    -- one address per capture cell; this selects which 32-bit word of that
+    -- RTL-P1.91: independent bank selector for capture_i data. DATA_BASE keeps
+    -- one address per capture_i cell; this selects which 32-bit word of that
     -- cell is visible. Reset 0 preserves the historical low-word window.
     constant C_ADDR_DATA_WORD_SEL : unsigned(15 downto 0) := C_REGBANK_ADDR_DATA_WORD_SEL;
     -- RTL-P3.1198: content/feature fingerprint identity registers. VERSION
@@ -202,7 +202,7 @@ package rr_rea_pkg is
     -- When 0, the FSM uses the flat single-comparator path
     -- (TRIG_VALUE / TRIG_MASK at 0x24/0x28, REA-REQ-100..106).
     -- When 1, per-stage seq_value_k / seq_mask_k at ADDR_SEQ_BASE+
-    -- drive the trigger; the final stage's match fires capture.
+    -- drive the trigger; the final stage's match fires capture_i.
     constant C_TRIG_MODE_BIT_SEQ_EN : natural := 1;
 
     -- bit[2] = enable per-condition comparator array (RTL-P3.647). When 1, the
@@ -213,15 +213,15 @@ package rr_rea_pkg is
     constant C_TRIG_MODE_BIT_ARRAY_EN : natural := 2;
 
     -- bit[3]  = enable external board-pin trigger (RTL-P3.266). When 1, the
-    --           wrapper's `ext_trigger_in` package-pin input participates in
+    --           wrapper's `ext_trigger_i` package-pin input participates in
     --           the fire decision (the user routes a board pin → the ELA
-    --           wrapper's ext_trigger_in in their HDL + XDC). When 0, the pin
+    --           wrapper's ext_trigger_i in their HDL + XDC). When 0, the pin
     --           is ignored and behaviour is exactly the internal-only path.
     -- bit[8]  = external-trigger combine mode: 0 = OR with the internal
     --           trigger (fire on EITHER — cross-board "any of us trips"),
     --           1 = AND (fire only when the internal condition AND the pin are
-    --           both asserted — scope-gated / armed-window captures).
-    -- Distinct from the trig_xbar `trigger_in` CDC pulse (REA-REQ-400/401),
+    --           both asserted — scope-gated / armed_o-window captures).
+    -- Distinct from the trig_xbar `trigger_i` CDC pulse (REA-REQ-400/401),
     -- which is an on-chip cross-core sync and always an independent OR.
     constant C_TRIG_MODE_BIT_EXT_EN  : natural := 3;
     constant C_TRIG_MODE_BIT_EXT_AND : natural := 8;
@@ -246,7 +246,7 @@ package rr_rea_pkg is
     -- (RTL-P3.644/645/646). bit[0]=value_match stays set for back-compat;
     -- op 0 (EQ) == the historical masked-equality behaviour, so a host that
     -- writes the bare x"00000001" still gets EQ. The op applies to the masked
-    -- field (probe_in and TRIG_MASK) vs (TRIG_VALUE and TRIG_MASK):
+    -- field (probe_i and TRIG_MASK) vs (TRIG_VALUE and TRIG_MASK):
     --   EQ  ==   NE  /=   LT  <   GT  >  (unsigned, masked field)
     --   RISE/FALL — any masked bit transitioning 0->1 / 1->0 (needs prev sample)
     constant C_TRIG_OP_LSB   : natural := 4;
@@ -267,7 +267,7 @@ package rr_rea_pkg is
     -- trigger value/mask storage sizes to trig_words(G_SAMPLE_W) for the
     -- INSTANTIATED width (linear), not to the ceiling. TRIG_WORD_SEL is 8-bit
     -- so it addresses up to 256 words (well beyond 32). Trigger configuration
-    -- and capture readback each page every legal sample width through their
+    -- and capture_i readback each page every legal sample width through their
     -- independent selectors. NB the per-slice serial comparator storage still
     -- scales ~O(width^2) (RTL-P2.881, out of scope here); this encoding does
     -- not preclude that redesign — the ceiling and paging are orthogonal to it.

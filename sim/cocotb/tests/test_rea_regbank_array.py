@@ -67,38 +67,38 @@ def _cfg(valid: int, op: int, width: int, lsb: int) -> int:
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.jtag_clk, CLK_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.jtag_clk_i, CLK_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.jtag_rst.value = 1
-    dut.wr_en.value = 0
-    dut.wr_addr.value = 0
-    dut.wr_data.value = 0
-    dut.rd_addr.value = 0
-    dut.armed_in.value = 0
-    dut.triggered_in.value = 0
-    dut.done_in.value = 0
-    dut.overflow_in.value = 0
-    dut.start_ptr_in.value = 0
-    await ClockCycles(dut.jtag_clk, 4)
-    dut.jtag_rst.value = 0
-    await ClockCycles(dut.jtag_clk, 1)
+    dut.jtag_rst_i.value = 1
+    dut.wr_en_i.value = 0
+    dut.wr_addr_i.value = 0
+    dut.wr_data_i.value = 0
+    dut.rd_addr_i.value = 0
+    dut.armed_i.value = 0
+    dut.triggered_i.value = 0
+    dut.done_i.value = 0
+    dut.overflow_i.value = 0
+    dut.start_ptr_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 4)
+    dut.jtag_rst_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 1)
 
 
 async def _write(dut, addr: int, data: int):
-    dut.wr_addr.value = addr
-    dut.wr_data.value = data
-    dut.wr_en.value = 1
-    await RisingEdge(dut.jtag_clk)
-    dut.wr_en.value = 0
-    await RisingEdge(dut.jtag_clk)
+    dut.wr_addr_i.value = addr
+    dut.wr_data_i.value = data
+    dut.wr_en_i.value = 1
+    await RisingEdge(dut.jtag_clk_i)
+    dut.wr_en_i.value = 0
+    await RisingEdge(dut.jtag_clk_i)
 
 
 async def _read(dut, addr: int) -> int:
-    dut.rd_addr.value = addr
-    await ClockCycles(dut.jtag_clk, 2)
-    return int(dut.rd_data.value)
+    dut.rd_addr_i.value = addr
+    await ClockCycles(dut.jtag_clk_i, 2)
+    return int(dut.rd_data_o.value)
 
 
 def _slot(vec: int, k: int, width: int) -> int:
@@ -121,12 +121,12 @@ async def test_cond_expansion_value_mask_op(dut):
 
     await _write_cond(dut, 0, _cfg(1, OP_LT, 4, 0), 5)
     await _write_cond(dut, 1, _cfg(1, OP_EQ, 4, 4), 1)
-    await ClockCycles(dut.jtag_clk, 2)
+    await ClockCycles(dut.jtag_clk_i, 2)
 
-    masks = int(dut.cond_masks_out.value)
-    values = int(dut.cond_values_out.value)
-    ops = int(dut.cond_ops_out.value)
-    valid = int(dut.cond_valid_out.value)
+    masks = int(dut.cond_masks_o.value)
+    values = int(dut.cond_values_o.value)
+    ops = int(dut.cond_ops_o.value)
+    valid = int(dut.cond_valid_o.value)
 
     # slot0: field [3:0]
     assert _slot(masks, 0, G_SAMPLE_W) == 0x000F, "slot0 mask"
@@ -175,14 +175,14 @@ async def test_cond_out_of_range_sel_dropped(dut):
     await _write_cond(dut, 0, _cfg(1, OP_EQ, 4, 0), 0x7)
     # Point at slot 9 (only 0..3 exist) and write junk.
     await _write_cond(dut, 9, _cfg(1, OP_GT, 8, 0), 0xFFFF)
-    await ClockCycles(dut.jtag_clk, 2)
+    await ClockCycles(dut.jtag_clk_i, 2)
 
     # slot0 untouched.
     await _write(dut, ADDR_COND_SEL, 0)
     assert (await _read(dut, ADDR_COND_VAL)) == 0x7
-    assert _slot(int(dut.cond_values_out.value), 0, G_SAMPLE_W) == 0x7
+    assert _slot(int(dut.cond_values_o.value), 0, G_SAMPLE_W) == 0x7
     # no slot is valid beyond the two we know — junk didn't land anywhere real.
-    assert int(dut.cond_valid_out.value) & 0b1110 == 0
+    assert int(dut.cond_valid_o.value) & 0b1110 == 0
 
     dut._log.info("REA-REQ-608 PASS — out-of-range COND_SEL write dropped")
 

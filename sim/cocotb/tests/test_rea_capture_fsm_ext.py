@@ -51,48 +51,48 @@ def main() -> None:
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.trigger_in.value = 0
-    dut.pretrig_len_in.value = 8
-    dut.posttrig_len_in.value = 8
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.trigger_i.value = 0
+    dut.pretrig_len_i.value = 8
+    dut.posttrig_len_i.value = 8
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
     # RTL-P3.266 external-trigger inputs — default off each test.
-    dut.ext_trigger_in.value = 0
-    dut.ext_enable_in.value = 0
-    dut.ext_and_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.ext_trigger_i.value = 0
+    dut.ext_enable_i.value = 0
+    dut.ext_and_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 async def _pulse(sig, dut, n_cycles: int = 1):
     sig.value = 1
     for _ in range(n_cycles):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
     sig.value = 0
 
 
 def _never_match(dut):
     """Pin a value/mask the all-zero probe can never satisfy → local hit=0."""
-    dut.probe_in.value = 0
-    dut.trig_value_in.value = 0xFFF
-    dut.trig_mask_in.value = 0xFFF
+    dut.probe_i.value = 0
+    dut.trig_value_i.value = 0xFFF
+    dut.trig_mask_i.value = 0xFFF
 
 
 def _always_match(dut):
     """mask=0 → masked equality always true → local hit=1 every cycle."""
-    dut.probe_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
+    dut.probe_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
 
 
 # ── REA-REQ-410: ext OR — the pin fires capture on its own ───────────
@@ -106,18 +106,18 @@ async def test_rea_req_410_ext_or_pin_fires(dut):
     await _start_clk(dut)
     await _reset(dut)
     _never_match(dut)
-    dut.ext_enable_in.value = 1
-    dut.ext_and_in.value = 0
+    dut.ext_enable_i.value = 1
+    dut.ext_and_i.value = 0
 
-    await ClockCycles(dut.sample_clk, 20)
-    await _pulse(dut.arm_pulse, dut, 1)
-    await ClockCycles(dut.sample_clk, 20)
-    assert int(dut.triggered.value) == 0, "no local match → must not fire yet"
+    await ClockCycles(dut.sample_clk_i, 20)
+    await _pulse(dut.arm_pulse_i, dut, 1)
+    await ClockCycles(dut.sample_clk_i, 20)
+    assert int(dut.triggered_o.value) == 0, "no local match → must not fire yet"
 
-    dut.ext_trigger_in.value = 1
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 2)
+    dut.ext_trigger_i.value = 1
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 2)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, "ext pin (OR) should have fired"
+    assert int(dut.triggered_o.value) == 1, "ext pin (OR) should have fired"
     dut._log.info("REA-REQ-410 PASS — ext OR pin fired")
 
 
@@ -132,22 +132,22 @@ async def test_rea_req_411_ext_and_requires_both(dut):
     await _start_clk(dut)
     await _reset(dut)
     _always_match(dut)            # local hit = 1 every cycle
-    dut.ext_enable_in.value = 1
-    dut.ext_and_in.value = 1
-    dut.ext_trigger_in.value = 0  # pin low → AND gate open
+    dut.ext_enable_i.value = 1
+    dut.ext_and_i.value = 1
+    dut.ext_trigger_i.value = 0  # pin low → AND gate open
 
-    await ClockCycles(dut.sample_clk, 20)
-    await _pulse(dut.arm_pulse, dut, 1)
-    await ClockCycles(dut.sample_clk, 20)
-    assert int(dut.triggered.value) == 0, (
+    await ClockCycles(dut.sample_clk_i, 20)
+    await _pulse(dut.arm_pulse_i, dut, 1)
+    await ClockCycles(dut.sample_clk_i, 20)
+    assert int(dut.triggered_o.value) == 0, (
         "AND mode: local hit alone (pin low) must NOT fire"
     )
 
     # Raise the pin — now BOTH conditions hold → fire.
-    dut.ext_trigger_in.value = 1
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 2)
+    dut.ext_trigger_i.value = 1
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 2)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "AND mode: local hit AND pin should have fired"
     )
     dut._log.info("REA-REQ-411 PASS — ext AND requires both")
@@ -165,13 +165,13 @@ async def test_rea_req_412_ext_disabled_ignores_pin(dut):
     await _start_clk(dut)
     await _reset(dut)
     _never_match(dut)
-    dut.ext_enable_in.value = 0    # feature OFF
-    dut.ext_trigger_in.value = 1   # pin held HIGH the whole time
+    dut.ext_enable_i.value = 0    # feature OFF
+    dut.ext_trigger_i.value = 1   # pin held HIGH the whole time
 
-    await ClockCycles(dut.sample_clk, 20)
-    await _pulse(dut.arm_pulse, dut, 1)
-    await ClockCycles(dut.sample_clk, 30)
-    assert int(dut.triggered.value) == 0, (
+    await ClockCycles(dut.sample_clk_i, 20)
+    await _pulse(dut.arm_pulse_i, dut, 1)
+    await ClockCycles(dut.sample_clk_i, 30)
+    assert int(dut.triggered_o.value) == 0, (
         "ext disabled: a high pin must be ignored (no fire)"
     )
     dut._log.info("REA-REQ-412 PASS — disabled ext pin ignored")
@@ -190,32 +190,32 @@ async def test_rea_req_413_and_mode_trigger_out_gated(dut):
     await _start_clk(dut)
     await _reset(dut)
     _always_match(dut)
-    dut.ext_enable_in.value = 1
-    dut.ext_and_in.value = 1
-    dut.ext_trigger_in.value = 0
+    dut.ext_enable_i.value = 1
+    dut.ext_and_i.value = 1
+    dut.ext_trigger_i.value = 0
 
-    await ClockCycles(dut.sample_clk, 20)
-    await _pulse(dut.arm_pulse, dut, 1)
+    await ClockCycles(dut.sample_clk_i, 20)
+    await _pulse(dut.arm_pulse_i, dut, 1)
 
     # Watch trigger_out for 25 cycles while the pin is LOW — it must stay 0
     # (the comparator matches every cycle, but AND gate is closed).
     saw_pulse = 0
     for _ in range(25):
-        await RisingEdge(dut.sample_clk)
-        saw_pulse |= int(dut.trigger_out.value)
+        await RisingEdge(dut.sample_clk_i)
+        saw_pulse |= int(dut.trigger_o.value)
     assert saw_pulse == 0, (
         "trigger_out pulsed on comparator-only in AND mode (pin low) — would "
         "ping-pong coupled cores on a premature non-fire"
     )
 
     # Raise the pin: the true local fire should now pulse trigger_out once.
-    dut.ext_trigger_in.value = 1
+    dut.ext_trigger_i.value = 1
     fired_out = 0
     for _ in range(DERIVED_PIPE_STAGES + 2):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
-        fired_out |= int(dut.trigger_out.value)
-    assert int(dut.triggered.value) == 1, "AND fire (both high) expected"
+        fired_out |= int(dut.trigger_o.value)
+    assert int(dut.triggered_o.value) == 1, "AND fire (both high) expected"
     assert fired_out == 1, "true local fire should pulse trigger_out"
     dut._log.info("REA-REQ-413 PASS — AND-mode trigger_out gated correctly")
 

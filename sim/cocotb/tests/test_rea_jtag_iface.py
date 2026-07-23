@@ -52,30 +52,30 @@ TCK_NS = 25.0  # 40 MHz nominal
 
 
 async def _start_tck(dut):
-    cocotb.start_soon(Clock(dut.tck, TCK_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.tck_i, TCK_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.arst.value = 1
-    dut.tdi.value = 0
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    dut.sel.value = 0
-    dut.reg_rdata.value = 0
-    await ClockCycles(dut.tck, 4)
-    dut.arst.value = 0
-    await ClockCycles(dut.tck, 1)
+    dut.arst_i.value = 1
+    dut.tdi_i.value = 0
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
+    dut.reg_rdata_i.value = 0
+    await ClockCycles(dut.tck_i, 4)
+    dut.arst_i.value = 0
+    await ClockCycles(dut.tck_i, 1)
 
 
 async def _capture_phase(dut):
     """Pulse `capture` for 1 tck cycle while sel=1."""
-    dut.sel.value = 1
-    dut.capture.value = 1
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    await RisingEdge(dut.tck)
-    dut.capture.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 1
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    await RisingEdge(dut.tck_i)
+    dut.capture_i.value = 0
 
 
 async def _shift_dr(dut, value: int, n_bits: int) -> int:
@@ -87,35 +87,35 @@ async def _shift_dr(dut, value: int, n_bits: int) -> int:
     issue the rising edge that shifts a new value into sr(0).
     """
     from cocotb.triggers import NextTimeStep, ReadOnly
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.update.value = 0
-    dut.shift_en.value = 1
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.update_i.value = 0
+    dut.shift_en_i.value = 1
     # Force one delta-cycle settle so the just-set inputs (and the
     # CAPTURE'd sr) propagate through the simulator before we sample.
     await ReadOnly()
     await NextTimeStep()
     tdo_bits = 0
     for i in range(n_bits):
-        dut.tdi.value = (value >> i) & 1
+        dut.tdi_i.value = (value >> i) & 1
         # Sample tdo BEFORE the edge — the bit currently at sr(0).
         await ReadOnly()
-        bit = int(dut.tdo.value) & 1
+        bit = int(dut.tdo_o.value) & 1
         tdo_bits |= bit << i
-        await RisingEdge(dut.tck)
-    dut.shift_en.value = 0
+        await RisingEdge(dut.tck_i)
+    dut.shift_en_i.value = 0
     return tdo_bits
 
 
 async def _update_phase(dut):
     """Pulse `update` for 1 tck cycle while sel=1."""
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 1
-    await RisingEdge(dut.tck)
-    dut.update.value = 0
-    dut.sel.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 1
+    await RisingEdge(dut.tck_i)
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
 
 
 def _frame(addr: int, data: int, write: bool) -> int:
@@ -146,8 +146,8 @@ async def _do_read(dut, addr: int, expected_rdata: int) -> int:
     # Set reg_rdata BEFORE the second capture and let it settle one
     # cycle so the edge sees the new value (cocotb scheduled writes
     # apply at the next settle, but we want NO chance of a race).
-    dut.reg_rdata.value = expected_rdata
-    await ClockCycles(dut.tck, 1)
+    dut.reg_rdata_i.value = expected_rdata
+    await ClockCycles(dut.tck_i, 1)
 
     await _capture_phase(dut)
     # Shift the full 49-bit DR; the lower 32 bits carry rdata.
@@ -161,7 +161,7 @@ async def _watch_for_pulse(dut, sig_name: str, max_cycles: int = 5) -> bool:
     for _ in range(max_cycles):
         if int(sig.value) == 1:
             return True
-        await RisingEdge(dut.tck)
+        await RisingEdge(dut.tck_i)
     return False
 
 
@@ -188,18 +188,18 @@ async def test_rea_req_001_write_produces_one_wr_en(dut):
     async def _snoop():
         cycle = 0
         for _ in range(200):
-            await RisingEdge(dut.tck)
+            await RisingEdge(dut.tck_i)
             cycle += 1
-            if int(dut.reg_wr_en.value) == 1:
+            if int(dut.reg_wr_en_o.value) == 1:
                 writes.append(
-                    (int(dut.reg_addr.value), int(dut.reg_wdata.value))
+                    (int(dut.reg_addr_o.value), int(dut.reg_wdata_o.value))
                 )
 
     snoop = cocotb.start_soon(_snoop())
 
     await _do_write(dut, TARGET_ADDR, TARGET_DATA)
     # Drain a few cycles after the update so the snoop sees the pulse.
-    await ClockCycles(dut.tck, 5)
+    await ClockCycles(dut.tck_i, 5)
 
     snoop.kill()
 

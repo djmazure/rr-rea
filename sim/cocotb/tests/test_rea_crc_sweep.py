@@ -44,10 +44,10 @@ def cell_value(i: int, width: int) -> int:
 
 async def drive_memory(dut, width: int) -> None:
     while True:
-        await RisingEdge(dut.sample_clk)
-        if dut.mem_rd_en.value == 1:
-            address = int(dut.mem_addr.value)
-            dut.mem_dout.value = cell_value(address, width)
+        await RisingEdge(dut.sample_clk_i)
+        if dut.mem_rd_en_o.value == 1:
+            address = int(dut.mem_addr_o.value)
+            dut.mem_dout_i.value = cell_value(address, width)
 
 
 def canonical_page_bytes(width: int, depth: int) -> bytes:
@@ -61,46 +61,46 @@ def canonical_page_bytes(width: int, depth: int) -> bytes:
 @cocotb.test()
 @requires("REA-REQ-801", "REA-REQ-805")
 async def test_crc_sweep(dut) -> None:
-    width = len(dut.mem_dout)
+    width = len(dut.mem_dout_i)
     depth, golden = _BUILDS[width]
 
     assert zlib.crc32(canonical_page_bytes(width, depth)) == golden
 
-    dut.sample_rst.value = 1
-    dut.start.value = 0
-    dut.mem_dout.value = 0
-    cocotb.start_soon(Clock(dut.sample_clk, 10, unit="ns").start())
+    dut.sample_rst_i.value = 1
+    dut.start_i.value = 0
+    dut.mem_dout_i.value = 0
+    cocotb.start_soon(Clock(dut.sample_clk_i, 10, unit="ns").start())
     cocotb.start_soon(drive_memory(dut, width))
 
-    await RisingEdge(dut.sample_clk)
-    await RisingEdge(dut.sample_clk)
-    dut.sample_rst.value = 0
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
+    await RisingEdge(dut.sample_clk_i)
+    dut.sample_rst_i.value = 0
+    await RisingEdge(dut.sample_clk_i)
 
     # Single-cycle start pulse, driven relative to the rising edge (the DUT
     # samples on rising_edge; no falling-edge stimulus — REA is edge-clean).
-    dut.start.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.start.value = 0
+    dut.start_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.start_i.value = 0
     await ReadOnly()
-    assert dut.busy.value == 1
+    assert dut.busy_o.value == 1
 
     max_cycles = depth * (4 * ((width + 31) // 32) + 4) + 10
     for _ in range(max_cycles):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
-        if int(dut.crc_done.value):
+        if int(dut.crc_done_o.value):
             break
     else:
         raise AssertionError("crc_done did not assert")
 
-    assert int(dut.crc_out.value) == golden
-    assert dut.busy.value == 0
+    assert int(dut.crc_o.value) == golden
+    assert dut.busy_o.value == 0
 
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     await ReadOnly()
-    assert dut.crc_done.value == 0
-    assert int(dut.crc_out.value) == golden
+    assert dut.crc_done_o.value == 0
+    assert int(dut.crc_o.value) == golden
 
 
 def main() -> None:

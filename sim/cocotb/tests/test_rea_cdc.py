@@ -66,24 +66,24 @@ async def test_rea_req_020_word_sync_settles_in_two_cycles(dut):
     Skip body when the active simulation top is the OTHER entity in
     this file — cocotb runs every @test() against whatever top the
     sim was launched with."""
-    if not hasattr(dut, "din"):
+    if not hasattr(dut, "din_i"):
         return  # wrong top — pulse_xfer is the active DUT
-    cocotb.start_soon(Clock(dut.dst_clk, 8.0, unit="ns").start())  # 125 MHz
-    dut.din.value = 0
-    await ClockCycles(dut.dst_clk, 5)
+    cocotb.start_soon(Clock(dut.dst_clk_i, 8.0, unit="ns").start())  # 125 MHz
+    dut.din_i.value = 0
+    await ClockCycles(dut.dst_clk_i, 5)
 
     # Hard-coded sequence of words. Each value held for ≥3 cycles so
     # it propagates through both sync flops and we can sample after
     # exactly 2 cycles to confirm settle time.
     cases = [0xCAFE, 0x1234, 0x0001, 0xFFFF, 0xA5A5]
     for word in cases:
-        dut.din.value = word
+        dut.din_i.value = word
         # Two clock edges → s1 catches → s2 catches.
-        await RisingEdge(dut.dst_clk)
-        await RisingEdge(dut.dst_clk)
+        await RisingEdge(dut.dst_clk_i)
+        await RisingEdge(dut.dst_clk_i)
         # On the THIRD edge the value should be visible on dout.
-        await RisingEdge(dut.dst_clk)
-        observed = int(dut.dout.value)
+        await RisingEdge(dut.dst_clk_i)
+        observed = int(dut.dout_o.value)
         assert observed == word, (
             f"REA-REQ-020 failed: din=0x{word:04X} not on dout after "
             f"3 dst_clk cycles (got 0x{observed:04X})"
@@ -101,17 +101,17 @@ async def test_rea_req_021_pulse_xfer_one_pulse_per_event(dut):
     """Each toggle of src_toggle produces exactly one dst_pulse on
     dst_clk, regardless of clock-ratio. The caller (e.g., regbank)
     flips src_toggle once per logical event."""
-    if not hasattr(dut, "src_toggle"):
+    if not hasattr(dut, "src_toggle_i"):
         return  # wrong top — sync_word is the active DUT
 
     # Asymmetric ratio: dst_clk = 125 MHz (8 ns).
-    cocotb.start_soon(Clock(dut.dst_clk, 8.0, unit="ns").start())
+    cocotb.start_soon(Clock(dut.dst_clk_i, 8.0, unit="ns").start())
 
-    dut.dst_rst.value = 1
-    dut.src_toggle.value = 0
-    await ClockCycles(dut.dst_clk, 8)
-    dut.dst_rst.value = 0
-    await ClockCycles(dut.dst_clk, 4)
+    dut.dst_rst_i.value = 1
+    dut.src_toggle_i.value = 0
+    await ClockCycles(dut.dst_clk_i, 8)
+    dut.dst_rst_i.value = 0
+    await ClockCycles(dut.dst_clk_i, 4)
 
     # ── Background watcher: count dst_pulse asserts over 80 dst clocks.
     pulse_count = 0
@@ -119,8 +119,8 @@ async def test_rea_req_021_pulse_xfer_one_pulse_per_event(dut):
     async def _count_pulses():
         nonlocal pulse_count
         for _ in range(80):
-            await RisingEdge(dut.dst_clk)
-            if int(dut.dst_pulse.value) == 1:
+            await RisingEdge(dut.dst_clk_i)
+            if int(dut.dst_pulse_o.value) == 1:
                 pulse_count += 1
 
     watcher = cocotb.start_soon(_count_pulses())
@@ -129,8 +129,8 @@ async def test_rea_req_021_pulse_xfer_one_pulse_per_event(dut):
     cur = 0
     for _ in range(3):
         cur ^= 1
-        dut.src_toggle.value = cur
-        await ClockCycles(dut.dst_clk, 10)  # let it propagate
+        dut.src_toggle_i.value = cur
+        await ClockCycles(dut.dst_clk_i, 10)  # let it propagate
 
     await watcher
 

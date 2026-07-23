@@ -94,7 +94,7 @@ async def test_rea_req_024_timestamp_alignment_across_wrap_and_trigger(dut):
     await _start_clocks(dut)
     await _reset(dut)
     cocotb.start_soon(_drive_probe_counter(dut, 100_000))
-    await ClockCycles(dut.sample_clk, 3 * depth)
+    await ClockCycles(dut.sample_clk_i, 3 * depth)
 
     assert await _jtag_read(dut, ADDR_FEATURES) & (1 << 18)
     await _jtag_write(dut, ADDR_PRETRIG, pretrigger)
@@ -107,7 +107,7 @@ async def test_rea_req_024_timestamp_alignment_across_wrap_and_trigger(dut):
     for _ in range(200):
         if await _jtag_read(dut, ADDR_STATUS) & 0x04:
             break
-        await ClockCycles(dut.tck, 4)
+        await ClockCycles(dut.tck_i, 4)
     else:
         raise AssertionError("timestamp-plane capture did not complete")
 

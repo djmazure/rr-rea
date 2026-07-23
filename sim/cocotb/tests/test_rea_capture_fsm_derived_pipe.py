@@ -53,38 +53,38 @@ def main() -> None:
 
 
 async def _start_clock(dut) -> None:
-    cocotb.start_soon(Clock(dut.sample_clk, 8.0, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, 8.0, unit="ns").start())
 
 
 async def _reset(dut) -> None:
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.trigger_in.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 4
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    dut.decim_ratio_in.value = 0
-    dut.seq_enable_in.value = 0
-    dut.array_enable_in.value = 0
-    dut.ext_trigger_in.value = 0
-    dut.ext_enable_in.value = 0
-    dut.ext_and_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await RisingEdge(dut.sample_clk)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.trigger_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 4
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    dut.decim_ratio_i.value = 0
+    dut.seq_enable_i.value = 0
+    dut.array_enable_i.value = 0
+    dut.ext_trigger_i.value = 0
+    dut.ext_enable_i.value = 0
+    dut.ext_and_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await RisingEdge(dut.sample_clk_i)
 
 
 async def _arm(dut, *, target: int, operation: int) -> None:
-    dut.trig_value_in.value = target
-    dut.trig_mask_in.value = SAMPLE_MASK
-    dut.trig_mode_in.value = 1 | (operation << 4)
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.trig_value_i.value = target
+    dut.trig_mask_i.value = SAMPLE_MASK
+    dut.trig_mode_i.value = 1 | (operation << 4)
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 @cocotb.test()
@@ -103,24 +103,24 @@ async def test_wide_gt_uses_exact_derived_latency_and_pointer_tag(dut):
     matching_sample = 0x0100_0000_01
     await _arm(dut, target=target, operation=3)
 
-    dut.probe_in.value = target
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = matching_sample
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
+    dut.probe_i.value = target
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = matching_sample
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
 
     for completed_stage in range(1, PIPE_STAGES):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
-        assert int(dut.triggered.value) == 0, (
+        assert int(dut.triggered_o.value) == 0, (
             f"40-bit decision fired after {completed_stage} stages; expected 8"
         )
 
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1
-    assert int(dut.trigger_out.value) == 1
-    assert int(dut.trig_ptr_out.value) == 3
+    assert int(dut.triggered_o.value) == 1
+    assert int(dut.trigger_o.value) == 1
+    assert int(dut.trig_ptr_o.value) == 3
 
 
 @cocotb.test()
@@ -131,12 +131,12 @@ async def test_wide_lt_crosses_32_bit_boundary_without_order_reversal(dut):
 
     target = 0x0100_0000_00
     await _arm(dut, target=target, operation=2)
-    dut.probe_in.value = 0x00FF_FFFF_FF
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0x0200_0000_00
-    await ClockCycles(dut.sample_clk, PIPE_STAGES + 1)
+    dut.probe_i.value = 0x00FF_FFFF_FF
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0x0200_0000_00
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES + 1)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "LT token combine reversed significance across the 32-bit boundary"
     )
 

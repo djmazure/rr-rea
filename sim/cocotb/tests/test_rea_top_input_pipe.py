@@ -72,7 +72,7 @@ def main() -> None:
 
 async def _wait_armed(dut) -> None:
     for _ in range(50):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
         if int(dut.armed_sclk.value) == 1:
             return
@@ -84,7 +84,7 @@ async def _wait_done(dut) -> None:
         status = await _jtag_read(dut, ADDR_STATUS)
         if (status & STATUS_BIT_DONE) != 0:
             return
-        await ClockCycles(dut.tck, 2)
+        await ClockCycles(dut.tck_i, 2)
     assert False, "REA-REQ-301 failed: capture did not complete after trigger"
 
 
@@ -111,24 +111,24 @@ async def test_derived_pipe_delays_trigger_and_preserves_sample(dut):
     await _wait_armed(dut)
     await NextTimeStep()
 
-    dut.probe_in.value = pulse_value
-    await RisingEdge(dut.sample_clk)
+    dut.probe_i.value = pulse_value
+    await RisingEdge(dut.sample_clk_i)
     await ReadOnly()
     assert int(dut.triggered_sclk.value) == 0, (
         "REA-REQ-320 failed: trigger fired before the first derived stage"
     )
 
     await NextTimeStep()
-    dut.probe_in.value = 0
+    dut.probe_i.value = 0
     for early_cycle in range(1, DERIVED_PIPE_STAGES):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
         assert int(dut.triggered_sclk.value) == 0, (
             "REA-REQ-320 failed: trigger fired after "
             f"{early_cycle} stages, expected {DERIVED_PIPE_STAGES}"
         )
 
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     await ReadOnly()
     assert int(dut.triggered_sclk.value) == 1, (
         "REA-REQ-320 failed: one-cycle probe pulse did not emerge after "

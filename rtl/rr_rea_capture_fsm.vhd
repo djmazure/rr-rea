@@ -1,20 +1,20 @@
 -- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 -- SPDX-License-Identifier: MIT
 --
--- rr_rea_capture_fsm — sliding-window capture state machine.
+-- rr_rea_capture_fsm — sliding-window capture_i state machine.
 --
 -- THIS IS WHERE WE EXPLICITLY DIVERGE FROM fcapz.
 --
--- The dpram write path is FREE-RUNNING from sample_rst deassertion:
--- `dpram_we` is `!done && store_enable_in`, NOT gated by `armed`.
+-- The dpram write path is FREE-RUNNING from sample_rst_i deassertion:
+-- `dpram_we_o` is `!done_o && store_enable_in`, NOT gated by `armed_o`.
 -- Combined with `wr_ptr` that increments every cycle (also not gated
--- by `armed`), this implements the textbook ILA sliding-window model
+-- by `armed_o`), this implements the textbook ILA sliding-window model
 -- (Vivado ChipScope, Intel SignalTap, ARM ELA): the buffer always
 -- holds the most-recent DEPTH samples, so a trigger that fires
 -- immediately after `arm` still has the full pretrigger window of
 -- context already in the buffer.
 --
--- fcapz's `mem_we_a = armed && !done && store_enable` leaves uninit
+-- fcapz's `mem_we_a = armed_o && !done_o && store_enable` leaves uninit
 -- BRAM cells in the captured window when the trigger fires before
 -- pretrig_len cycles have elapsed since arm. We do not ship that.
 --
@@ -39,45 +39,45 @@ entity rr_rea_capture_fsm is
         G_TRIG_CONDS   : positive := 4   -- v0.5 comparator-array slots (P3.647)
     );
     port (
-        sample_clk  : in  std_logic;
-        sample_rst  : in  std_logic;
+        sample_clk_i  : in  std_logic;
+        sample_rst_i  : in  std_logic;
 
-        -- ── Probe input (sync'd to sample_clk by the caller) ─────
-        probe_in    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        -- ── Probe input (sync'd to sample_clk_i by the caller) ─────
+        probe_i    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
 
-        -- ── Control pulses (sync'd to sample_clk by rr_rea_cdc) ──
-        arm_pulse   : in  std_logic;   -- 1 cycle wide
-        reset_pulse : in  std_logic;   -- 1 cycle wide; clears state
+        -- ── Control pulses (sync'd to sample_clk_i by rr_rea_cdc) ──
+        arm_pulse_i   : in  std_logic;   -- 1 cycle wide
+        reset_pulse_i : in  std_logic;   -- 1 cycle wide; clears state
 
         -- ── External trigger input (REA-REQ-400) ─────────────────
-        -- 1-cycle pulse on sample_clk from the cross-domain trigger
-        -- crossbar (rr_rea_trig_xbar) — when armed, fires the
-        -- capture as if the local comparator hit. Does NOT drive
-        -- trigger_out (that would create a ping-pong loop with
+        -- 1-cycle pulse on sample_clk_i from the cross-domain trigger
+        -- crossbar (rr_rea_trig_xbar) — when armed_o, fires the
+        -- capture_i as if the local comparator hit. Does NOT drive
+        -- trigger_o (that would create a ping-pong loop with
         -- other REA instances on the bus). Tied low when the
         -- crossbar isn't connected.
-        trigger_in  : in  std_logic := '0';
+        trigger_i  : in  std_logic := '0';
 
-        -- ── Latched config (sample_clk domain) ───────────────────
-        pretrig_len_in  : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        posttrig_len_in : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        trig_value_in   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
-        trig_mask_in    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        -- ── Latched config (sample_clk_i domain) ───────────────────
+        pretrig_len_i  : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        posttrig_len_i : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        trig_value_i   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        trig_mask_i    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
         -- Comparator op for the legacy single-comparator path (RTL-P3.644/
         -- 645/646): bits[7:4] of TRIG_MODE = C_TRIG_OP_{EQ,NE,LT,GT,RISE,FALL}.
         -- Default 0 → EQ → historical masked-equality behaviour (back-compat).
-        trig_mode_in    : in  std_logic_vector(7 downto 0) := (others => '0');
-        -- v0.3 decimation: capture every (decim_ratio + 1) samples.
+        trig_mode_i    : in  std_logic_vector(7 downto 0) := (others => '0');
+        -- v0.3 decimation: capture_i every (decim_ratio + 1) samples.
         -- Tied 0 disables decimation (every sample stored). Latched
-        -- on arm_pulse like the other config.
-        decim_ratio_in  : in  std_logic_vector(23 downto 0)
+        -- on arm_pulse_i like the other config.
+        decim_ratio_i  : in  std_logic_vector(23 downto 0)
                               := (others => '0');
 
         -- ── v0.3 multi-stage sequencer (REA-REQ-600..607) ────────
-        -- seq_enable_in selects between the legacy single-comparator
-        -- path (trig_value_in / trig_mask_in) and the per-stage
+        -- seq_enable_i selects between the legacy single-comparator
+        -- path (trig_value_i / trig_mask_i) and the per-stage
         -- sequencer below. Tied 0 → legacy path (REA-REQ-600).
-        seq_enable_in     : in  std_logic := '0';
+        seq_enable_i     : in  std_logic := '0';
 
         -- Per-stage value/mask/count_target arrays packed into flat
         -- vectors so the entity stays VHDL-93-compatible. Each
@@ -91,68 +91,68 @@ entity rr_rea_capture_fsm is
         -- regbank's per-stage value_a/mask_a JTAG slots are eventually
         -- added they must page these full-width fields (see the WIDTH
         -- CONTRACT note in rr_rea_pkg), never truncate them to 32 bits.
-        seq_values_in     : in  std_logic_vector(
+        seq_values_i     : in  std_logic_vector(
             G_TRIG_STAGES * G_SAMPLE_W - 1 downto 0)
                               := (others => '0');
-        seq_masks_in      : in  std_logic_vector(
+        seq_masks_i      : in  std_logic_vector(
             G_TRIG_STAGES * G_SAMPLE_W - 1 downto 0)
                               := (others => '0');
-        seq_counts_in     : in  std_logic_vector(
+        seq_counts_i     : in  std_logic_vector(
             G_TRIG_STAGES * 16 - 1 downto 0)
                               := (others => '0');
 
         -- ── v0.5 per-condition comparator array (RTL-P3.647) ─────
-        -- array_enable_in selects the AND-of-conditions path: each valid
-        -- slot k applies its own op (cond_ops_in[k*4 +: 4] = C_TRIG_OP_*)
-        -- to the masked field (probe_in and cond_masks_in[k]) vs
-        -- (cond_values_in[k] and cond_masks_in[k]); the trigger fires when
+        -- array_enable_i selects the AND-of-conditions path: each valid
+        -- slot k applies its own op (cond_ops_i[k*4 +: 4] = C_TRIG_OP_*)
+        -- to the masked field (probe_i and cond_masks_i[k]) vs
+        -- (cond_values_i[k] and cond_masks_i[k]); the trigger fires when
         -- ALL valid slots match (mixed-op AND). Invalid slots don't block.
         -- value/mask are full G_SAMPLE_W (the regbank expands a compact
         -- 32-bit {op,lsb,width,value} slot into the shifted field). Tied 0 →
         -- legacy/seq path (back-compat). seq_enable takes precedence.
-        array_enable_in   : in  std_logic := '0';
-        cond_values_in    : in  std_logic_vector(
+        array_enable_i   : in  std_logic := '0';
+        cond_values_i    : in  std_logic_vector(
             G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0)
                               := (others => '0');
-        cond_masks_in     : in  std_logic_vector(
+        cond_masks_i     : in  std_logic_vector(
             G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0)
                               := (others => '0');
-        cond_ops_in       : in  std_logic_vector(
+        cond_ops_i       : in  std_logic_vector(
             G_TRIG_CONDS * 4 - 1 downto 0)
                               := (others => '0');
-        cond_valid_in     : in  std_logic_vector(G_TRIG_CONDS - 1 downto 0)
+        cond_valid_i     : in  std_logic_vector(G_TRIG_CONDS - 1 downto 0)
                               := (others => '0');
 
         -- ── v0.5 external board-pin trigger (RTL-P3.266) ─────────
-        -- ext_trigger_in is a package-pin input (synced to sample_clk in
+        -- ext_trigger_i is a package-pin input (synced to sample_clk_i in
         -- rr_rea_top) the user routes from a board pin — an oscilloscope
-        -- trigger-out, another FPGA's trigger_out, a push-button, etc.
-        -- When ext_enable_in='1' it joins the fire decision:
-        --   ext_and_in='0' (OR)  → fire on (internal hit) OR (ext pin)
-        --   ext_and_in='1' (AND) → fire only on (internal hit) AND (ext pin)
+        -- trigger-out, another FPGA's trigger_o, a push-button, etc.
+        -- When ext_enable_i='1' it joins the fire decision:
+        --   ext_and_i='0' (OR)  → fire on (internal hit) OR (ext pin)
+        --   ext_and_i='1' (AND) → fire only on (internal hit) AND (ext pin)
         -- Tied 0 / disabled → the pin is ignored (internal-only path,
-        -- back-compat). Distinct from the trig_xbar `trigger_in` pulse below,
+        -- back-compat). Distinct from the trig_xbar `trigger_i` pulse below,
         -- which stays an independent OR regardless of ext mode.
-        ext_trigger_in    : in  std_logic := '0';
-        ext_enable_in     : in  std_logic := '0';
-        ext_and_in        : in  std_logic := '0';
+        ext_trigger_i    : in  std_logic := '0';
+        ext_enable_i     : in  std_logic := '0';
+        ext_and_i        : in  std_logic := '0';
 
         -- ── Status flags (combinational from registers) ──────────
-        armed       : out std_logic;
-        triggered   : out std_logic;
-        done        : out std_logic;
-        overflow    : out std_logic;
-        trigger_out : out std_logic;   -- 1-cycle pulse on local fire
+        armed_o       : out std_logic;
+        triggered_o   : out std_logic;
+        done_o        : out std_logic;
+        overflow_o    : out std_logic;
+        trigger_o : out std_logic;   -- 1-cycle pulse on local fire
 
         -- ── DPRAM port-A drive ───────────────────────────────────
-        dpram_we    : out std_logic;
-        dpram_addr  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        dpram_din   : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        dpram_we_o    : out std_logic;
+        dpram_addr_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        dpram_din_o   : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
 
         -- ── Pointer outputs (regbank readback) ───────────────────
-        wr_ptr_out    : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        trig_ptr_out  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        start_ptr_out : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0)
+        wr_ptr_o    : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        trig_ptr_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        start_ptr_o : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0)
     );
 end entity;
 
@@ -330,8 +330,8 @@ architecture rtl of rr_rea_capture_fsm is
     -- seq_state_r tracks the current stage (0..G_TRIG_STAGES-1).
     -- seq_counters_r[K] counts cumulative matches for stage K and
     -- resets when seq_state advances past K (or on arm).
-    -- Per-stage value/mask/count are LATCHED on arm_pulse just
-    -- like the legacy comparator config; this keeps mid-capture
+    -- Per-stage value/mask/count are LATCHED on arm_pulse_i just
+    -- like the legacy comparator config; this keeps mid-capture_i
     -- changes from disturbing an in-flight sequence.
     constant C_SEQ_STATE_W : positive :=
         clog2(G_TRIG_STAGES + 1);    -- +1 so we can express FINAL+1
@@ -397,8 +397,8 @@ architecture rtl of rr_rea_capture_fsm is
 
     -- ── External board-pin trigger (RTL-P3.266) ─────────────────
     -- ext_enable_r/ext_and_r latch on arm (like seq/array enables).
-    -- ext_trig_r double-registers the (already sample_clk-synced)
-    -- ext_trigger_in for clean edge timing alongside the comparator.
+    -- ext_trig_r double-registers the (already sample_clk_i-synced)
+    -- ext_trigger_i for clean edge timing alongside the comparator.
     -- effective_internal folds the external pin into the internal hit
     -- per the OR/AND mode; the FSM then fires on it (plus the
     -- independent trig_xbar OR).
@@ -451,13 +451,13 @@ begin
     trig_op <= to_integer(unsigned(trig_mode_r(7 downto 4)));
 
     -- These wide sample-data stages carry no meaning unless valid_width_r is
-    -- set. Keeping them off sample_rst removes a reset tree that scales with
+    -- set. Keeping them off sample_rst_i removes a reset tree that scales with
     -- G_SAMPLE_W without changing the validity-gated interface contract.
-    process (sample_clk)
+    process (sample_clk_i)
     begin
-        if rising_edge(sample_clk) then
-            if reset_pulse = '0' and arm_pulse = '0' then
-                probe_pipe_r(0) <= probe_in;
+        if rising_edge(sample_clk_i) then
+            if reset_pulse_i = '0' and arm_pulse_i = '0' then
+                probe_pipe_r(0) <= probe_i;
                 previous_pipe_r(0) <= probe_prev_r;
                 for width_stage in 1 to C_WIDTH_STAGES - 1 loop
                     probe_pipe_r(width_stage) <= probe_pipe_r(width_stage - 1);
@@ -468,9 +468,9 @@ begin
         end if;
     end process;
 
-    process (sample_clk, sample_rst)
+    process (sample_clk_i, sample_rst_i)
     begin
-        if sample_rst = '1' then
+        if sample_rst_i = '1' then
             -- Wide sample data is qualified by valid_width_r, so resetting it
             -- would add recovery arcs without changing observable behaviour.
             pointer_width_r <= (others => (others => '0'));
@@ -479,8 +479,8 @@ begin
             fall_width_r <= (others => (others => '0'));
             valid_width_r <= (others => '0');
             ext_width_r <= (others => '0');
-        elsif rising_edge(sample_clk) then
-            if reset_pulse = '1' or arm_pulse = '1' then
+        elsif rising_edge(sample_clk_i) then
+            if reset_pulse_i = '1' or arm_pulse_i = '1' then
                 token_width_r <= (others => (others => C_CMP_EQUAL));
                 rise_width_r <= (others => (others => '0'));
                 fall_width_r <= (others => (others => '0'));
@@ -492,16 +492,16 @@ begin
                 ext_width_r(0) <= ext_trig_r;
 
                 token_width_r(0, 0) <= cmp_masked_slice(
-                    probe_in, trig_value_r, trig_mask_r, 0);
+                    probe_i, trig_value_r, trig_mask_r, 0);
                 rise_width_r(0, 0) <= rise_masked_slice(
-                    probe_in, probe_prev_r, trig_mask_r, 0);
+                    probe_i, probe_prev_r, trig_mask_r, 0);
                 fall_width_r(0, 0) <= fall_masked_slice(
-                    probe_in, probe_prev_r, trig_mask_r, 0);
+                    probe_i, probe_prev_r, trig_mask_r, 0);
 
                 for condition_index in 0 to G_TRIG_CONDS - 1 loop
                     token_width_r(0, C_COND_BASE + condition_index) <=
                         cmp_masked_slice(
-                            probe_in,
+                            probe_i,
                             cond_values_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto condition_index * G_SAMPLE_W),
@@ -512,7 +512,7 @@ begin
                         );
                     rise_width_r(0, C_COND_BASE + condition_index) <=
                         rise_masked_slice(
-                            probe_in,
+                            probe_i,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -521,7 +521,7 @@ begin
                         );
                     fall_width_r(0, C_COND_BASE + condition_index) <=
                         fall_masked_slice(
-                            probe_in,
+                            probe_i,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -533,7 +533,7 @@ begin
                 for sequence_index in 0 to G_TRIG_STAGES - 1 loop
                     token_width_r(0, C_SEQ_BASE + sequence_index) <=
                         cmp_masked_slice(
-                            probe_in,
+                            probe_i,
                             seq_value_r_flat(
                                 sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto sequence_index * G_SAMPLE_W),
@@ -707,19 +707,19 @@ begin
 
     g_condition_reduction : if C_REDUCE_STAGES > 0 generate
     begin
-        process (sample_clk, sample_rst)
+        process (sample_clk_i, sample_rst_i)
             variable condition_leaves :
                 std_logic_vector(C_REDUCE_WIDTH - 1 downto 0);
         begin
-            if sample_rst = '1' then
+            if sample_rst_i = '1' then
                 condition_reduce_r <= (others => (others => '1'));
                 legacy_reduce_r <= (others => '0');
                 seq_reduce_r <= (others => (others => '0'));
                 valid_reduce_r <= (others => '0');
                 ext_reduce_r <= (others => '0');
                 pointer_reduce_r <= (others => (others => '0'));
-            elsif rising_edge(sample_clk) then
-                if reset_pulse = '1' or arm_pulse = '1' then
+            elsif rising_edge(sample_clk_i) then
+                if reset_pulse_i = '1' or arm_pulse_i = '1' then
                     condition_reduce_r <= (others => (others => '1'));
                     legacy_reduce_r <= (others => '0');
                     seq_reduce_r <= (others => (others => '0'));
@@ -809,14 +809,14 @@ begin
     ) else '0';
 
     -- ── Status outputs ───────────────────────────────────────────
-    armed         <= armed_r;
-    triggered     <= triggered_r;
-    done          <= done_r;
-    overflow      <= overflow_r;
-    trigger_out   <= trigger_out_r;
-    wr_ptr_out    <= std_logic_vector(wr_ptr_r);
-    trig_ptr_out  <= std_logic_vector(trig_ptr_r);
-    start_ptr_out <= std_logic_vector(start_ptr_r);
+    armed_o         <= armed_r;
+    triggered_o     <= triggered_r;
+    done_o          <= done_r;
+    overflow_o      <= overflow_r;
+    trigger_o   <= trigger_out_r;
+    wr_ptr_o    <= std_logic_vector(wr_ptr_r);
+    trig_ptr_o  <= std_logic_vector(trig_ptr_r);
+    start_ptr_o <= std_logic_vector(start_ptr_r);
 
     -- ── DPRAM drive — sliding-window write enable. Note: NOT gated
     -- by `armed_r`. This is the architectural fix vs fcapz.
@@ -829,31 +829,31 @@ begin
             post_count_r >= posttrig_len_r
         )
     ) else '0';
-    dpram_we   <= store_sample;
-    dpram_addr <= std_logic_vector(wr_ptr_r);
-    dpram_din  <= probe_in;
+    dpram_we_o   <= store_sample;
+    dpram_addr_o <= std_logic_vector(wr_ptr_r);
+    dpram_din_o  <= probe_i;
 
     -- Wide comparator data is atomic arm-time configuration. The resettable
     -- enable/state registers below keep it unobservable until this load.
-    process (sample_clk)
+    process (sample_clk_i)
     begin
-        if rising_edge(sample_clk) then
-            probe_prev_r <= probe_in;
-            if arm_pulse = '1' then
-                trig_value_r    <= trig_value_in;
-                trig_mask_r     <= trig_mask_in;
-                seq_value_r_flat <= seq_values_in;
-                seq_mask_r_flat  <= seq_masks_in;
-                cond_values_r   <= cond_values_in;
-                cond_masks_r    <= cond_masks_in;
+        if rising_edge(sample_clk_i) then
+            probe_prev_r <= probe_i;
+            if arm_pulse_i = '1' then
+                trig_value_r    <= trig_value_i;
+                trig_mask_r     <= trig_mask_i;
+                seq_value_r_flat <= seq_values_i;
+                seq_mask_r_flat  <= seq_masks_i;
+                cond_values_r   <= cond_values_i;
+                cond_masks_r    <= cond_masks_i;
             end if;
         end if;
     end process;
 
     -- ── Capture FSM ──────────────────────────────────────────────
-    process (sample_clk, sample_rst)
+    process (sample_clk_i, sample_rst_i)
     begin
-        if sample_rst = '1' then
+        if sample_rst_i = '1' then
             armed_r        <= '0';
             triggered_r    <= '0';
             done_r         <= '0';
@@ -881,19 +881,19 @@ begin
             ext_trig_r     <= '0';
             trigger_out_r  <= '0';
 
-        elsif rising_edge(sample_clk) then
+        elsif rising_edge(sample_clk_i) then
 
-            -- Default: trigger_out is a 1-cycle pulse.
+            -- Default: trigger_o is a 1-cycle pulse.
             trigger_out_r <= '0';
 
             -- External board-pin: register every cycle (RTL-P3.266). The pin
-            -- is already sample_clk-synced in rr_rea_top; this is the local
+            -- is already sample_clk_i-synced in rr_rea_top; this is the local
             -- pipeline flop so the fold above sees a clean registered level.
-            ext_trig_r <= ext_trigger_in;
+            ext_trig_r <= ext_trigger_i;
 
             -- ── Free-running write pointer ─────────────────────
             -- REA-REQ-100/101: wr_ptr advances every cycle while
-            -- !done, regardless of armed state. arm_pulse does NOT
+            -- !done_o, regardless of armed_o state. arm_pulse_i does NOT
             -- reset wr_ptr — pre-arm context is preserved.
             -- v0.3: also gated by decim_tick so wr_ptr only advances
             -- on stored samples (one per decim_ratio+1 cycles).
@@ -905,7 +905,7 @@ begin
             -- Down-counter that wraps at decim_ratio. When the counter
             -- hits 0, decim_tick fires for one cycle (storing this
             -- sample), then the counter reloads to decim_ratio.
-            -- arm_pulse resets the counter so each capture session
+            -- arm_pulse_i resets the counter so each capture_i session
             -- starts on a clean tick boundary.
             if done_r = '0' then
                 if decim_count_r = 0 then
@@ -915,45 +915,45 @@ begin
                 end if;
             end if;
 
-            -- ── reset_pulse: hard reset of capture state ───────
-            if reset_pulse = '1' then
+            -- ── reset_pulse_i: hard reset of capture_i state ───────
+            if reset_pulse_i = '1' then
                 armed_r       <= '0';
                 triggered_r   <= '0';
                 done_r        <= '0';
                 overflow_r    <= '0';
                 post_count_r  <= (others => '0');
                 trigger_out_r <= '0';
-                -- NOTE: wr_ptr_r is NOT reset on reset_pulse for v0.1
+                -- NOTE: wr_ptr_r is NOT reset on reset_pulse_i for v0.1
                 -- — keeping the buffer state alive across soft resets
                 -- is consistent with sliding-window semantics. Hard
-                -- buffer-clearing only happens via sample_rst.
+                -- buffer-clearing only happens via sample_rst_i.
             end if;
 
-            -- ── arm_pulse: enable trigger watching ─────────────
+            -- ── arm_pulse_i: enable trigger watching ─────────────
             -- Latches config, but does NOT reset wr_ptr_r.
-            if arm_pulse = '1' then
+            if arm_pulse_i = '1' then
                 armed_r        <= '1';
                 triggered_r    <= '0';
                 done_r         <= '0';
                 post_count_r   <= (others => '0');
-                pretrig_len_r  <= unsigned(pretrig_len_in);
-                posttrig_len_r <= unsigned(posttrig_len_in);
-                trig_mode_r    <= trig_mode_in;
-                decim_ratio_r  <= unsigned(decim_ratio_in);
-                -- REA-REQ-606: arm_pulse resets seq_state to 0 and
+                pretrig_len_r  <= unsigned(pretrig_len_i);
+                posttrig_len_r <= unsigned(posttrig_len_i);
+                trig_mode_r    <= trig_mode_i;
+                decim_ratio_r  <= unsigned(decim_ratio_i);
+                -- REA-REQ-606: arm_pulse_i resets seq_state to 0 and
                 -- clears all counters; latches the per-stage config.
-                seq_enable_r   <= seq_enable_in;
+                seq_enable_r   <= seq_enable_i;
                 seq_state_r    <= (others => '0');
-                seq_count_target_r_flat <= seq_counts_in;
+                seq_count_target_r_flat <= seq_counts_i;
                 seq_counter_r_flat      <= (others => '0');
                 -- RTL-P3.647: latch the comparator-array config on arm too.
-                array_enable_r <= array_enable_in;
-                cond_ops_r     <= cond_ops_in;
-                cond_valid_r   <= cond_valid_in;
+                array_enable_r <= array_enable_i;
+                cond_ops_r     <= cond_ops_i;
+                cond_valid_r   <= cond_valid_i;
                 -- RTL-P3.266: latch external-trigger enable + combine mode on
                 -- arm (quasi-static, like the other enables).
-                ext_enable_r   <= ext_enable_in;
-                ext_and_r      <= ext_and_in;
+                ext_enable_r   <= ext_enable_i;
+                ext_and_r      <= ext_and_i;
                 -- Load count to 0 so the FIRST cycle after arm ticks
                 -- (stores) — and subsequent ticks happen every
                 -- (decim_ratio + 1) cycles. With decim_ratio=0 the
@@ -961,8 +961,8 @@ begin
                 -- cycle (no decimation, matches v0.1/v0.2).
                 decim_count_r  <= (others => '0');
                 -- Overflow check: window doesn't fit in DEPTH.
-                if (unsigned('0' & pretrig_len_in) +
-                    unsigned('0' & posttrig_len_in)) >= G_DEPTH then
+                if (unsigned('0' & pretrig_len_i) +
+                    unsigned('0' & posttrig_len_i)) >= G_DEPTH then
                     overflow_r <= '1';
                 else
                     overflow_r <= '0';
@@ -1011,15 +1011,15 @@ begin
             end if;
 
             -- ── Trigger detection ──────────────────────────────
-            -- Fires only when armed and not yet triggered.
-            -- REA-REQ-400/401: an external trigger_in pulse fires
-            -- the capture exactly like a local hit, but does NOT
-            -- drive trigger_out (otherwise N coupled REA cores
+            -- Fires only when armed_o and not yet triggered_o.
+            -- REA-REQ-400/401: an external trigger_i pulse fires
+            -- the capture_i exactly like a local hit, but does NOT
+            -- drive trigger_o (otherwise N coupled REA cores
             -- would ping-pong each other forever).
             -- REA-REQ-602: in seq_enable mode, trigger_hit is the
             -- final-stage match path (seq_final_fire).
             if armed_r = '1' and triggered_r = '0' and done_r = '0' then
-                if local_fire_pipe = '1' or trigger_in = '1' then
+                if local_fire_pipe = '1' or trigger_i = '1' then
                     triggered_r <= '1';
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;

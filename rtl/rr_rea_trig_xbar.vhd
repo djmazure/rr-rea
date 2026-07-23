@@ -6,13 +6,13 @@
 --
 -- When a design has multiple clock domains and a separate REA
 -- instance per domain, you usually want ONE trigger event in any
--- domain to freeze the capture in ALL of them. That way the
+-- domain to freeze the capture_i in ALL of them. That way the
 -- captured windows are time-coherent and you can reason across
 -- domain boundaries from a single trigger moment.
 --
 -- This block sits between N REA instances and routes each
--- instance's local trigger pulse (`trigger_out`) to every OTHER
--- instance's `trigger_in` input, with the necessary CDC.
+-- instance's local trigger pulse (`trigger_o`) to every OTHER
+-- instance's `trigger_i` input, with the necessary CDC.
 --
 -- v0.2 ships with N=2 only. Extending to N=3,4 is a generic-N
 -- pulse_xfer fan-out tree — left for a follow-up. Two domains
@@ -34,46 +34,46 @@ library ieee;
 entity rr_rea_trig_xbar is
     port (
         -- Instance A
-        clk_a         : in  std_logic;
-        rst_a         : in  std_logic;
-        toggle_a_in   : in  std_logic;   -- from REA A's trigger_sticky_r
-        pulse_a_out   : out std_logic;   -- to   REA A's trigger_in
+        clk_a_i         : in  std_logic;
+        rst_a_i         : in  std_logic;
+        toggle_a_i   : in  std_logic;   -- from REA A's trigger_sticky_r
+        pulse_a_o   : out std_logic;   -- to   REA A's trigger_i
 
         -- Instance B
-        clk_b         : in  std_logic;
-        rst_b         : in  std_logic;
-        toggle_b_in   : in  std_logic;
-        pulse_b_out   : out std_logic
+        clk_b_i         : in  std_logic;
+        rst_b_i         : in  std_logic;
+        toggle_b_i   : in  std_logic;
+        pulse_b_o   : out std_logic
     );
 end entity;
 
 architecture rtl of rr_rea_trig_xbar is
     component rr_rea_pulse_xfer is
         port (
-            src_toggle : in  std_logic;
-            dst_clk    : in  std_logic;
-            dst_rst    : in  std_logic;
-            dst_pulse  : out std_logic
+            src_toggle_i : in  std_logic;
+            dst_clk_i    : in  std_logic;
+            dst_rst_i    : in  std_logic;
+            dst_pulse_o  : out std_logic
         );
     end component;
 begin
 
-    -- B's trigger event → synchronized pulse on clk_a → A.trigger_in
+    -- B's trigger event → synchronized pulse on clk_a_i → A.trigger_i
     u_b_to_a : rr_rea_pulse_xfer
         port map (
-            src_toggle => toggle_b_in,
-            dst_clk    => clk_a,
-            dst_rst    => rst_a,
-            dst_pulse  => pulse_a_out
+            src_toggle_i => toggle_b_i,
+            dst_clk_i    => clk_a_i,
+            dst_rst_i    => rst_a_i,
+            dst_pulse_o  => pulse_a_o
         );
 
-    -- A's trigger event → synchronized pulse on clk_b → B.trigger_in
+    -- A's trigger event → synchronized pulse on clk_b_i → B.trigger_i
     u_a_to_b : rr_rea_pulse_xfer
         port map (
-            src_toggle => toggle_a_in,
-            dst_clk    => clk_b,
-            dst_rst    => rst_b,
-            dst_pulse  => pulse_b_out
+            src_toggle_i => toggle_a_i,
+            dst_clk_i    => clk_b_i,
+            dst_rst_i    => rst_b_i,
+            dst_pulse_o  => pulse_b_o
         );
 
 end architecture;

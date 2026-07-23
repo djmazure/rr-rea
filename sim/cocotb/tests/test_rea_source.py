@@ -92,59 +92,59 @@ CDC_SETTLE = 6
 
 
 async def _start_clocks(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, SAMPLE_PERIOD_NS, unit="ns").start())
-    cocotb.start_soon(Clock(dut.tck, TCK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, SAMPLE_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.tck_i, TCK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.arst.value = 1
-    dut.tdi.value = 0
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    dut.sel.value = 0
-    dut.probe_in.value = 0
-    await ClockCycles(dut.tck, 4)
-    dut.sample_rst.value = 0
-    dut.arst.value = 0
-    await ClockCycles(dut.tck, 1)
+    dut.sample_rst_i.value = 1
+    dut.arst_i.value = 1
+    dut.tdi_i.value = 0
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
+    dut.probe_i.value = 0
+    await ClockCycles(dut.tck_i, 4)
+    dut.sample_rst_i.value = 0
+    dut.arst_i.value = 0
+    await ClockCycles(dut.tck_i, 1)
 
 
 async def _capture_phase(dut):
-    dut.sel.value = 1
-    dut.capture.value = 1
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    await RisingEdge(dut.tck)
-    dut.capture.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 1
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    await RisingEdge(dut.tck_i)
+    dut.capture_i.value = 0
 
 
 async def _shift_dr(dut, value: int, n_bits: int) -> int:
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.update.value = 0
-    dut.shift_en.value = 1
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.update_i.value = 0
+    dut.shift_en_i.value = 1
     await ReadOnly()
     await NextTimeStep()
     out = 0
     for i in range(n_bits):
-        dut.tdi.value = (value >> i) & 1
+        dut.tdi_i.value = (value >> i) & 1
         await ReadOnly()
-        out |= (int(dut.tdo.value) & 1) << i
-        await RisingEdge(dut.tck)
-    dut.shift_en.value = 0
+        out |= (int(dut.tdo_o.value) & 1) << i
+        await RisingEdge(dut.tck_i)
+    dut.shift_en_i.value = 0
     return out
 
 
 async def _update_phase(dut):
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 1
-    await RisingEdge(dut.tck)
-    dut.update.value = 0
-    dut.sel.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 1
+    await RisingEdge(dut.tck_i)
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
 
 
 def _frame(addr: int, data: int, write: bool) -> int:
@@ -161,7 +161,7 @@ async def _jtag_read(dut, addr: int) -> int:
     await _capture_phase(dut)
     await _shift_dr(dut, _frame(addr, 0, write=False), 49)
     await _update_phase(dut)
-    await ClockCycles(dut.tck, 2)
+    await ClockCycles(dut.tck_i, 2)
     await _capture_phase(dut)
     out = await _shift_dr(dut, 0, 49)
     return out & 0xFFFF_FFFF
@@ -170,9 +170,9 @@ async def _jtag_read(dut, addr: int) -> int:
 async def _source_out(dut) -> int:
     """Read source_out (sample_clk domain) after letting the 2-flop sync
     settle."""
-    await ClockCycles(dut.sample_clk, CDC_SETTLE)
+    await ClockCycles(dut.sample_clk_i, CDC_SETTLE)
     await ReadOnly()
-    val = int(dut.source_out.value)
+    val = int(dut.source_o.value)
     await NextTimeStep()
     return val
 
@@ -232,7 +232,7 @@ async def test_rea_req_701_source_release_regate(dut):
     await _jtag_write(dut, ADDR_SOURCE, 0x5)
     assert await _source_out(dut) == 0x5, (
         f"REA-REQ-701 failed: after SOURCE<=0x5, source_out="
-        f"0x{int(dut.source_out.value):X}, expected 0x5 (CDC didn't land)"
+        f"0x{int(dut.source_o.value):X}, expected 0x5 (CDC didn't land)"
     )
     # Register round-trips on JTAG readback.
     rb = await _jtag_read(dut, ADDR_SOURCE)
@@ -244,14 +244,14 @@ async def test_rea_req_701_source_release_regate(dut):
     await _jtag_write(dut, ADDR_SOURCE, 0x0)
     assert await _source_out(dut) == 0x0, (
         f"REA-REQ-701 failed: after SOURCE<=0, source_out="
-        f"0x{int(dut.source_out.value):X}, expected 0x0 (failed to re-gate)"
+        f"0x{int(dut.source_o.value):X}, expected 0x0 (failed to re-gate)"
     )
 
     # Full-width release (all G_NUM_SOURCE bits) then clear again.
     await _jtag_write(dut, ADDR_SOURCE, 0xF)
     assert await _source_out(dut) == 0xF, (
         f"REA-REQ-701 failed: after SOURCE<=0xF, source_out="
-        f"0x{int(dut.source_out.value):X}, expected 0xF"
+        f"0x{int(dut.source_o.value):X}, expected 0xF"
     )
     await _jtag_write(dut, ADDR_SOURCE, 0x0)
     assert await _source_out(dut) == 0x0, (
@@ -277,7 +277,7 @@ async def test_rea_req_702_source_upper_bits_isolated(dut):
     await _jtag_write(dut, ADDR_SOURCE, 0xF0)
     assert await _source_out(dut) == 0x0, (
         f"REA-REQ-702 failed: upper SOURCE bits leaked to source_out="
-        f"0x{int(dut.source_out.value):X}, expected 0x0 (port must expose "
+        f"0x{int(dut.source_o.value):X}, expected 0x0 (port must expose "
         f"only the low {G_NUM_SOURCE} bits)"
     )
     # ...but the full 32-bit register still round-trips on readback.
@@ -290,7 +290,7 @@ async def test_rea_req_702_source_upper_bits_isolated(dut):
     # Mixed word: low nibble drives the port, upper nibble does not.
     await _jtag_write(dut, ADDR_SOURCE, 0xA3)
     assert await _source_out(dut) == 0x3, (
-        f"REA-REQ-702 failed: source_out=0x{int(dut.source_out.value):X}, "
+        f"REA-REQ-702 failed: source_out=0x{int(dut.source_o.value):X}, "
         f"expected 0x3 (low {G_NUM_SOURCE} bits of 0xA3)"
     )
     dut._log.info("REA-REQ-702 PASS — upper SOURCE bits isolated from port")

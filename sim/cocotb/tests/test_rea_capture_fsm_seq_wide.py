@@ -69,27 +69,27 @@ CLK_PERIOD_NS = 8.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.decim_ratio_in.value = 0
-    dut.trigger_in.value = 0
-    dut.seq_enable_in.value = 0
-    dut.seq_values_in.value = 0
-    dut.seq_masks_in.value = 0
-    dut.seq_counts_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.decim_ratio_i.value = 0
+    dut.trigger_i.value = 0
+    dut.seq_enable_i.value = 0
+    dut.seq_values_i.value = 0
+    dut.seq_masks_i.value = 0
+    dut.seq_counts_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 def _pack(values: list[int], width: int) -> int:
@@ -100,21 +100,21 @@ def _pack(values: list[int], width: int) -> int:
 
 
 async def _arm_seq(dut, values: list[int], masks: list[int], counts: list[int]):
-    dut.pretrig_len_in.value = 8
-    dut.posttrig_len_in.value = 8
-    dut.seq_enable_in.value = 1
-    dut.seq_values_in.value = _pack(values, G_SAMPLE_W)
-    dut.seq_masks_in.value = _pack(masks, G_SAMPLE_W)
-    dut.seq_counts_in.value = _pack(counts, 16)
-    await ClockCycles(dut.sample_clk, 5)
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = 8
+    dut.posttrig_len_i.value = 8
+    dut.seq_enable_i.value = 1
+    dut.seq_values_i.value = _pack(values, G_SAMPLE_W)
+    dut.seq_masks_i.value = _pack(masks, G_SAMPLE_W)
+    dut.seq_counts_i.value = _pack(counts, 16)
+    await ClockCycles(dut.sample_clk_i, 5)
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 async def _drive(dut, value: int):
-    dut.probe_in.value = value
-    await RisingEdge(dut.sample_clk)
+    dut.probe_i.value = value
+    await RisingEdge(dut.sample_clk_i)
 
 
 # 64-bit per-stage values, non-trivial bits in BOTH words.
@@ -132,13 +132,13 @@ async def test_seq_wide_full_sequence_fires(dut):
     await _arm_seq(dut, [V0, V1], [FULL_MASK, FULL_MASK], [1, 1])
 
     await _drive(dut, V0)               # stage 0 (non-final) advances
-    await ClockCycles(dut.sample_clk, PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 0, "non-final stage must not fire"
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 0, "non-final stage must not fire"
 
     await _drive(dut, V1)               # stage 1 (final) fires
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "RTL-P3.691: full 64-bit 2-stage sequence did not fire"
     )
     dut._log.info("P3.691 PASS — wide multi-stage sequence fires on full width")
@@ -156,8 +156,8 @@ async def test_seq_wide_stage_upper_word_participates(dut):
 
     # Advance past stage 0 with an exact full-width match.
     await _drive(dut, V0)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 0
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 0
 
     # Now at stage 1 (final). Drive a near-miss: low 32 of V1 match,
     # upper word zeroed → must NOT fire.
@@ -165,16 +165,16 @@ async def test_seq_wide_stage_upper_word_participates(dut):
     assert near_miss != V1
     for _ in range(PIPE_STAGES + 1):
         await _drive(dut, near_miss)
-        assert int(dut.triggered.value) == 0, (
+        assert int(dut.triggered_o.value) == 0, (
             "P3.691 FAIL: final stage fired on a low-32-match / upper-word-"
             "mismatch — the per-stage comparator is NOT full-width"
         )
 
     # Exact full-width V1 → fires, proving the FSM was armed and correct.
     await _drive(dut, V1)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "control: exact full-width final match should fire"
     )
     dut._log.info("P3.691 PASS — per-stage comparator upper word participates")

@@ -54,47 +54,47 @@ def _pack(values: list[int], width: int) -> int:
 @cocotb.test()
 @requires("REA-REQ-327")
 async def test_back_to_back_sequencer_matches_remain_ordered(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, 8.0, unit="ns").start())
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.trigger_in.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 2
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    dut.decim_ratio_in.value = 0
-    dut.seq_enable_in.value = 0
-    dut.array_enable_in.value = 0
-    dut.ext_trigger_in.value = 0
-    dut.ext_enable_in.value = 0
-    dut.ext_and_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await RisingEdge(dut.sample_clk)
+    cocotb.start_soon(Clock(dut.sample_clk_i, 8.0, unit="ns").start())
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.trigger_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 2
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    dut.decim_ratio_i.value = 0
+    dut.seq_enable_i.value = 0
+    dut.array_enable_i.value = 0
+    dut.ext_trigger_i.value = 0
+    dut.ext_enable_i.value = 0
+    dut.ext_and_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await RisingEdge(dut.sample_clk_i)
 
     values = [0x120, 0x121, 0x122, 0x123]
-    dut.seq_enable_in.value = 1
-    dut.seq_values_in.value = _pack(values, 12)
-    dut.seq_masks_in.value = _pack([0xFFF] * 4, 12)
-    dut.seq_counts_in.value = _pack([1] * 4, 16)
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.seq_enable_i.value = 1
+    dut.seq_values_i.value = _pack(values, 12)
+    dut.seq_masks_i.value = _pack([0xFFF] * 4, 12)
+    dut.seq_counts_i.value = _pack([1] * 4, 16)
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
     for value in values:
-        dut.probe_in.value = value
-        await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
+        dut.probe_i.value = value
+        await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
 
-    await ClockCycles(dut.sample_clk, 5)
+    await ClockCycles(dut.sample_clk_i, 5)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "ordered delayed results lost a consecutive sequencer transition"
     )
-    assert int(dut.trigger_out.value) == 0
+    assert int(dut.trigger_o.value) == 0
 
 
 if __name__ == "__main__":

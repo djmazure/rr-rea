@@ -35,9 +35,9 @@ entity rr_rea_sync_word is
         G_WIDTH : positive := 32
     );
     port (
-        dst_clk : in  std_logic;
-        din     : in  std_logic_vector(G_WIDTH - 1 downto 0);
-        dout    : out std_logic_vector(G_WIDTH - 1 downto 0)
+        dst_clk_i : in  std_logic;
+        din_i     : in  std_logic_vector(G_WIDTH - 1 downto 0);
+        dout_o    : out std_logic_vector(G_WIDTH - 1 downto 0)
     );
 end entity;
 
@@ -52,14 +52,14 @@ architecture rtl of rr_rea_sync_word is
     attribute ASYNC_REG of s1 : signal is "TRUE";
     attribute ASYNC_REG of s2 : signal is "TRUE";
 begin
-    process (dst_clk)
+    process (dst_clk_i)
     begin
-        if rising_edge(dst_clk) then
-            s1 <= din;
+        if rising_edge(dst_clk_i) then
+            s1 <= din_i;
             s2 <= s1;
         end if;
     end process;
-    dout <= s2;
+    dout_o <= s2;
 end architecture;
 
 -- ── Toggle-pulse cross-domain transfer ────────────────────────────────
@@ -69,11 +69,11 @@ library ieee;
 
 entity rr_rea_pulse_xfer is
     port (
-        src_toggle : in  std_logic;     -- toggle level on src_clk
+        src_toggle_i : in  std_logic;     -- toggle level on src_clk
                                         -- (caller flips it on each event)
-        dst_clk    : in  std_logic;
-        dst_rst    : in  std_logic;
-        dst_pulse  : out std_logic      -- 1-cycle pulse on dst_clk
+        dst_clk_i    : in  std_logic;
+        dst_rst_i    : in  std_logic;
+        dst_pulse_o  : out std_logic      -- 1-cycle pulse on dst_clk_i
                                         -- per source-side toggle edge
     );
 end entity;
@@ -85,18 +85,18 @@ architecture rtl of rr_rea_pulse_xfer is
     attribute ASYNC_REG of s2 : signal is "TRUE";
 begin
     -- Destination: two-flop sync the toggle level, then one extra
-    -- register for edge detect. Pulse out for one dst_clk per
+    -- register for edge detect. Pulse out for one dst_clk_i per
     -- transition of the source toggle.
-    process (dst_clk, dst_rst)
+    process (dst_clk_i, dst_rst_i)
     begin
-        if dst_rst = '1' then
+        if dst_rst_i = '1' then
             s1 <= '0'; s2 <= '0'; s3 <= '0';
-        elsif rising_edge(dst_clk) then
-            s1 <= src_toggle;
+        elsif rising_edge(dst_clk_i) then
+            s1 <= src_toggle_i;
             s2 <= s1;
             s3 <= s2;
         end if;
     end process;
 
-    dst_pulse <= s2 xor s3;
+    dst_pulse_o <= s2 xor s3;
 end architecture;

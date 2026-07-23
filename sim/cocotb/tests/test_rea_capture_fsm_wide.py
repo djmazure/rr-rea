@@ -61,34 +61,34 @@ CLK_PERIOD_NS = 8.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 async def _arm(dut, value: int, mask: int, pretrig: int = 4, posttrig: int = 4):
     """Latch the wide value/mask and pulse arm (config captured on arm)."""
-    dut.pretrig_len_in.value = pretrig
-    dut.posttrig_len_in.value = posttrig
-    dut.trig_value_in.value = value
-    dut.trig_mask_in.value = mask
-    dut.trig_mode_in.value = 0  # EQ
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = pretrig
+    dut.posttrig_len_i.value = posttrig
+    dut.trig_value_i.value = value
+    dut.trig_mask_i.value = mask
+    dut.trig_mode_i.value = 0  # EQ
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 # 64-bit pattern with non-trivial bits in BOTH words.
@@ -104,17 +104,17 @@ async def test_rea_req_013_wide_exact_match_fires(dut):
     await _arm(dut, VALUE, FULL_MASK)
 
     # Hold a non-matching probe — triggered must stay 0.
-    dut.probe_in.value = VALUE ^ 0x1  # one bit off
+    dut.probe_i.value = VALUE ^ 0x1  # one bit off
     for _ in range(3):
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, "fired on a non-match"
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, "fired on a non-match"
 
     # Drive the exact 64-bit match through the derived slice pipeline.
-    dut.probe_in.value = VALUE
-    await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    dut.probe_i.value = VALUE
+    await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "REA-REQ-013: exact 64-bit match did not fire the trigger"
     )
     dut._log.info("REA-REQ-013 PASS — wide exact match fires")
@@ -134,20 +134,20 @@ async def test_rea_req_013_upper_word_participates(dut):
     # Low 32 bits match, upper word zeroed → differs above bit 31.
     near_miss = VALUE & 0x0000_0000_FFFF_FFFF
     assert near_miss != VALUE, "test setup: near_miss must differ"
-    dut.probe_in.value = near_miss
+    dut.probe_i.value = near_miss
     for _ in range(PIPE_STAGES + 1):
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, (
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, (
             "REA-REQ-013 FAIL: triggered on a low-32-match / upper-word-"
             "mismatch — the upper word is NOT being compared (the legacy bug)"
         )
 
     # Sanity: the FSM IS armed and working — the exact value still fires.
-    dut.probe_in.value = VALUE
-    await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    dut.probe_i.value = VALUE
+    await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "control: exact match should still fire after the near-miss"
     )
     dut._log.info("REA-REQ-013 PASS — upper word participates in the compare")
@@ -169,11 +169,11 @@ async def test_rea_req_013_wide_masked_match(dut):
     # Probe whose masked field equals value's masked field, but whose
     # don't-care bits are arbitrary garbage → must still fire.
     probe = 0xABFF_FFFF_FFFF_FFCD
-    dut.probe_in.value = probe
-    await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    dut.probe_i.value = probe
+    await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "REA-REQ-013: masked field matched but trigger did not fire"
     )
     dut._log.info("REA-REQ-013 PASS — wide masked match fires on masked field")

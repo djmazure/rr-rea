@@ -54,26 +54,26 @@ def main() -> None:
 
 async def _start_clocks(dut, period_a_ns: float = 8.0, period_b_ns: float = 12.0):
     """Start independent A/B clocks (different periods to exercise CDC)."""
-    cocotb.start_soon(Clock(dut.clk_a, period_a_ns, unit="ns").start())
-    cocotb.start_soon(Clock(dut.clk_b, period_b_ns, unit="ns").start())
-    await ClockCycles(dut.clk_a, 2)
+    cocotb.start_soon(Clock(dut.clk_a_i, period_a_ns, unit="ns").start())
+    cocotb.start_soon(Clock(dut.clk_b_i, period_b_ns, unit="ns").start())
+    await ClockCycles(dut.clk_a_i, 2)
 
 
 async def _write_a(dut, addr: int, data: int):
-    dut.addr_a.value = addr
-    dut.din_a.value = data
-    dut.we_a.value = 1
-    await RisingEdge(dut.clk_a)
-    dut.we_a.value = 0
+    dut.addr_a_i.value = addr
+    dut.din_a_i.value = data
+    dut.we_a_i.value = 1
+    await RisingEdge(dut.clk_a_i)
+    dut.we_a_i.value = 0
 
 
 async def _read_b(dut, addr: int) -> int:
     """Issue a read on port B and return the value latched after one clk_b."""
-    dut.addr_b.value = addr
-    await RisingEdge(dut.clk_b)
+    dut.addr_b_i.value = addr
+    await RisingEdge(dut.clk_b_i)
     # dout_b updates on the SAME edge that latched addr_b → next edge it's stable
-    await RisingEdge(dut.clk_b)
-    return int(dut.dout_b.value)
+    await RisingEdge(dut.clk_b_i)
+    return int(dut.dout_b_o.value)
 
 
 # ── REA-REQ-200: write A → read B at same address ───────────────────
@@ -103,7 +103,7 @@ async def test_rea_req_200_write_a_read_b_same_addr(dut):
         await _write_a(dut, addr, data)
         # Wait one extra clk_b cycle so the write has settled across the
         # async clock boundary before the read latches.
-        await ClockCycles(dut.clk_b, 2)
+        await ClockCycles(dut.clk_b_i, 2)
         observed = await _read_b(dut, addr)
         assert observed == data, (
             f"REA-REQ-200 failed: write addr=0x{addr:03x} data=0x{data:03x} "
@@ -127,19 +127,19 @@ async def test_rea_req_201_concurrent_different_addrs(dut):
     # Pre-seed two cells.
     await _write_a(dut, 100, 0x123)
     await _write_a(dut, 200, 0x456)
-    await ClockCycles(dut.clk_b, 3)
+    await ClockCycles(dut.clk_b_i, 3)
 
     # Now write addr 100 (with new value) while concurrently reading
     # addr 200 — port B should still see 0x456.
-    dut.addr_a.value = 100
-    dut.din_a.value = 0xFFF
-    dut.we_a.value = 1
-    dut.addr_b.value = 200
-    await RisingEdge(dut.clk_a)
-    dut.we_a.value = 0
-    await RisingEdge(dut.clk_b)
-    await RisingEdge(dut.clk_b)
-    observed = int(dut.dout_b.value)
+    dut.addr_a_i.value = 100
+    dut.din_a_i.value = 0xFFF
+    dut.we_a_i.value = 1
+    dut.addr_b_i.value = 200
+    await RisingEdge(dut.clk_a_i)
+    dut.we_a_i.value = 0
+    await RisingEdge(dut.clk_b_i)
+    await RisingEdge(dut.clk_b_i)
+    observed = int(dut.dout_b_o.value)
     assert observed == 0x456, (
         f"REA-REQ-201 failed: concurrent write@100 + read@200 should "
         f"yield 0x456 on port B, got 0x{observed:03x}"
@@ -165,7 +165,7 @@ async def test_rea_req_202_generic_extents(dut):
     full_value = (1 << WIDTH) - 1  # 0xFFF
 
     await _write_a(dut, last_addr, full_value)
-    await ClockCycles(dut.clk_b, 2)
+    await ClockCycles(dut.clk_b_i, 2)
     observed = await _read_b(dut, last_addr)
     assert observed == full_value, (
         f"REA-REQ-202 failed: write addr=0x{last_addr:03x} "

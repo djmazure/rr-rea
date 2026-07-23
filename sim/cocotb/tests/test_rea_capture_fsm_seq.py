@@ -64,28 +64,28 @@ DERIVED_PIPE_STAGES = 4
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
     """Drive sample_rst, deassert all inputs, then settle."""
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.decim_ratio_in.value = 0
-    dut.trigger_in.value = 0
-    dut.seq_enable_in.value = 0
-    dut.seq_values_in.value = 0
-    dut.seq_masks_in.value = 0
-    dut.seq_counts_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.decim_ratio_i.value = 0
+    dut.trigger_i.value = 0
+    dut.seq_enable_i.value = 0
+    dut.seq_values_i.value = 0
+    dut.seq_masks_i.value = 0
+    dut.seq_counts_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 def _pack_per_stage(values: list[int], width: int) -> int:
@@ -103,22 +103,22 @@ async def _arm_with_sequence(dut, *, values: list[int], masks: list[int],
     assert len(values) == NUM_STAGES
     assert len(masks)  == NUM_STAGES
     assert len(counts) == NUM_STAGES
-    dut.pretrig_len_in.value = pretrig
-    dut.posttrig_len_in.value = posttrig
-    dut.seq_enable_in.value  = 1
-    dut.seq_values_in.value  = _pack_per_stage(values, SAMPLE_W)
-    dut.seq_masks_in.value   = _pack_per_stage(masks,  SAMPLE_W)
-    dut.seq_counts_in.value  = _pack_per_stage(counts, 16)
-    await ClockCycles(dut.sample_clk, 5)
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = pretrig
+    dut.posttrig_len_i.value = posttrig
+    dut.seq_enable_i.value  = 1
+    dut.seq_values_i.value  = _pack_per_stage(values, SAMPLE_W)
+    dut.seq_masks_i.value   = _pack_per_stage(masks,  SAMPLE_W)
+    dut.seq_counts_i.value  = _pack_per_stage(counts, 16)
+    await ClockCycles(dut.sample_clk_i, 5)
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 async def _drive_probe(dut, value: int):
     """Set probe_in for one full cycle, return after one rising edge."""
-    dut.probe_in.value = value
-    await RisingEdge(dut.sample_clk)
+    dut.probe_i.value = value
+    await RisingEdge(dut.sample_clk_i)
 
 
 # ── REA-REQ-601: in-order stage advance ──────────────────────────
@@ -143,29 +143,29 @@ async def test_rea_req_601_seq_advances_in_order(dut):
     # Drive 0x10 — stage 0 matches → seq_state advances to 1.
     await _drive_probe(dut, 0x10)
     # One settling cycle for non-blocking writes.
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     state_after_s0 = int(dut.seq_state_r.value) if hasattr(dut, "seq_state_r") else None
     # The internal seq_state_r isn't exposed as an output; instead
     # the only observable is "did stage 0 trigger fire?" — which
     # by REA-REQ-604 it should NOT (non-final stage).
-    assert int(dut.triggered.value) == 0, (
+    assert int(dut.triggered_o.value) == 0, (
         "stage 0 match must NOT fire triggered (non-final)"
     )
 
     # Drive 0x11, 0x12 — non-final advances.
     await _drive_probe(dut, 0x11)
-    await RisingEdge(dut.sample_clk)
-    assert int(dut.triggered.value) == 0
+    await RisingEdge(dut.sample_clk_i)
+    assert int(dut.triggered_o.value) == 0
     await _drive_probe(dut, 0x12)
-    await RisingEdge(dut.sample_clk)
-    assert int(dut.triggered.value) == 0
+    await RisingEdge(dut.sample_clk_i)
+    assert int(dut.triggered_o.value) == 0
 
     # Drive 0x13 — FINAL stage, must fire.
     await _drive_probe(dut, 0x13)
     # Wait a couple cycles for the seq_final_fire to propagate +
     # triggered_r to register.
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 1, (
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1, (
         "final-stage match must fire triggered (REA-REQ-602)"
     )
 
@@ -196,8 +196,8 @@ async def test_rea_req_602_final_stage_fires_trigger(dut):
     async def _watch():
         nonlocal saw_trigger_out
         for _ in range(50):
-            await RisingEdge(dut.sample_clk)
-            if int(dut.trigger_out.value) == 1:
+            await RisingEdge(dut.sample_clk_i)
+            if int(dut.trigger_o.value) == 1:
                 saw_trigger_out = True
 
     watcher = cocotb.start_soon(_watch())
@@ -205,12 +205,12 @@ async def test_rea_req_602_final_stage_fires_trigger(dut):
     # Walk through the full sequence ending on the final stage.
     for value in [0xA0, 0xB0, 0xC0, 0xD0]:
         await _drive_probe(dut, value)
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
 
-    await ClockCycles(dut.sample_clk, 5)
+    await ClockCycles(dut.sample_clk_i, 5)
     await watcher
 
-    assert int(dut.triggered.value) == 1
+    assert int(dut.triggered_o.value) == 1
     assert saw_trigger_out, (
         "REA-REQ-602: final-stage match must drive trigger_out_r"
     )
@@ -238,7 +238,7 @@ async def test_rea_req_603_count_target_gates_advance(dut):
 
     # Settle a few cycles past arm so the latched flat vectors are
     # observable.
-    await ClockCycles(dut.sample_clk, 2)
+    await ClockCycles(dut.sample_clk_i, 2)
 
     # Drive 0x42 exactly 2 times (2 matches) — stage 0 needs 3 to
     # advance, so seq_state should still be 0.
@@ -247,14 +247,14 @@ async def test_rea_req_603_count_target_gates_advance(dut):
     # Drive a non-matching value to reset probe (next iteration
     # of _drive_probe will overwrite, but be explicit).
     await _drive_probe(dut, 0x00)
-    await ClockCycles(dut.sample_clk, 1)
+    await ClockCycles(dut.sample_clk_i, 1)
 
     # Walk stages 1-3 values — must NOT advance (REA-REQ-605: out-
     # of-order matches rejected) because we're still at stage 0.
     for value in [0x43, 0x44, 0x45]:
         await _drive_probe(dut, value)
-    await ClockCycles(dut.sample_clk, 2)
-    assert int(dut.triggered.value) == 0, (
+    await ClockCycles(dut.sample_clk_i, 2)
+    assert int(dut.triggered_o.value) == 0, (
         "stage 0 not yet satisfied (only 2/3 matches) — out-of-order "
         "stages 1-3 must NOT advance the sequencer"
     )
@@ -264,8 +264,8 @@ async def test_rea_req_603_count_target_gates_advance(dut):
     await _drive_probe(dut, 0x42)
     for value in [0x43, 0x44, 0x45]:
         await _drive_probe(dut, value)
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 1, (
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1, (
         "after 3 stage-0 matches + stages 1-3 in order, capture "
         "should have fired"
     )
@@ -296,8 +296,8 @@ async def test_rea_req_604_nonfinal_match_does_not_trigger(dut):
     async def _watch():
         nonlocal saw_any_trigger
         for _ in range(60):
-            await RisingEdge(dut.sample_clk)
-            if int(dut.trigger_out.value) == 1 or int(dut.triggered.value) == 1:
+            await RisingEdge(dut.sample_clk_i)
+            if int(dut.trigger_o.value) == 1 or int(dut.triggered_o.value) == 1:
                 saw_any_trigger = True
 
     watcher = cocotb.start_soon(_watch())
@@ -305,8 +305,8 @@ async def test_rea_req_604_nonfinal_match_does_not_trigger(dut):
     # Walk 3 of 4 stages — never reach the final stage.
     for value in [0x01, 0x02, 0x03]:
         await _drive_probe(dut, value)
-        await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, 20)
+        await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, 20)
 
     # If trigger fired before we reached stage 3's match, that's
     # a REA-REQ-604 violation. We didn't drive 0x04 yet, so saw_any_trigger
@@ -315,7 +315,7 @@ async def test_rea_req_604_nonfinal_match_does_not_trigger(dut):
     assert saw_any_trigger is False, (
         "REA-REQ-604 violated: non-final-stage match drove triggered/trigger_out"
     )
-    assert int(dut.triggered.value) == 0
+    assert int(dut.triggered_o.value) == 0
 
     dut._log.info(
         "REA-REQ-604 PASS — stages 0..N-2 advance silently, no trigger"
@@ -344,21 +344,21 @@ async def test_rea_req_605_out_of_order_matches_rejected(dut):
     # We're at stage 0. Drive stage-3's value (0xA0) — must NOT
     # advance.
     await _drive_probe(dut, 0xA0)
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     # Drive stage-2's value (0x90) — also must not advance.
     await _drive_probe(dut, 0x90)
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     # Drive stage-1's value (0x80) — also must not advance.
     await _drive_probe(dut, 0x80)
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
 
     # Now drive stage-0's value (0x70) — sequencer should advance
     # 0→1. Then walk 0x80, 0x90, 0xA0 to fire the final stage.
     for value in [0x70, 0x80, 0x90, 0xA0]:
         await _drive_probe(dut, value)
-        await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 1, (
+        await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1, (
         "in-order traversal after the out-of-order rejection should "
         "still fire the final trigger"
     )
@@ -388,8 +388,8 @@ async def test_rea_req_606_arm_resets_sequencer(dut):
     # Walk to stage 2 (don't trigger).
     for value in [0x10, 0x20]:
         await _drive_probe(dut, value)
-        await RisingEdge(dut.sample_clk)
-    assert int(dut.triggered.value) == 0
+        await RisingEdge(dut.sample_clk_i)
+    assert int(dut.triggered_o.value) == 0
 
     # Re-arm. The sequencer must reset to stage 0 — that means
     # driving 0x30 (stage-2's value) right now should NOT advance,
@@ -401,8 +401,8 @@ async def test_rea_req_606_arm_resets_sequencer(dut):
         counts=[1, 1, 1, 1],
     )
     await _drive_probe(dut, 0x30)  # would advance from stage 2; out-of-order from stage 0
-    await ClockCycles(dut.sample_clk, 5)
-    assert int(dut.triggered.value) == 0, (
+    await ClockCycles(dut.sample_clk_i, 5)
+    assert int(dut.triggered_o.value) == 0, (
         "re-arm must reset seq_state to 0 — drive stage-2 value should "
         "not advance from stage 0"
     )
@@ -410,9 +410,9 @@ async def test_rea_req_606_arm_resets_sequencer(dut):
     # Walk in order — should fire correctly post-reset.
     for value in [0x10, 0x20, 0x30, 0x40]:
         await _drive_probe(dut, value)
-        await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 1
+        await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1
 
     dut._log.info("REA-REQ-606 PASS — arm_pulse resets seq_state to 0")
 
@@ -430,12 +430,12 @@ async def test_rea_req_327_back_to_back_matches_stay_ordered(dut):
     )
 
     for value in [0x120, 0x121, 0x122, 0x123]:
-        dut.probe_in.value = value
-        await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
+        dut.probe_i.value = value
+        await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
 
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    assert int(dut.triggered.value) == 1, (
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1, (
         "consecutive stage matches were reordered or evaluated against stale state"
     )
 

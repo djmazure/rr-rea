@@ -58,27 +58,27 @@ CLK_PERIOD_NS = 8.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    dut.array_enable_in.value = 0
-    dut.cond_values_in.value = 0
-    dut.cond_masks_in.value = 0
-    dut.cond_ops_in.value = 0
-    dut.cond_valid_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    dut.array_enable_i.value = 0
+    dut.cond_values_i.value = 0
+    dut.cond_masks_i.value = 0
+    dut.cond_ops_i.value = 0
+    dut.cond_valid_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 def _pack(conds: list[tuple[int, int, int, bool]]):
@@ -97,16 +97,16 @@ def _pack(conds: list[tuple[int, int, int, bool]]):
 async def _arm_array(dut, conds: list[tuple[int, int, int, bool]],
                      pretrig: int = 4, posttrig: int = 4):
     cv, cm, co, cval = _pack(conds)
-    dut.pretrig_len_in.value = pretrig
-    dut.posttrig_len_in.value = posttrig
-    dut.array_enable_in.value = 1
-    dut.cond_values_in.value = cv
-    dut.cond_masks_in.value = cm
-    dut.cond_ops_in.value = co
-    dut.cond_valid_in.value = cval
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = pretrig
+    dut.posttrig_len_i.value = posttrig
+    dut.array_enable_i.value = 1
+    dut.cond_values_i.value = cv
+    dut.cond_masks_i.value = cm
+    dut.cond_ops_i.value = co
+    dut.cond_valid_i.value = cval
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 # "low nibble < 5 AND high nibble == 1": two valid slots, two invalid.
@@ -122,11 +122,11 @@ _CONDS = [
 
 async def _fire_on(dut, probe: int) -> bool:
     """Drive one probe sample and allow its derived pipeline to report."""
-    dut.probe_in.value = probe
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
-    await ClockCycles(dut.sample_clk, DERIVED_PIPE_STAGES + 1)
-    return int(dut.triggered.value) == 1
+    dut.probe_i.value = probe
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    return int(dut.triggered_o.value) == 1
 
 
 @cocotb.test()
@@ -152,16 +152,16 @@ async def test_array_one_condition_fails_no_fire(dut):
     await _arm_array(dut, _CONDS)
     # low nibble 7 is NOT < 5 (cond0 fails), high nibble 1 (cond1 ok).
     for _ in range(4):
-        dut.probe_in.value = 0x17
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, "cond0 (low<5) failed — must not fire"
+        dut.probe_i.value = 0x17
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, "cond0 (low<5) failed — must not fire"
 
     # re-arm; high nibble 2 != 1 (cond1 fails), low nibble 3 (<5 ok).
     await _arm_array(dut, _CONDS)
     for _ in range(4):
-        dut.probe_in.value = 0x23
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, "cond1 (high==1) failed — must not fire"
+        dut.probe_i.value = 0x23
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, "cond1 (high==1) failed — must not fire"
 
     # control: 0x13 satisfies both → fires.
     assert await _fire_on(dut, 0x13)
@@ -195,9 +195,9 @@ async def test_array_all_invalid_never_fires(dut):
     conds = [(0, 0, OP_EQ, False)] * 4
     await _arm_array(dut, conds)
     for _ in range(8):
-        dut.probe_in.value = 0x13
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, "no valid condition → must not fire"
+        dut.probe_i.value = 0x13
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, "no valid condition → must not fire"
     dut._log.info("P3.647 PASS — all-invalid array does not free-fire")
 
 
@@ -209,15 +209,15 @@ async def test_array_disabled_is_legacy_path(dut):
     await _start_clk(dut)
     await _reset(dut)
     # legacy EQ on full word == 0x00AA, array OFF.
-    dut.pretrig_len_in.value = 4
-    dut.posttrig_len_in.value = 4
-    dut.trig_value_in.value = 0x00AA
-    dut.trig_mask_in.value = 0x00FF
-    dut.trig_mode_in.value = 0x01  # value_match | EQ
-    dut.array_enable_in.value = 0
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = 4
+    dut.posttrig_len_i.value = 4
+    dut.trig_value_i.value = 0x00AA
+    dut.trig_mask_i.value = 0x00FF
+    dut.trig_mode_i.value = 0x01  # value_match | EQ
+    dut.array_enable_i.value = 0
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
     assert await _fire_on(dut, 0x00AA), "legacy EQ path must still fire when array off"
     dut._log.info("P3.647 PASS — array disabled leaves the legacy path intact")
 

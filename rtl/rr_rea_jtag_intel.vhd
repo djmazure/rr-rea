@@ -33,17 +33,17 @@ entity rr_rea_intel is
         G_CTRL_CHAIN  : positive := 1   -- sld_instance_index (1-based)
     );
     port (
-        sample_clk  : in  std_logic;
-        sample_rst  : in  std_logic;
-        probe_in    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        sample_clk_i  : in  std_logic;
+        sample_rst_i  : in  std_logic;
+        probe_i    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
         -- RTL-P2.837: write-side source bit(s) — JTAG-writable control lines
-        -- into the design (sample_clk domain, crossed via rr_rea_sync_word).
+        -- into the design (sample_clk_i domain, crossed via rr_rea_sync_word).
         -- Wire so bit=0 holds the gated DUT signal safe; the host raises it
         -- over JTAG (System Console) to release. Reset default = 0. Leave
         -- `open` if unused. Needs `set_clock_groups -asynchronous` between the
-        -- sld_virtual_jtag tck and the sample clock — see SPEC.md.
-        source_out  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
-        trigger_out : out std_logic
+        -- sld_virtual_jtag tck_i and the sample clock — see SPEC.md.
+        source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
+        trigger_o : out std_logic
     );
 end entity;
 
@@ -56,9 +56,9 @@ architecture rtl of rr_rea_intel is
             sld_ir_width            : integer := 1
         );
         port (
-            tck               : out std_logic;
-            tdi               : out std_logic;
-            tdo               : in  std_logic;
+            tck_i               : out std_logic;
+            tdi_i               : out std_logic;
+            tdo_o               : in  std_logic;
             virtual_state_cdr : out std_logic;
             virtual_state_sdr : out std_logic;
             virtual_state_udr : out std_logic;
@@ -67,20 +67,20 @@ architecture rtl of rr_rea_intel is
         );
     end component;
 
-    signal tck      : std_logic;
-    signal tdi      : std_logic;
-    signal tdo      : std_logic;
-    signal capture  : std_logic;
-    signal shift_en : std_logic;
-    signal update   : std_logic;
+    signal tck_i      : std_logic;
+    signal tdi_i      : std_logic;
+    signal tdo_o      : std_logic;
+    signal capture_i  : std_logic;
+    signal shift_en_i : std_logic;
+    signal update_i   : std_logic;
     -- sld_virtual_jtag is selected automatically when its IR matches —
-    -- there is no per-instance SEL output. Tie sel high so rr_rea_top's
+    -- there is no per-instance SEL output. Tie sel_i high so rr_rea_top's
     -- TAP-side logic always observes "selected" while the virtual JTAG
-    -- node is active. The capture/shift/update strobes are themselves
+    -- node is active. The capture_i/shift/update_i strobes are themselves
     -- only asserted by the sld_node when this instance is targeted.
-    signal sel      : std_logic := '1';
+    signal sel_i      : std_logic := '1';
     -- sld_virtual_jtag exposes no reset; rely on iface FSM's natural init.
-    signal arst     : std_logic := '0';
+    signal arst_i     : std_logic := '0';
 
     signal ir_in_unused : std_logic_vector(0 downto 0);
 
@@ -93,12 +93,12 @@ begin
             sld_ir_width            => 1
         )
         port map (
-            tck               => tck,
-            tdi               => tdi,
-            tdo               => tdo,
-            virtual_state_cdr => capture,
-            virtual_state_sdr => shift_en,
-            virtual_state_udr => update,
+            tck_i               => tck_i,
+            tdi_i               => tdi_i,
+            tdo_o               => tdo_o,
+            virtual_state_cdr => capture_i,
+            virtual_state_sdr => shift_en_i,
+            virtual_state_udr => update_i,
             ir_in             => ir_in_unused,
             ir_out            => "0"
         );
@@ -112,19 +112,19 @@ begin
             G_NUM_SOURCE  => G_NUM_SOURCE
         )
         port map (
-            sample_clk  => sample_clk,
-            sample_rst  => sample_rst,
-            probe_in    => probe_in,
-            source_out  => source_out,
-            trigger_out => trigger_out,
-            arst        => arst,
-            tck         => tck,
-            tdi         => tdi,
-            tdo         => tdo,
-            capture     => capture,
-            shift_en    => shift_en,
-            update      => update,
-            sel         => sel
+            sample_clk_i  => sample_clk_i,
+            sample_rst_i  => sample_rst_i,
+            probe_i    => probe_i,
+            source_o  => source_o,
+            trigger_o => trigger_o,
+            arst_i        => arst_i,
+            tck_i         => tck_i,
+            tdi_i         => tdi_i,
+            tdo_o         => tdo_o,
+            capture_i     => capture_i,
+            shift_en_i    => shift_en_i,
+            update_i      => update_i,
+            sel_i         => sel_i
         );
 
 end architecture;

@@ -14,7 +14,7 @@
 --   regbank        ──── CDCs ────►       capture_fsm config inputs
 --   capture_fsm    ──── CDCs ────►       regbank status mirror
 --   capture_fsm    ──────────────►       dpram (port A: write)
---   dpram (port B: read) ────────►       JTAG iface (when reg_addr in DPRAM window)
+--   dpram (port B: read) ────────►       JTAG iface (when reg_addr_o in DPRAM window)
 --
 -- See SPEC.md and requirements.yml REA-REQ-300 for the contract.
 
@@ -38,55 +38,55 @@ entity rr_rea_top is
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
-        sample_clk : in  std_logic;
-        sample_rst : in  std_logic;
-        probe_in   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        sample_clk_i : in  std_logic;
+        sample_rst_i : in  std_logic;
+        probe_i   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
 
         -- ── Write-side source (RTL-P2.837) ───────────────────────
         -- ISSP-style JTAG-writable control bit(s) driven INTO the design —
         -- the write counterpart to the read-only probe path. The host sets
         -- a bit over JTAG (System Console / xsdb) to release a gated DUT
-        -- signal, clears it to re-gate. Presented HERE in the sample_clk
-        -- domain, having crossed from jtag_clk via rr_rea_sync_word (the
+        -- signal, clears it to re-gate. Presented HERE in the sample_clk_i
+        -- domain, having crossed from jtag_clk_i via rr_rea_sync_word (the
         -- proven two-flop word synchronizer, REA-REQ-020/021) exactly like
         -- every other config word — NEVER a bespoke single flop. Powers up
         -- all-zeros (GSR init on the sync flops + regbank reset) so the
         -- gated signal starts SAFE/inactive until explicitly written.
         --
-        -- SDC: the jtag_clk → sample_clk crossing this port rides on is
+        -- SDC: the jtag_clk_i → sample_clk_i crossing this port rides on is
         -- asynchronous and MUST get the same `set_clock_groups -asynchronous`
         -- treatment as the existing REA config crossings wherever this core
         -- is integrated into a board/example design (see SPEC.md
-        -- "Write-side source"). Wire source_out so that a bit = 0 holds the
+        -- "Write-side source"). Wire source_o so that a bit = 0 holds the
         -- DUT signal in its safe state (e.g. bist_start <= bist_start_i and
-        -- source_out(0)); the reset default then gates by construction.
-        source_out : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
+        -- source_o(0)); the reset default then gates by construction.
+        source_o : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
 
         -- ── External board-pin trigger (RTL-P3.266) ─────────────
         -- Async package-pin input the user routes from a board pin (scope
-        -- trigger-out, another FPGA's trigger_out, a button). Synced inside
+        -- trigger-out, another FPGA's trigger_o, a button). Synced inside
         -- and folded into the fire decision per TRIG_MODE ext_en[3]/ext_and[8].
         -- Defaults '0' so existing instantiations that don't drive it are
         -- unaffected (internal-only trigger).
-        ext_trigger_in : in std_logic := '0';
+        ext_trigger_i : in std_logic := '0';
 
-        -- ── Local trigger pulse (1-cycle on sample_clk) ─────────
+        -- ── Local trigger pulse (1-cycle on sample_clk_i) ─────────
         -- Exposed so the design can route it to an LED / external
         -- pin / cross-domain trigger crossbar (v0.2). Doubles as a
         -- "Vivado optimizer anchor" — without an observable output
         -- the whole REA hierarchy gets pruned in synthesis.
-        trigger_out : out std_logic;
+        trigger_o : out std_logic;
 
-        -- ── JTAG TAP (jtag_clk domain) — driven by external wrapper
+        -- ── JTAG TAP (jtag_clk_i domain) — driven by external wrapper
         --    in synth, driven by testbench in sim ─────────────────
-        arst       : in  std_logic;
-        tck        : in  std_logic;
-        tdi        : in  std_logic;
-        tdo        : out std_logic;
-        capture    : in  std_logic;
-        shift_en   : in  std_logic;
-        update     : in  std_logic;
-        sel        : in  std_logic
+        arst_i       : in  std_logic;
+        tck_i        : in  std_logic;
+        tdi_i        : in  std_logic;
+        tdo_o        : out std_logic;
+        capture_i    : in  std_logic;
+        shift_en_i   : in  std_logic;
+        update_i     : in  std_logic;
+        sel_i        : in  std_logic
     );
 end entity;
 
@@ -94,16 +94,16 @@ architecture rtl of rr_rea_top is
 
     constant C_PTR_W : positive := clog2(G_DEPTH);
 
-    -- ── Reg-bus wires (jtag_clk domain) ──────────────────────────
-    signal reg_clk    : std_logic;
-    signal reg_rst    : std_logic;
-    signal reg_wr_en  : std_logic;
-    signal reg_rd_en  : std_logic;
-    signal reg_addr   : std_logic_vector(15 downto 0);
-    signal reg_wdata  : std_logic_vector(31 downto 0);
-    signal reg_rdata  : std_logic_vector(31 downto 0);
+    -- ── Reg-bus wires (jtag_clk_i domain) ──────────────────────────
+    signal reg_clk_o    : std_logic;
+    signal reg_rst_o    : std_logic;
+    signal reg_wr_en_o  : std_logic;
+    signal reg_rd_en_o  : std_logic;
+    signal reg_addr_o   : std_logic_vector(15 downto 0);
+    signal reg_wdata_o  : std_logic_vector(31 downto 0);
+    signal reg_rdata_i  : std_logic_vector(31 downto 0);
 
-    -- ── Regbank → CDC → FSM config (jtag_clk → sample_clk) ──────
+    -- ── Regbank → CDC → FSM config (jtag_clk_i → sample_clk_i) ──────
     signal pretrig_jclk  : std_logic_vector(C_PTR_W - 1 downto 0);
     signal posttrig_jclk : std_logic_vector(C_PTR_W - 1 downto 0);
     signal trig_value_jclk : std_logic_vector(G_SAMPLE_W - 1 downto 0);
@@ -126,7 +126,7 @@ architecture rtl of rr_rea_top is
     signal posttrig_sclk   : std_logic_vector(C_PTR_W - 1 downto 0);
     signal trig_value_sclk : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal trig_mask_sclk  : std_logic_vector(G_SAMPLE_W - 1 downto 0);
-    -- Low 16 bits of TRIG_MODE crossed to sample_clk: [7:0] op byte
+    -- Low 16 bits of TRIG_MODE crossed to sample_clk_i: [7:0] op byte
     -- (P3.644/645) + the enable bits seq[1]/array[2]/ext_en[3], and [8] =
     -- ext_and combine mode (RTL-P3.266). Widened from 8 → 16 to carry bit 8.
     signal trig_mode_sclk  : std_logic_vector(15 downto 0);
@@ -146,7 +146,7 @@ architecture rtl of rr_rea_top is
     signal cond_ops_sclk    : std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0);
     signal cond_valid_sclk  : std_logic_vector(G_TRIG_CONDS - 1 downto 0);
 
-    -- ── FSM outputs (sample_clk domain) ──────────────────────────
+    -- ── FSM outputs (sample_clk_i domain) ──────────────────────────
     signal armed_sclk     : std_logic;
     signal triggered_sclk : std_logic;
     signal done_sclk      : std_logic;
@@ -160,21 +160,21 @@ architecture rtl of rr_rea_top is
     signal trig_ptr_sclk    : std_logic_vector(C_PTR_W - 1 downto 0);
     signal start_ptr_sclk   : std_logic_vector(C_PTR_W - 1 downto 0);
 
-    -- ── CDC: sample_clk → jtag_clk (status mirror) ───────────────
+    -- ── CDC: sample_clk_i → jtag_clk_i (status mirror) ───────────────
     signal armed_jclk     : std_logic_vector(0 downto 0);
     signal triggered_jclk : std_logic_vector(0 downto 0);
     signal done_jclk      : std_logic_vector(0 downto 0);
     signal overflow_jclk  : std_logic_vector(0 downto 0);
     signal start_ptr_jclk : std_logic_vector(C_PTR_W - 1 downto 0);
 
-    -- ── DPRAM read-port (jtag_clk domain) ────────────────────────
+    -- ── DPRAM read-port (jtag_clk_i domain) ────────────────────────
     signal dpram_addr_b : std_logic_vector(C_PTR_W - 1 downto 0);
     signal dpram_dout_b : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     constant C_TIMESTAMP_STORAGE_W : positive := max_nat(1, G_TIMESTAMP_W);
     signal timestamp_dout_b : std_logic_vector(
         C_TIMESTAMP_STORAGE_W - 1 downto 0);
 
-    -- ── reg_rdata mux: regbank vs dpram window ───────────────────
+    -- ── reg_rdata_i mux: regbank vs dpram window ───────────────────
     signal regbank_rdata : std_logic_vector(31 downto 0);
     signal dpram_rdata   : std_logic_vector(31 downto 0);
     signal in_dpram_window : std_logic;
@@ -195,18 +195,18 @@ architecture rtl of rr_rea_top is
     component rr_rea_sync_word is
         generic (G_WIDTH : positive);
         port (
-            dst_clk : in  std_logic;
-            din     : in  std_logic_vector(G_WIDTH - 1 downto 0);
-            dout    : out std_logic_vector(G_WIDTH - 1 downto 0)
+            dst_clk_i : in  std_logic;
+            din_i     : in  std_logic_vector(G_WIDTH - 1 downto 0);
+            dout_o    : out std_logic_vector(G_WIDTH - 1 downto 0)
         );
     end component;
 
     component rr_rea_pulse_xfer is
         port (
-            src_toggle : in  std_logic;
-            dst_clk    : in  std_logic;
-            dst_rst    : in  std_logic;
-            dst_pulse  : out std_logic
+            src_toggle_i : in  std_logic;
+            dst_clk_i    : in  std_logic;
+            dst_rst_i    : in  std_logic;
+            dst_pulse_o  : out std_logic
         );
     end component;
 
@@ -215,21 +215,21 @@ begin
     -- ── JTAG protocol decoder ────────────────────────────────────
     u_jtag : entity work.rr_rea_jtag_iface
         port map (
-            arst      => arst,
-            tck       => tck,
-            tdi       => tdi,
-            tdo       => tdo,
-            capture   => capture,
-            shift_en  => shift_en,
-            update    => update,
-            sel       => sel,
-            reg_clk   => reg_clk,
-            reg_rst   => reg_rst,
-            reg_wr_en => reg_wr_en,
-            reg_rd_en => reg_rd_en,
-            reg_addr  => reg_addr,
-            reg_wdata => reg_wdata,
-            reg_rdata => reg_rdata
+            arst_i      => arst_i,
+            tck_i       => tck_i,
+            tdi_i       => tdi_i,
+            tdo_o       => tdo_o,
+            capture_i   => capture_i,
+            shift_en_i  => shift_en_i,
+            update_i    => update_i,
+            sel_i       => sel_i,
+            reg_clk_o   => reg_clk_o,
+            reg_rst_o   => reg_rst_o,
+            reg_wr_en_o => reg_wr_en_o,
+            reg_rd_en_o => reg_rd_en_o,
+            reg_addr_o  => reg_addr_o,
+            reg_wdata_o => reg_wdata_o,
+            reg_rdata_i => reg_rdata_i
         );
 
     -- ── Register file ────────────────────────────────────────────
@@ -243,54 +243,54 @@ begin
             G_NUM_SOURCE  => G_NUM_SOURCE
         )
         port map (
-            jtag_clk => reg_clk,
-            jtag_rst => reg_rst,
-            wr_en    => reg_wr_en,
-            wr_addr  => reg_addr,
-            wr_data  => reg_wdata,
-            rd_addr  => reg_addr,
-            rd_data  => regbank_rdata,
-            armed_in     => armed_jclk(0),
-            triggered_in => triggered_jclk(0),
-            done_in      => done_jclk(0),
-            overflow_in  => overflow_jclk(0),
-            start_ptr_in => start_ptr_jclk,
-            pretrig_len_out  => pretrig_jclk,
-            posttrig_len_out => posttrig_jclk,
-            trig_value_out   => trig_value_jclk,
-            trig_mask_out    => trig_mask_jclk,
-            trig_mode_out    => trig_mode_jclk,
-            chan_sel_out     => chan_sel_jclk,
-            decim_ratio_out  => decim_ratio_jclk,
-            data_word_sel_out => data_word_sel_jclk,
-            data_plane_sel_out => data_plane_sel_jclk,
-            cond_values_out  => cond_values_jclk,
-            cond_masks_out   => cond_masks_jclk,
-            cond_ops_out     => cond_ops_jclk,
-            cond_valid_out   => cond_valid_jclk,
-            source_out       => source_jclk,
-            arm_toggle_out   => arm_toggle_jclk,
-            reset_toggle_out => reset_toggle_jclk
+            jtag_clk_i => reg_clk_o,
+            jtag_rst_i => reg_rst_o,
+            wr_en_i    => reg_wr_en_o,
+            wr_addr_i  => reg_addr_o,
+            wr_data_i  => reg_wdata_o,
+            rd_addr_i  => reg_addr_o,
+            rd_data_o  => regbank_rdata,
+            armed_i     => armed_jclk(0),
+            triggered_i => triggered_jclk(0),
+            done_i      => done_jclk(0),
+            overflow_i  => overflow_jclk(0),
+            start_ptr_i => start_ptr_jclk,
+            pretrig_len_o  => pretrig_jclk,
+            posttrig_len_o => posttrig_jclk,
+            trig_value_o   => trig_value_jclk,
+            trig_mask_o    => trig_mask_jclk,
+            trig_mode_o    => trig_mode_jclk,
+            chan_sel_o     => chan_sel_jclk,
+            decim_ratio_o  => decim_ratio_jclk,
+            data_word_sel_o => data_word_sel_jclk,
+            data_plane_sel_o => data_plane_sel_jclk,
+            cond_values_o  => cond_values_jclk,
+            cond_masks_o   => cond_masks_jclk,
+            cond_ops_o     => cond_ops_jclk,
+            cond_valid_o   => cond_valid_jclk,
+            source_o       => source_jclk,
+            arm_toggle_o   => arm_toggle_jclk,
+            reset_toggle_o => reset_toggle_jclk
         );
 
-    -- ── reg_rdata mux: dpram window vs regbank ───────────────────
+    -- ── reg_rdata_i mux: dpram window vs regbank ───────────────────
     -- dpram_window: addr in [0x0100 .. 0x0100 + DEPTH*4)
     -- (each dpram cell occupies 4 bytes / 1 word in the JTAG map)
-    process (reg_addr)
+    process (reg_addr_o)
         variable in_window_v : boolean;
     begin
         in_dpram_window <= '0';
         dpram_addr_b <= (others => '0');
 
-        if is_01(reg_addr) then
+        if is_01(reg_addr_o) then
             in_window_v :=
-                unsigned(reg_addr) >= unsigned(C_ADDR_DATA_BASE) and
-                unsigned(reg_addr) < (unsigned(C_ADDR_DATA_BASE) +
+                unsigned(reg_addr_o) >= unsigned(C_ADDR_DATA_BASE) and
+                unsigned(reg_addr_o) < (unsigned(C_ADDR_DATA_BASE) +
                                       to_unsigned(G_DEPTH * 4, 16));
             if in_window_v then
                 in_dpram_window <= '1';
                 dpram_addr_b <= std_logic_vector(resize(
-                    shift_right(unsigned(reg_addr) - unsigned(C_ADDR_DATA_BASE), 2),
+                    shift_right(unsigned(reg_addr_o) - unsigned(C_ADDR_DATA_BASE), 2),
                     C_PTR_W));
             end if;
         else
@@ -304,16 +304,16 @@ begin
     -- zero-pads the final partial word and returns zero out of range.
     -- DATA_PLANE_SEL (RTL-T2.123) picks the sample vs timestamp plane.
     --
-    -- RTL-P1.96: the paging mux output is REGISTERED on reg_clk (tck) before
-    -- the DR capture — at wide G_SAMPLE_W this shift is a ~22:1 word mux over
+    -- RTL-P1.96: the paging mux output is REGISTERED on reg_clk_o (tck_i) before
+    -- the DR capture_i — at wide G_SAMPLE_W this shift is a ~22:1 word mux over
     -- the full sample width, the same class of comb cone that Quartus Pro
     -- 26.1/Arria 10 miscompiled at the regbank read-mux (bit0=1 reads
     -- captured as all-ones). DATA-window reads are therefore valid one
-    -- reg_clk edge after dpram_dout_b (two after the read command commits);
+    -- reg_clk_o edge after dpram_dout_b (two after the read command commits);
     -- the two-scan read flow every host uses gives it several.
-    process (reg_clk)
+    process (reg_clk_o)
     begin
-        if rising_edge(reg_clk) then
+        if rising_edge(reg_clk_o) then
             if is_01(data_word_sel_jclk) then
                 if data_plane_sel_jclk = '0' then
                     dpram_rdata <= std_logic_vector(resize(
@@ -338,28 +338,28 @@ begin
         end if;
     end process;
 
-    reg_rdata <= dpram_rdata when in_dpram_window = '1' else regbank_rdata;
+    reg_rdata_i <= dpram_rdata when in_dpram_window = '1' else regbank_rdata;
 
-    -- ── CDC: jtag_clk config words → sample_clk ──────────────────
+    -- ── CDC: jtag_clk_i config words → sample_clk_i ──────────────────
     u_cdc_pretrig : rr_rea_sync_word
         generic map (G_WIDTH => C_PTR_W)
-        port map (dst_clk => sample_clk, din => pretrig_jclk,
-                  dout => pretrig_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => pretrig_jclk,
+                  dout_o => pretrig_sclk);
 
     u_cdc_posttrig : rr_rea_sync_word
         generic map (G_WIDTH => C_PTR_W)
-        port map (dst_clk => sample_clk, din => posttrig_jclk,
-                  dout => posttrig_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => posttrig_jclk,
+                  dout_o => posttrig_sclk);
 
     u_cdc_trig_value : rr_rea_sync_word
         generic map (G_WIDTH => G_SAMPLE_W)
-        port map (dst_clk => sample_clk, din => trig_value_jclk,
-                  dout => trig_value_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => trig_value_jclk,
+                  dout_o => trig_value_sclk);
 
     u_cdc_trig_mask : rr_rea_sync_word
         generic map (G_WIDTH => G_SAMPLE_W)
-        port map (dst_clk => sample_clk, din => trig_mask_jclk,
-                  dout => trig_mask_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => trig_mask_jclk,
+                  dout_o => trig_mask_sclk);
 
     -- Comparator-op + enable-bits CDC: low 16 bits of TRIG_MODE carry
     -- value_match[0]/seq_en[1]/array_en[2]/ext_en[3], the op nibble [7:4]
@@ -367,44 +367,44 @@ begin
     -- the host writes TRIG_MODE before pulsing arm.
     u_cdc_trig_mode : rr_rea_sync_word
         generic map (G_WIDTH => 16)
-        port map (dst_clk => sample_clk, din => trig_mode_jclk(15 downto 0),
-                  dout => trig_mode_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => trig_mode_jclk(15 downto 0),
+                  dout_o => trig_mode_sclk);
 
-    -- RTL-P3.266: external board-pin trigger, synced into the sample_clk
-    -- domain (the pin is fully asynchronous to sample_clk — the user routes
+    -- RTL-P3.266: external board-pin trigger, synced into the sample_clk_i
+    -- domain (the pin is fully asynchronous to sample_clk_i — the user routes
     -- it from a package pin). A double-flop level synchronizer is correct for
     -- a level / wide-pulse external trigger; sub-sample-period pulses are not
     -- guaranteed to be seen (documented in SPEC).
     u_cdc_ext_trig : rr_rea_sync_word
         generic map (G_WIDTH => 1)
-        port map (dst_clk => sample_clk, din => (0 => ext_trigger_in),
-                  dout => ext_trig_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => (0 => ext_trigger_i),
+                  dout_o => ext_trig_sclk);
 
     -- v0.3 decimation ratio CDC
     u_cdc_decim : rr_rea_sync_word
         generic map (G_WIDTH => 24)
-        port map (dst_clk => sample_clk, din => decim_ratio_jclk,
-                  dout => decim_ratio_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => decim_ratio_jclk,
+                  dout_o => decim_ratio_sclk);
 
     -- RTL-P3.647 comparator-array config CDC. Quasi-static (the host writes
     -- all slots before pulsing arm; the FSM latches on the arm pulse), so the
     -- per-bit double-flop sync — same as trig_value/mask — is sufficient.
     u_cdc_cond_values : rr_rea_sync_word
         generic map (G_WIDTH => G_TRIG_CONDS * G_SAMPLE_W)
-        port map (dst_clk => sample_clk, din => cond_values_jclk,
-                  dout => cond_values_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => cond_values_jclk,
+                  dout_o => cond_values_sclk);
     u_cdc_cond_masks : rr_rea_sync_word
         generic map (G_WIDTH => G_TRIG_CONDS * G_SAMPLE_W)
-        port map (dst_clk => sample_clk, din => cond_masks_jclk,
-                  dout => cond_masks_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => cond_masks_jclk,
+                  dout_o => cond_masks_sclk);
     u_cdc_cond_ops : rr_rea_sync_word
         generic map (G_WIDTH => G_TRIG_CONDS * 4)
-        port map (dst_clk => sample_clk, din => cond_ops_jclk,
-                  dout => cond_ops_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => cond_ops_jclk,
+                  dout_o => cond_ops_sclk);
     u_cdc_cond_valid : rr_rea_sync_word
         generic map (G_WIDTH => G_TRIG_CONDS)
-        port map (dst_clk => sample_clk, din => cond_valid_jclk,
-                  dout => cond_valid_sclk);
+        port map (dst_clk_i => sample_clk_i, din_i => cond_valid_jclk,
+                  dout_o => cond_valid_sclk);
 
     -- RTL-P2.837 write-side source CDC. The SOURCE register is quasi-static
     -- (the host writes it, then it holds — same profile as trig_value/mask and
@@ -413,29 +413,29 @@ begin
     -- a lone flop fanning out to multiple downstream gates can latch
     -- inconsistent values before a metastable flop resolves, so every source
     -- bit gets the proven ASYNC_REG double-flop (REA-REQ-020). The sync flops
-    -- init to 0 (GSR), so source_out holds the gated DUT signal SAFE until the
+    -- init to 0 (GSR), so source_o holds the gated DUT signal SAFE until the
     -- host writes SOURCE — matching the regbank reset default (no auto-release).
     u_cdc_source : rr_rea_sync_word
         generic map (G_WIDTH => G_NUM_SOURCE)
-        port map (dst_clk => sample_clk, din => source_jclk,
-                  dout => source_sclk);
-    source_out <= source_sclk;
+        port map (dst_clk_i => sample_clk_i, din_i => source_jclk,
+                  dout_o => source_sclk);
+    source_o <= source_sclk;
 
-    probe_sclk <= probe_in;
+    probe_sclk <= probe_i;
 
-    -- ── CDC: jtag_clk pulse toggles → sample_clk pulses ─────────
+    -- ── CDC: jtag_clk_i pulse toggles → sample_clk_i pulses ─────────
     u_cdc_arm : rr_rea_pulse_xfer
         port map (
-            src_toggle => arm_toggle_jclk,
-            dst_clk => sample_clk, dst_rst => sample_rst,
-            dst_pulse => arm_pulse_sclk
+            src_toggle_i => arm_toggle_jclk,
+            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+            dst_pulse_o => arm_pulse_sclk
         );
 
     u_cdc_reset : rr_rea_pulse_xfer
         port map (
-            src_toggle => reset_toggle_jclk,
-            dst_clk => sample_clk, dst_rst => sample_rst,
-            dst_pulse => reset_pulse_sclk
+            src_toggle_i => reset_toggle_jclk,
+            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+            dst_pulse_o => reset_pulse_sclk
         );
 
     -- ── Capture FSM ──────────────────────────────────────────────
@@ -443,82 +443,82 @@ begin
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
                      G_TRIG_CONDS => G_TRIG_CONDS)
         port map (
-            sample_clk    => sample_clk,
-            sample_rst    => sample_rst,
-            probe_in      => probe_sclk,
-            arm_pulse     => arm_pulse_sclk,
-            reset_pulse   => reset_pulse_sclk,
-            pretrig_len_in  => pretrig_sclk,
-            posttrig_len_in => posttrig_sclk,
-            trig_value_in   => trig_value_sclk,
-            trig_mask_in    => trig_mask_sclk,
-            trig_mode_in    => trig_mode_sclk(7 downto 0),
-            decim_ratio_in  => decim_ratio_sclk,
+            sample_clk_i    => sample_clk_i,
+            sample_rst_i    => sample_rst_i,
+            probe_i      => probe_sclk,
+            arm_pulse_i     => arm_pulse_sclk,
+            reset_pulse_i   => reset_pulse_sclk,
+            pretrig_len_i  => pretrig_sclk,
+            posttrig_len_i => posttrig_sclk,
+            trig_value_i   => trig_value_sclk,
+            trig_mask_i    => trig_mask_sclk,
+            trig_mode_i    => trig_mode_sclk(7 downto 0),
+            decim_ratio_i  => decim_ratio_sclk,
             -- RTL-P3.647: array_enable rides in trig_mode bit[2] (CDC'd above);
             -- the per-condition arrays come from their own sync.
-            array_enable_in => trig_mode_sclk(C_TRIG_MODE_BIT_ARRAY_EN),
-            cond_values_in  => cond_values_sclk,
-            cond_masks_in   => cond_masks_sclk,
-            cond_ops_in     => cond_ops_sclk,
-            cond_valid_in   => cond_valid_sclk,
+            array_enable_i => trig_mode_sclk(C_TRIG_MODE_BIT_ARRAY_EN),
+            cond_values_i  => cond_values_sclk,
+            cond_masks_i   => cond_masks_sclk,
+            cond_ops_i     => cond_ops_sclk,
+            cond_valid_i   => cond_valid_sclk,
             -- RTL-P3.266: external board-pin trigger (synced) + its enable
             -- (TRIG_MODE bit[3]) and OR/AND combine mode (bit[8]).
-            ext_trigger_in  => ext_trig_sclk(0),
-            ext_enable_in   => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_EN),
-            ext_and_in      => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_AND),
-            armed       => armed_sclk,
-            triggered   => triggered_sclk,
-            done        => done_sclk,
-            overflow    => overflow_sclk,
-            trigger_out => trigger_out_sclk,
-            dpram_we    => dpram_we_sclk,
-            dpram_addr  => dpram_addr_sclk,
-            dpram_din   => dpram_din_sclk,
-            wr_ptr_out    => wr_ptr_sclk,
-            trig_ptr_out  => trig_ptr_sclk,
-            start_ptr_out => start_ptr_sclk
+            ext_trigger_i  => ext_trig_sclk(0),
+            ext_enable_i   => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_EN),
+            ext_and_i      => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_AND),
+            armed_o       => armed_sclk,
+            triggered_o   => triggered_sclk,
+            done_o        => done_sclk,
+            overflow_o    => overflow_sclk,
+            trigger_o => trigger_out_sclk,
+            dpram_we_o    => dpram_we_sclk,
+            dpram_addr_o  => dpram_addr_sclk,
+            dpram_din_o   => dpram_din_sclk,
+            wr_ptr_o    => wr_ptr_sclk,
+            trig_ptr_o  => trig_ptr_sclk,
+            start_ptr_o => start_ptr_sclk
         );
 
-    -- ── CDC: sample_clk status → jtag_clk ────────────────────────
+    -- ── CDC: sample_clk_i status → jtag_clk_i ────────────────────────
     u_cdc_armed : rr_rea_sync_word
         generic map (G_WIDTH => 1)
-        port map (dst_clk => reg_clk,
-                  din(0) => armed_sclk,
-                  dout => armed_jclk);
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => armed_sclk,
+                  dout_o => armed_jclk);
 
     u_cdc_triggered : rr_rea_sync_word
         generic map (G_WIDTH => 1)
-        port map (dst_clk => reg_clk,
-                  din(0) => triggered_sclk,
-                  dout => triggered_jclk);
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => triggered_sclk,
+                  dout_o => triggered_jclk);
 
     u_cdc_done : rr_rea_sync_word
         generic map (G_WIDTH => 1)
-        port map (dst_clk => reg_clk,
-                  din(0) => done_sclk,
-                  dout => done_jclk);
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => done_sclk,
+                  dout_o => done_jclk);
 
     u_cdc_overflow : rr_rea_sync_word
         generic map (G_WIDTH => 1)
-        port map (dst_clk => reg_clk,
-                  din(0) => overflow_sclk,
-                  dout => overflow_jclk);
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => overflow_sclk,
+                  dout_o => overflow_jclk);
 
     u_cdc_start_ptr : rr_rea_sync_word
         generic map (G_WIDTH => C_PTR_W)
-        port map (dst_clk => reg_clk,
-                  din => start_ptr_sclk,
-                  dout => start_ptr_jclk);
+        port map (dst_clk_i => reg_clk_o,
+                  din_i => start_ptr_sclk,
+                  dout_o => start_ptr_jclk);
 
-    -- ── trigger_out: pulse the external port + maintain a sticky
+    -- ── trigger_o: pulse the external port + maintain a sticky
     --    flag flipped on each trigger so an LED can dance and the
     --    Vivado optimizer can't prune the hierarchy. ─────────────
-    trigger_out <= trigger_sticky_r;
-    process (sample_clk, sample_rst)
+    trigger_o <= trigger_sticky_r;
+    process (sample_clk_i, sample_rst_i)
     begin
-        if sample_rst = '1' then
+        if sample_rst_i = '1' then
             trigger_sticky_r <= '0';
-        elsif rising_edge(sample_clk) then
+        elsif rising_edge(sample_clk_i) then
             if trigger_out_sclk = '1' then
                 trigger_sticky_r <= not trigger_sticky_r;
             end if;
@@ -529,31 +529,31 @@ begin
     u_dpram : entity work.rr_rea_dpram
         generic map (G_WIDTH => G_SAMPLE_W, G_DEPTH => G_DEPTH)
         port map (
-            clk_a  => sample_clk,
-            we_a   => dpram_we_sclk,
-            addr_a => dpram_addr_sclk,
-            din_a  => dpram_din_sclk,
-            dout_a => open,
-            clk_b  => reg_clk,
-            addr_b => dpram_addr_b,
-            dout_b => dpram_dout_b
+            clk_a_i  => sample_clk_i,
+            we_a_i   => dpram_we_sclk,
+            addr_a_i => dpram_addr_sclk,
+            din_a_i  => dpram_din_sclk,
+            dout_a_o => open,
+            clk_b_i  => reg_clk_o,
+            addr_b_i => dpram_addr_b,
+            dout_b_o => dpram_dout_b
         );
 
     -- RTL-T2.123: a free-running sample-clock counter is written through the
     -- exact same WE/address pair as the sample plane. Each stored sample cell
     -- therefore has one aligned timestamp, including across ring wrap and
-    -- decimation gaps. Soft capture reset preserves time continuity; only
-    -- sample_rst restarts the counter. G_TIMESTAMP_W=0 elaborates no plane.
+    -- decimation gaps. Soft capture_i reset preserves time continuity; only
+    -- sample_rst_i restarts the counter. G_TIMESTAMP_W=0 elaborates no plane.
     g_timestamp_plane : if G_TIMESTAMP_W > 0 generate
         signal timestamp_r : unsigned(G_TIMESTAMP_W - 1 downto 0) :=
             (others => '0');
         signal timestamp_dout : std_logic_vector(G_TIMESTAMP_W - 1 downto 0);
     begin
-        process (sample_clk, sample_rst)
+        process (sample_clk_i, sample_rst_i)
         begin
-            if sample_rst = '1' then
+            if sample_rst_i = '1' then
                 timestamp_r <= (others => '0');
-            elsif rising_edge(sample_clk) then
+            elsif rising_edge(sample_clk_i) then
                 timestamp_r <= timestamp_r + 1;
             end if;
         end process;
@@ -561,14 +561,14 @@ begin
         u_timestamp_dpram : entity work.rr_rea_dpram
             generic map (G_WIDTH => G_TIMESTAMP_W, G_DEPTH => G_DEPTH)
             port map (
-                clk_a  => sample_clk,
-                we_a   => dpram_we_sclk,
-                addr_a => dpram_addr_sclk,
-                din_a  => std_logic_vector(timestamp_r),
-                dout_a => open,
-                clk_b  => reg_clk,
-                addr_b => dpram_addr_b,
-                dout_b => timestamp_dout
+                clk_a_i  => sample_clk_i,
+                we_a_i   => dpram_we_sclk,
+                addr_a_i => dpram_addr_sclk,
+                din_a_i  => std_logic_vector(timestamp_r),
+                dout_a_o => open,
+                clk_b_i  => reg_clk_o,
+                addr_b_i => dpram_addr_b,
+                dout_b_o => timestamp_dout
             );
         timestamp_dout_b <= timestamp_dout;
     end generate;

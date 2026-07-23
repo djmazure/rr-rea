@@ -51,19 +51,19 @@ def main() -> None:
 
 
 async def _start_clocks(dut):
-    cocotb.start_soon(Clock(dut.clk_a, 25.0, unit="ns").start())  # 40 MHz
-    cocotb.start_soon(Clock(dut.clk_b,  8.0, unit="ns").start())  # 125 MHz
+    cocotb.start_soon(Clock(dut.clk_a_i, 25.0, unit="ns").start())  # 40 MHz
+    cocotb.start_soon(Clock(dut.clk_b_i,  8.0, unit="ns").start())  # 125 MHz
 
 
 async def _reset(dut):
-    dut.rst_a.value = 1
-    dut.rst_b.value = 1
-    dut.toggle_a_in.value = 0
-    dut.toggle_b_in.value = 0
-    await ClockCycles(dut.clk_a, 5)
-    dut.rst_a.value = 0
-    dut.rst_b.value = 0
-    await ClockCycles(dut.clk_a, 3)
+    dut.rst_a_i.value = 1
+    dut.rst_b_i.value = 1
+    dut.toggle_a_i.value = 0
+    dut.toggle_b_i.value = 0
+    await ClockCycles(dut.clk_a_i, 5)
+    dut.rst_a_i.value = 0
+    dut.rst_b_i.value = 0
+    await ClockCycles(dut.clk_a_i, 3)
 
 
 @cocotb.test()
@@ -81,15 +81,15 @@ async def test_rea_req_402_xbar_routes_both_directions(dut):
     async def _count_a():
         nonlocal a_pulses
         for _ in range(200):
-            await RisingEdge(dut.clk_a)
-            if int(dut.pulse_a_out.value) == 1:
+            await RisingEdge(dut.clk_a_i)
+            if int(dut.pulse_a_o.value) == 1:
                 a_pulses += 1
 
     async def _count_b():
         nonlocal b_pulses
         for _ in range(500):
-            await RisingEdge(dut.clk_b)
-            if int(dut.pulse_b_out.value) == 1:
+            await RisingEdge(dut.clk_b_i)
+            if int(dut.pulse_b_o.value) == 1:
                 b_pulses += 1
 
     w_a = cocotb.start_soon(_count_a())
@@ -100,19 +100,19 @@ async def test_rea_req_402_xbar_routes_both_directions(dut):
     cur_a = 0
     cur_b = 0
     cur_a ^= 1
-    dut.toggle_a_in.value = cur_a
-    await ClockCycles(dut.clk_b, 20)
+    dut.toggle_a_i.value = cur_a
+    await ClockCycles(dut.clk_b_i, 20)
     # B fires twice over its own clock domain.
     cur_b ^= 1
-    dut.toggle_b_in.value = cur_b
-    await ClockCycles(dut.clk_b, 20)
+    dut.toggle_b_i.value = cur_b
+    await ClockCycles(dut.clk_b_i, 20)
     cur_b ^= 1
-    dut.toggle_b_in.value = cur_b
-    await ClockCycles(dut.clk_b, 20)
+    dut.toggle_b_i.value = cur_b
+    await ClockCycles(dut.clk_b_i, 20)
     # A fires once more.
     cur_a ^= 1
-    dut.toggle_a_in.value = cur_a
-    await ClockCycles(dut.clk_a, 30)
+    dut.toggle_a_i.value = cur_a
+    await ClockCycles(dut.clk_a_i, 30)
 
     await w_a
     await w_b

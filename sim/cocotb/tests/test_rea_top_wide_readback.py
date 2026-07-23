@@ -68,61 +68,61 @@ def main() -> None:
 
 
 async def _start_clocks(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, SAMPLE_PERIOD_NS, unit="ns").start())
-    cocotb.start_soon(Clock(dut.tck, TCK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, SAMPLE_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.tck_i, TCK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.arst.value = 1
-    dut.tdi.value = 0
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    dut.sel.value = 0
-    dut.probe_in.value = CAPTURED_VALUE
-    await ClockCycles(dut.tck, 4)
-    dut.sample_rst.value = 0
-    dut.arst.value = 0
-    await ClockCycles(dut.tck, 1)
+    dut.sample_rst_i.value = 1
+    dut.arst_i.value = 1
+    dut.tdi_i.value = 0
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
+    dut.probe_i.value = CAPTURED_VALUE
+    await ClockCycles(dut.tck_i, 4)
+    dut.sample_rst_i.value = 0
+    dut.arst_i.value = 0
+    await ClockCycles(dut.tck_i, 1)
 
 
 async def _capture_phase(dut):
-    dut.sel.value = 1
-    dut.capture.value = 1
-    dut.shift_en.value = 0
-    dut.update.value = 0
-    await RisingEdge(dut.tck)
-    dut.capture.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 1
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 0
+    await RisingEdge(dut.tck_i)
+    dut.capture_i.value = 0
 
 
 async def _shift_dr(dut, value: int, n_bits: int) -> int:
     from cocotb.triggers import NextTimeStep
 
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.update.value = 0
-    dut.shift_en.value = 1
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.update_i.value = 0
+    dut.shift_en_i.value = 1
     await ReadOnly()
     await NextTimeStep()
     out = 0
     for i in range(n_bits):
-        dut.tdi.value = (value >> i) & 1
+        dut.tdi_i.value = (value >> i) & 1
         await ReadOnly()
-        out |= (int(dut.tdo.value) & 1) << i
-        await RisingEdge(dut.tck)
-    dut.shift_en.value = 0
+        out |= (int(dut.tdo_o.value) & 1) << i
+        await RisingEdge(dut.tck_i)
+    dut.shift_en_i.value = 0
     return out
 
 
 async def _update_phase(dut):
-    dut.sel.value = 1
-    dut.capture.value = 0
-    dut.shift_en.value = 0
-    dut.update.value = 1
-    await RisingEdge(dut.tck)
-    dut.update.value = 0
-    dut.sel.value = 0
+    dut.sel_i.value = 1
+    dut.capture_i.value = 0
+    dut.shift_en_i.value = 0
+    dut.update_i.value = 1
+    await RisingEdge(dut.tck_i)
+    dut.update_i.value = 0
+    dut.sel_i.value = 0
 
 
 def _frame(addr: int, data: int, write: bool) -> int:
@@ -139,7 +139,7 @@ async def _jtag_read(dut, addr: int) -> int:
     await _capture_phase(dut)
     await _shift_dr(dut, _frame(addr, 0, write=False), 49)
     await _update_phase(dut)
-    await ClockCycles(dut.tck, 2)
+    await ClockCycles(dut.tck_i, 2)
     await _capture_phase(dut)
     out = await _shift_dr(dut, 0, 49)
     return out & 0xFFFF_FFFF
@@ -160,7 +160,7 @@ async def test_wide_capture_data_pages_and_partial_word(dut):
     for _ in range(200):
         if await _jtag_read(dut, ADDR_STATUS) & STATUS_BIT_DONE:
             break
-        await ClockCycles(dut.tck, 2)
+        await ClockCycles(dut.tck_i, 2)
     else:
         raise AssertionError("wide REA capture did not complete")
 

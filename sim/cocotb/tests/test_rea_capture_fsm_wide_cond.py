@@ -69,40 +69,40 @@ CLK_PERIOD_NS = 8.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, CLK_PERIOD_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, CLK_PERIOD_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 0
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    dut.array_enable_in.value = 0
-    dut.cond_values_in.value = 0
-    dut.cond_masks_in.value = 0
-    dut.cond_ops_in.value = 0
-    dut.cond_valid_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await ClockCycles(dut.sample_clk, 1)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    dut.array_enable_i.value = 0
+    dut.cond_values_i.value = 0
+    dut.cond_masks_i.value = 0
+    dut.cond_ops_i.value = 0
+    dut.cond_valid_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 1)
 
 
 async def _arm(dut, pretrig: int = 4, posttrig: int = 4):
-    dut.pretrig_len_in.value = pretrig
-    dut.posttrig_len_in.value = posttrig
-    dut.array_enable_in.value = 1
-    dut.cond_values_in.value = FIELD_VALUE
-    dut.cond_masks_in.value = FIELD_MASK
-    dut.cond_ops_in.value = OP_EQ
-    dut.cond_valid_in.value = 1
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.pretrig_len_i.value = pretrig
+    dut.posttrig_len_i.value = posttrig
+    dut.array_enable_i.value = 1
+    dut.cond_values_i.value = FIELD_VALUE
+    dut.cond_masks_i.value = FIELD_MASK
+    dut.cond_ops_i.value = OP_EQ
+    dut.cond_valid_i.value = 1
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
 
 @cocotb.test()
@@ -116,12 +116,12 @@ async def test_high_offset_condition_fires(dut):
 
     # Match in the high field, arbitrary noise elsewhere (masked away).
     probe = FIELD_VALUE | 0x1234_5678 | (0x1 << 700)
-    dut.probe_in.value = probe
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
-    await ClockCycles(dut.sample_clk, PIPE_STAGES + 2)
+    dut.probe_i.value = probe
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES + 2)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, (
+    assert int(dut.triggered_o.value) == 1, (
         "RTL-P2.876: high-offset (bit 512) masked-field match did not fire"
     )
     dut._log.info("REA-REQ-017 PASS — comparator fires on a match at bit 512")
@@ -139,20 +139,20 @@ async def test_high_offset_condition_wrong_value_no_fire(dut):
     # [515:512] = 0x5 (!= 0xA), plus the exact target value sitting at bit 0
     # (the wrong-bits trap: a low-8-bit-lsb decode would match this).
     wrong = (0x5 << FIELD_LSB) | 0xA
-    dut.probe_in.value = wrong
+    dut.probe_i.value = wrong
     for _ in range(PIPE_STAGES + 2):
-        await RisingEdge(dut.sample_clk)
-        assert int(dut.triggered.value) == 0, (
+        await RisingEdge(dut.sample_clk_i)
+        assert int(dut.triggered_o.value) == 0, (
             "RTL-P2.876 FAIL: fired on wrong high-field value / low-bit decoy — "
             "the comparator is looking at the wrong bits"
         )
 
     # Control: the correct high-field value still fires.
-    dut.probe_in.value = FIELD_VALUE
-    await RisingEdge(dut.sample_clk)
-    await ClockCycles(dut.sample_clk, PIPE_STAGES + 2)
+    dut.probe_i.value = FIELD_VALUE
+    await RisingEdge(dut.sample_clk_i)
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES + 2)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1, "control: correct high-field match must fire"
+    assert int(dut.triggered_o.value) == 1, "control: correct high-field match must fire"
     dut._log.info("REA-REQ-017 PASS — high-offset field genuinely compared")
 
 

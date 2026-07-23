@@ -17,15 +17,15 @@ entity rr_rea_crc_sweep is
     G_DEPTH    : positive
   );
   port (
-    sample_clk : in  std_logic;
-    sample_rst : in  std_logic;
-    start      : in  std_logic;
-    mem_dout   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
-    mem_addr   : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-    mem_rd_en  : out std_logic;
-    busy       : out std_logic;
-    crc_done   : out std_logic;
-    crc_out    : out std_logic_vector(31 downto 0)
+    sample_clk_i : in  std_logic;
+    sample_rst_i : in  std_logic;
+    start_i      : in  std_logic;
+    mem_dout_i   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+    mem_addr_o   : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+    mem_rd_en_o  : out std_logic;
+    busy_o       : out std_logic;
+    crc_done_o   : out std_logic;
+    crc_o    : out std_logic_vector(31 downto 0)
   );
 end entity;
 
@@ -96,17 +96,17 @@ architecture rtl of rr_rea_crc_sweep is
 
 begin
 
-  mem_addr  <= std_logic_vector(to_unsigned(addr_r, C_ADDR_W));
-  mem_rd_en <= mem_rd_en_r;
-  busy      <= busy_r;
-  crc_done  <= crc_done_r;
-  crc_out   <= crc_out_r;
+  mem_addr_o  <= std_logic_vector(to_unsigned(addr_r, C_ADDR_W));
+  mem_rd_en_o <= mem_rd_en_r;
+  busy_o      <= busy_r;
+  crc_done_o  <= crc_done_r;
+  crc_o   <= crc_out_r;
 
-  process (sample_clk, sample_rst)
+  process (sample_clk_i, sample_rst_i)
     variable page_v : std_logic_vector(C_PAGE_BITS - 1 downto 0);
     variable crc_v  : std_logic_vector(C_PAGE_BITS - 1 downto 0);
   begin
-    if sample_rst = '1' then
+    if sample_rst_i = '1' then
       state_r     <= IDLE;
       addr_r      <= 0;
       page_r      <= 0;
@@ -117,13 +117,13 @@ begin
       busy_r      <= '0';
       crc_done_r  <= '0';
       crc_out_r   <= (others => '0');
-    elsif rising_edge(sample_clk) then
+    elsif rising_edge(sample_clk_i) then
       mem_rd_en_r <= '0';
       crc_done_r  <= '0';
 
       case state_r is
         when IDLE =>
-          if start = '1' then
+          if start_i = '1' then
             addr_r <= 0;
             page_r <= 0;
             byte_r <= 0;
@@ -140,7 +140,7 @@ begin
           state_r <= READ_CAPTURE;
 
         when READ_CAPTURE =>
-          cell_data_r <= mem_dout;
+          cell_data_r <= mem_dout_i;
           page_r <= 0;
           byte_r <= 0;
           state_r <= PROCESS_BYTE;

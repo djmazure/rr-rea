@@ -89,37 +89,37 @@ CLK_NS = 25.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.jtag_clk, CLK_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.jtag_clk_i, CLK_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.jtag_rst.value = 1
-    dut.wr_en.value = 0
-    dut.wr_addr.value = 0
-    dut.wr_data.value = 0
-    dut.rd_addr.value = 0
-    dut.armed_in.value = 0
-    dut.triggered_in.value = 0
-    dut.done_in.value = 0
-    dut.overflow_in.value = 0
-    dut.start_ptr_in.value = 0
-    await ClockCycles(dut.jtag_clk, 4)
-    dut.jtag_rst.value = 0
-    await ClockCycles(dut.jtag_clk, 1)
+    dut.jtag_rst_i.value = 1
+    dut.wr_en_i.value = 0
+    dut.wr_addr_i.value = 0
+    dut.wr_data_i.value = 0
+    dut.rd_addr_i.value = 0
+    dut.armed_i.value = 0
+    dut.triggered_i.value = 0
+    dut.done_i.value = 0
+    dut.overflow_i.value = 0
+    dut.start_ptr_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 4)
+    dut.jtag_rst_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 1)
 
 
 async def _write(dut, addr: int, data: int):
-    dut.wr_addr.value = addr
-    dut.wr_data.value = data
-    dut.wr_en.value = 1
-    await RisingEdge(dut.jtag_clk)
-    dut.wr_en.value = 0
+    dut.wr_addr_i.value = addr
+    dut.wr_data_i.value = data
+    dut.wr_en_i.value = 1
+    await RisingEdge(dut.jtag_clk_i)
+    dut.wr_en_i.value = 0
 
 
 async def _read(dut, addr: int) -> int:
-    dut.rd_addr.value = addr
-    await ClockCycles(dut.jtag_clk, 2)
-    return int(dut.rd_data.value)
+    dut.rd_addr_i.value = addr
+    await ClockCycles(dut.jtag_clk_i, 2)
+    return int(dut.rd_data_o.value)
 
 
 def _slot(vec: int, k: int, width: int) -> int:
@@ -153,7 +153,7 @@ async def test_704_bit_trig_paging_22_words(dut):
     for w in range(N_WORDS):
         expected |= words[w] << (32 * w)
     expected &= (1 << G_SAMPLE_W) - 1
-    observed = int(dut.trig_value_out.value)
+    observed = int(dut.trig_value_o.value)
     assert observed == expected, (
         f"trig_value_out mismatch at 704: 0x{observed:x} != 0x{expected:x}"
     )
@@ -188,10 +188,10 @@ async def test_condition_field_lsb_above_255_expands_to_high_offset(dut):
     await _write(dut, ADDR_COND_SEL, 0)
     await _write(dut, ADDR_COND_CFG, _cfg(1, OP_EQ, WIDTH, LSB))
     await _write(dut, ADDR_COND_VAL, VAL)
-    await ClockCycles(dut.jtag_clk, 2)
+    await ClockCycles(dut.jtag_clk_i, 2)
 
-    masks = int(dut.cond_masks_out.value)
-    values = int(dut.cond_values_out.value)
+    masks = int(dut.cond_masks_o.value)
+    values = int(dut.cond_values_o.value)
     slot0_mask = _slot(masks, 0, G_SAMPLE_W)
     slot0_value = _slot(values, 0, G_SAMPLE_W)
 

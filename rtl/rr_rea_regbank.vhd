@@ -4,14 +4,14 @@
 -- rr_rea_regbank — memory-mapped register file for the REA IP.
 --
 -- Sits between the JTAG protocol decoder (rr_rea_jtag_iface) and the
--- capture FSM (rr_rea_capture_fsm). Implements the SW-interface
--- contract from SPEC.md (REA-REQ-010..012). Synchronous to jtag_clk;
--- CDC to/from sample_clk is the separate rr_rea_cdc block's job.
+-- capture_i FSM (rr_rea_capture_fsm). Implements the SW-interface
+-- contract from SPEC.md (REA-REQ-010..012). Synchronous to jtag_clk_i;
+-- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
 --   0x00 RO  VERSION       0x52454107 ('REA' + v0.7 feature tier, RTL-T2.123)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
---   0x08 RO  STATUS        armed/triggered/done/overflow
+--   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
 --   0x0C RO  SAMPLE_W      synth-time generic
 --   0x10 RO  DEPTH         synth-time generic
 --   0x14 RW  PRETRIG
@@ -24,14 +24,14 @@
 --   0xA4 RO  NUM_CHAN      v0.1: =1
 --   0xC4 RO  TIMESTAMP_W   synth-time generic
 --   0xD8 RW  DATA_PLANE_SEL 0=sample, 1=timestamp
---   0xC8 RO  START_PTR     captured address of oldest sample (post-done)
---   0xCC RW  DATA_WORD_SEL capture-data word selector (RTL-P1.91)
+--   0xC8 RO  START_PTR     captured address of oldest sample (post-done_o)
+--   0xCC RW  DATA_WORD_SEL capture_i-data word selector (RTL-P1.91)
 --   0xD0 RO  FEATURES      generic-derived config fingerprint (RTL-P3.1198)
 --   0xD4 RO  BUILD_ID      source/content hash (C_REA_BUILD_ID pkg; RTL-P3.1198/T2.119)
 --
 -- The CTRL register is "write-toggle": every write XORs the addressed
 -- bit position into a sticky toggle register. Downstream rr_rea_cdc
--- edge-detects each toggle to produce a single sample_clk pulse.
+-- edge-detects each toggle to produce a single sample_clk_i pulse.
 -- This is the standard JTAG → fast-clock pulse-coupling pattern.
 
 library ieee;
@@ -60,57 +60,57 @@ entity rr_rea_regbank is
         -- generic didn't survive Vivado synthesis).
     );
     port (
-        jtag_clk : in  std_logic;
-        jtag_rst : in  std_logic;
+        jtag_clk_i : in  std_logic;
+        jtag_rst_i : in  std_logic;
 
         -- ── Register-port interface (from rr_rea_jtag_iface) ─────
-        wr_en    : in  std_logic;
-        wr_addr  : in  std_logic_vector(15 downto 0);
-        wr_data  : in  std_logic_vector(31 downto 0);
-        rd_addr  : in  std_logic_vector(15 downto 0);
-        rd_data  : out std_logic_vector(31 downto 0);
+        wr_en_i    : in  std_logic;
+        wr_addr_i  : in  std_logic_vector(15 downto 0);
+        wr_data_i  : in  std_logic_vector(31 downto 0);
+        rd_addr_i  : in  std_logic_vector(15 downto 0);
+        rd_data_o  : out std_logic_vector(31 downto 0);
 
         -- ── Status inputs (from sample-clk domain, sync'd) ───────
-        armed_in     : in std_logic;
-        triggered_in : in std_logic;
-        done_in      : in std_logic;
-        overflow_in  : in std_logic;
-        start_ptr_in : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        armed_i     : in std_logic;
+        triggered_i : in std_logic;
+        done_i      : in std_logic;
+        overflow_i  : in std_logic;
+        start_ptr_i : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
 
         -- ── Config outputs (to sample-clk domain, will be sync'd) ─
-        pretrig_len_out  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        posttrig_len_out : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        trig_value_out   : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
-        trig_mask_out    : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
-        trig_mode_out    : out std_logic_vector(31 downto 0);
-        chan_sel_out     : out std_logic_vector(7 downto 0);
-        decim_ratio_out  : out std_logic_vector(23 downto 0);
-        data_word_sel_out : out std_logic_vector(7 downto 0);
-        data_plane_sel_out : out std_logic;
+        pretrig_len_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        posttrig_len_o : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        trig_value_o   : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        trig_mask_o    : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        trig_mode_o    : out std_logic_vector(31 downto 0);
+        chan_sel_o     : out std_logic_vector(7 downto 0);
+        decim_ratio_o  : out std_logic_vector(23 downto 0);
+        data_word_sel_o : out std_logic_vector(7 downto 0);
+        data_plane_sel_o : out std_logic;
 
         -- ── Per-condition comparator array (RTL-P3.647) ──────────
         -- Expanded full-width per slot: the compact {valid,op,width,lsb}
         -- + 32-bit value written via COND_SEL/CFG/VAL becomes a shifted
         -- G_SAMPLE_W value + field mask + 4-bit op + valid, ready for the
         -- FSM's per-condition comparator. array_enable rides in
-        -- trig_mode_out bit[2] (the top extracts it post-CDC).
-        cond_values_out  : out std_logic_vector(
+        -- trig_mode_o bit[2] (the top extracts it post-CDC).
+        cond_values_o  : out std_logic_vector(
             G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
-        cond_masks_out   : out std_logic_vector(
+        cond_masks_o   : out std_logic_vector(
             G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
-        cond_ops_out     : out std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0);
-        cond_valid_out   : out std_logic_vector(G_TRIG_CONDS - 1 downto 0);
+        cond_ops_o     : out std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0);
+        cond_valid_o   : out std_logic_vector(G_TRIG_CONDS - 1 downto 0);
 
         -- ── Write-side source (RTL-P2.837) ───────────────────────
         -- JTAG-writable control bits driven INTO the design. Still in the
-        -- jtag_clk domain here — rr_rea_top crosses it to sample_clk via
+        -- jtag_clk_i domain here — rr_rea_top crosses it to sample_clk_i via
         -- rr_rea_sync_word before it reaches the DUT-facing port. Resets
         -- to 0 (safe/inactive default; no auto-release).
-        source_out       : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
+        source_o       : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
 
-        -- ── Pulse toggles (to rr_rea_cdc → sample_clk pulses) ────
-        arm_toggle_out   : out std_logic;
-        reset_toggle_out : out std_logic
+        -- ── Pulse toggles (to rr_rea_cdc → sample_clk_i pulses) ────
+        arm_toggle_o   : out std_logic;
+        reset_toggle_o : out std_logic
     );
 end entity;
 
@@ -138,7 +138,7 @@ architecture rtl of rr_rea_regbank is
     signal chan_sel_r   : std_logic_vector(31 downto 0) := (others => '0');
     signal decim_r      : std_logic_vector(31 downto 0) := (others => '0');
     -- RTL-P2.837: write-side source storage. Resets to 0 so the low
-    -- G_NUM_SOURCE bits (source_out) power up holding the gated DUT signal
+    -- G_NUM_SOURCE bits (source_o) power up holding the gated DUT signal
     -- in its safe/inactive state until the host writes SOURCE (0x3C).
     signal source_r     : std_logic_vector(31 downto 0) := (others => '0');
 
@@ -231,23 +231,23 @@ begin
     );
 
     -- Drive config outputs (lower bits sliced for the FSM's bus widths)
-    pretrig_len_out  <= pretrig_r(C_PTR_W - 1 downto 0);
-    posttrig_len_out <= posttrig_r(C_PTR_W - 1 downto 0);
-    data_plane_sel_out <= data_plane_sel_r;
+    pretrig_len_o  <= pretrig_r(C_PTR_W - 1 downto 0);
+    posttrig_len_o <= posttrig_r(C_PTR_W - 1 downto 0);
+    data_plane_sel_o <= data_plane_sel_r;
     -- Full-width trigger value/mask to the FSM comparator. The flat
     -- vector is C_TRIG_WORDS*32 bits (>= G_SAMPLE_W), so the slice is
     -- always in range; bits above G_SAMPLE_W in the top word are unused.
-    trig_value_out   <= trig_value_flat(G_SAMPLE_W - 1 downto 0);
-    trig_mask_out    <= trig_mask_flat(G_SAMPLE_W - 1 downto 0);
-    trig_mode_out    <= trig_mode_r;
-    chan_sel_out     <= chan_sel_r(7 downto 0);
-    decim_ratio_out  <= decim_r(23 downto 0);
-    data_word_sel_out <= std_logic_vector(data_word_sel_r);
+    trig_value_o   <= trig_value_flat(G_SAMPLE_W - 1 downto 0);
+    trig_mask_o    <= trig_mask_flat(G_SAMPLE_W - 1 downto 0);
+    trig_mode_o    <= trig_mode_r;
+    chan_sel_o     <= chan_sel_r(7 downto 0);
+    decim_ratio_o  <= decim_r(23 downto 0);
+    data_word_sel_o <= std_logic_vector(data_word_sel_r);
     -- RTL-P2.837: low G_NUM_SOURCE bits of the SOURCE register drive the
-    -- write-side control bits (still jtag_clk domain; CDC'd in rr_rea_top).
-    source_out       <= source_r(G_NUM_SOURCE - 1 downto 0);
-    arm_toggle_out   <= arm_toggle_r;
-    reset_toggle_out <= reset_toggle_r;
+    -- write-side control bits (still jtag_clk_i domain; CDC'd in rr_rea_top).
+    source_o       <= source_r(G_NUM_SOURCE - 1 downto 0);
+    arm_toggle_o   <= arm_toggle_r;
+    reset_toggle_o <= reset_toggle_r;
 
     -- ── Per-condition expansion (RTL-P3.647) ─────────────────────
     -- Decode each compact slot {valid,op,width,lsb}+val32 into a shifted
@@ -267,12 +267,12 @@ begin
             variable lsb_v  : natural range 0 to 2047;
             variable lowm_v : unsigned(G_SAMPLE_W - 1 downto 0);
         begin
-            cond_valid_out(k) <= cfg_k(C_COND_VALID_BIT);
-            cond_ops_out(k * 4 + 3 downto k * 4) <=
+            cond_valid_o(k) <= cfg_k(C_COND_VALID_BIT);
+            cond_ops_o(k * 4 + 3 downto k * 4) <=
                 cfg_k(C_COND_OP_LSB + 3 downto C_COND_OP_LSB);
-            cond_masks_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
-            cond_values_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
 
             if cfg_k(C_COND_VALID_BIT) = '1' then
@@ -289,25 +289,25 @@ begin
                         cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
                     lowm_v := field_low_mask(wid_v);
 
-                    cond_masks_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         std_logic_vector(shift_left(lowm_v, lsb_v));
-                    cond_values_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         std_logic_vector(shift_left(
                             resize(unsigned(val_k), G_SAMPLE_W) and lowm_v, lsb_v));
                 else
-                    cond_masks_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         (others => 'X');
-                    cond_values_out(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         (others => 'X');
                 end if;
             end if;
         end process;
     end generate;
 
-    -- ── Write port (jtag_clk-synchronous) ────────────────────────
-    process (jtag_clk, jtag_rst)
+    -- ── Write port (jtag_clk_i-synchronous) ────────────────────────
+    process (jtag_clk_i, jtag_rst_i)
     begin
-        if jtag_rst = '1' then
+        if jtag_rst_i = '1' then
             pretrig_r      <= (others => '0');
             posttrig_r     <= (others => '0');
             trig_mode_r    <= (others => '0');
@@ -325,73 +325,73 @@ begin
             arm_toggle_r   <= '0';
             reset_toggle_r <= '0';
 
-        elsif rising_edge(jtag_clk) then
-            if wr_en = '1' then
-                case unsigned(wr_addr) is
+        elsif rising_edge(jtag_clk_i) then
+            if wr_en_i = '1' then
+                case unsigned(wr_addr_i) is
                     when C_ADDR_CTRL =>
                         -- Toggle bits — XOR each requested bit into
                         -- the sticky toggle register. The downstream
                         -- CDC edge-detects each toggle to make a
-                        -- one-cycle sample_clk pulse.
-                        if wr_data(C_CTRL_BIT_ARM) = '1' then
+                        -- one-cycle sample_clk_i pulse.
+                        if wr_data_i(C_CTRL_BIT_ARM) = '1' then
                             arm_toggle_r <= not arm_toggle_r;
                         end if;
-                        if wr_data(C_CTRL_BIT_RESET) = '1' then
+                        if wr_data_i(C_CTRL_BIT_RESET) = '1' then
                             reset_toggle_r <= not reset_toggle_r;
                         end if;
 
                     when C_ADDR_PRETRIG =>
-                        pretrig_r <= wr_data;
+                        pretrig_r <= wr_data_i;
                     when C_ADDR_POSTTRIG =>
-                        posttrig_r <= wr_data;
+                        posttrig_r <= wr_data_i;
                     when C_ADDR_TRIG_MODE =>
-                        trig_mode_r <= wr_data;
+                        trig_mode_r <= wr_data_i;
                     when C_ADDR_TRIG_VALUE =>
                         -- RTL-P2.658(b): write the 32-bit word selected by
                         -- trig_word_sel_r. Static-bound slice gated on a
                         -- dynamic compare — the nvc-safe paging idiom (no
                         -- dynamic vector slice, no array-element-from-port
-                        -- latch). An out-of-range sel matches no word, so
+                        -- latch). An out-of-range sel_i matches no word, so
                         -- the write is dropped (defensive, no aliasing).
                         for i in 0 to C_TRIG_WORDS - 1 loop
                             if to_integer(trig_word_sel_r) = i then
                                 trig_value_flat((i + 1) * 32 - 1 downto i * 32)
-                                    <= wr_data;
+                                    <= wr_data_i;
                             end if;
                         end loop;
                     when C_ADDR_TRIG_MASK =>
                         for i in 0 to C_TRIG_WORDS - 1 loop
                             if to_integer(trig_word_sel_r) = i then
                                 trig_mask_flat((i + 1) * 32 - 1 downto i * 32)
-                                    <= wr_data;
+                                    <= wr_data_i;
                             end if;
                         end loop;
                     when C_ADDR_TRIG_WORD_SEL =>
-                        trig_word_sel_r <= unsigned(wr_data(7 downto 0));
+                        trig_word_sel_r <= unsigned(wr_data_i(7 downto 0));
                     when C_ADDR_DATA_WORD_SEL =>
-                        data_word_sel_r <= unsigned(wr_data(7 downto 0));
+                        data_word_sel_r <= unsigned(wr_data_i(7 downto 0));
                     when C_ADDR_DATA_PLANE_SEL =>
-                        data_plane_sel_r <= wr_data(0);
+                        data_plane_sel_r <= wr_data_i(0);
                     when C_ADDR_COND_SEL =>
                         -- RTL-P3.647: select which comparator-array slot the
                         -- next COND_CFG/COND_VAL write targets (paged, like
                         -- TRIG_WORD_SEL).
-                        cond_sel_r <= unsigned(wr_data(7 downto 0));
+                        cond_sel_r <= unsigned(wr_data_i(7 downto 0));
                     when C_ADDR_COND_CFG =>
                         -- Write the selected slot's {valid,op,width,lsb} word.
-                        -- Static-bound slice gated on the dynamic sel (nvc-safe;
-                        -- out-of-range sel matches no slot → write dropped).
+                        -- Static-bound slice gated on the dynamic sel_i (nvc-safe;
+                        -- out-of-range sel_i matches no slot → write dropped).
                         for i in 0 to G_TRIG_CONDS - 1 loop
                             if to_integer(cond_sel_r) = i then
                                 cond_cfg_flat((i + 1) * 32 - 1 downto i * 32)
-                                    <= wr_data;
+                                    <= wr_data_i;
                             end if;
                         end loop;
                     when C_ADDR_COND_VAL =>
                         for i in 0 to G_TRIG_CONDS - 1 loop
                             if to_integer(cond_sel_r) = i then
                                 cond_val_flat((i + 1) * 32 - 1 downto i * 32)
-                                    <= wr_data;
+                                    <= wr_data_i;
                             end if;
                         end loop;
                     when C_ADDR_SOURCE =>
@@ -401,11 +401,11 @@ begin
                         -- unused. A plain register write — the host raises a
                         -- bit to release the gated DUT signal, clears it to
                         -- re-gate. No toggle/pulse semantics.
-                        source_r <= wr_data;
+                        source_r <= wr_data_i;
                     when C_ADDR_CHAN_SEL =>
-                        chan_sel_r <= wr_data;
+                        chan_sel_r <= wr_data_i;
                     when C_ADDR_DECIM =>
-                        decim_r <= wr_data;
+                        decim_r <= wr_data_i;
 
                     when others =>
                         -- REA-REQ-012: writes to RO/unmapped addrs
@@ -418,94 +418,94 @@ begin
 
     -- ── Read port (combinational decode → REGISTERED output) ─────
     --
-    -- RTL-P1.96: the case-mux output is REGISTERED on jtag_clk before it
-    -- reaches the JTAG iface's DR capture. At wide G_SAMPLE_W the
+    -- RTL-P1.96: the case-mux output is REGISTERED on jtag_clk_i before it
+    -- reaches the JTAG iface's DR capture_i. At wide G_SAMPLE_W the
     -- combinational read cone (this case-mux + the paged TRIG/COND words)
-    -- grew to ~100:1 restructured muxes feeding the DR capture directly,
+    -- grew to ~100:1 restructured muxes feeding the DR capture_i directly,
     -- and Quartus Pro 26.1 on Arria 10 miscompiled that cone: any read
     -- value with bit0=1 captured as all-ones across the whole 49-bit DR
     -- (silicon-proven width-dependent — 12-bit clean, 704-bit broken,
     -- same source). Registering here breaks the cone into a plain
-    -- reg-to-reg load. Protocol cost: rd_data is valid ONE jtag_clk edge
-    -- after rd_addr commits (the read command's Update-DR); the earliest
-    -- possible DR capture is two TAP states later, so every 1149.1 walk
+    -- reg-to-reg load. Protocol cost: rd_data_o is valid ONE jtag_clk_i edge
+    -- after rd_addr_i commits (the read command's Update-DR); the earliest
+    -- possible DR capture_i is two TAP states later, so every 1149.1 walk
     -- satisfies it by construction.
-    process (jtag_clk)
+    process (jtag_clk_i)
         variable status : std_logic_vector(31 downto 0);
         variable spr    : std_logic_vector(31 downto 0);
     begin
-        if rising_edge(jtag_clk) then
+        if rising_edge(jtag_clk_i) then
         status := (others => '0');
-        status(C_STATUS_BIT_ARMED)     := armed_in;
-        status(C_STATUS_BIT_TRIGGERED) := triggered_in;
-        status(C_STATUS_BIT_DONE)      := done_in;
-        status(C_STATUS_BIT_OVERFLOW)  := overflow_in;
+        status(C_STATUS_BIT_ARMED)     := armed_i;
+        status(C_STATUS_BIT_TRIGGERED) := triggered_i;
+        status(C_STATUS_BIT_DONE)      := done_i;
+        status(C_STATUS_BIT_OVERFLOW)  := overflow_i;
 
         spr := (others => '0');
-        spr(C_PTR_W - 1 downto 0) := start_ptr_in;
+        spr(C_PTR_W - 1 downto 0) := start_ptr_i;
 
-        case unsigned(rd_addr) is
-            when C_ADDR_VERSION     => rd_data <= C_REA_VERSION;
-            when C_ADDR_STATUS      => rd_data <= status;
-            when C_ADDR_SAMPLE_W    => rd_data <= C_REG_SAMPLE_W;
-            when C_ADDR_DEPTH       => rd_data <= C_REG_DEPTH;
-            when C_ADDR_PRETRIG     => rd_data <= pretrig_r;
-            when C_ADDR_POSTTRIG    => rd_data <= posttrig_r;
-            when C_ADDR_CAPTURE_LEN => rd_data <= capture_len_w;
-            when C_ADDR_TRIG_MODE   => rd_data <= trig_mode_r;
+        case unsigned(rd_addr_i) is
+            when C_ADDR_VERSION     => rd_data_o <= C_REA_VERSION;
+            when C_ADDR_STATUS      => rd_data_o <= status;
+            when C_ADDR_SAMPLE_W    => rd_data_o <= C_REG_SAMPLE_W;
+            when C_ADDR_DEPTH       => rd_data_o <= C_REG_DEPTH;
+            when C_ADDR_PRETRIG     => rd_data_o <= pretrig_r;
+            when C_ADDR_POSTTRIG    => rd_data_o <= posttrig_r;
+            when C_ADDR_CAPTURE_LEN => rd_data_o <= capture_len_w;
+            when C_ADDR_TRIG_MODE   => rd_data_o <= trig_mode_r;
             when C_ADDR_TRIG_VALUE  =>
                 -- Read back the 32-bit word selected by trig_word_sel_r.
-                rd_data <= (others => '0');
+                rd_data_o <= (others => '0');
                 for i in 0 to C_TRIG_WORDS - 1 loop
                     if to_integer(trig_word_sel_r) = i then
-                        rd_data <= trig_value_flat(
+                        rd_data_o <= trig_value_flat(
                             (i + 1) * 32 - 1 downto i * 32);
                     end if;
                 end loop;
             when C_ADDR_TRIG_MASK   =>
-                rd_data <= (others => '0');
+                rd_data_o <= (others => '0');
                 for i in 0 to C_TRIG_WORDS - 1 loop
                     if to_integer(trig_word_sel_r) = i then
-                        rd_data <= trig_mask_flat(
+                        rd_data_o <= trig_mask_flat(
                             (i + 1) * 32 - 1 downto i * 32);
                     end if;
                 end loop;
             when C_ADDR_TRIG_WORD_SEL =>
-                rd_data <= (others => '0');
-                rd_data(7 downto 0) <= std_logic_vector(trig_word_sel_r);
+                rd_data_o <= (others => '0');
+                rd_data_o(7 downto 0) <= std_logic_vector(trig_word_sel_r);
             when C_ADDR_COND_SEL =>
-                rd_data <= (others => '0');
-                rd_data(7 downto 0) <= std_logic_vector(cond_sel_r);
+                rd_data_o <= (others => '0');
+                rd_data_o(7 downto 0) <= std_logic_vector(cond_sel_r);
             when C_ADDR_COND_CFG =>
                 -- Read back the selected slot's cfg word.
-                rd_data <= (others => '0');
+                rd_data_o <= (others => '0');
                 for i in 0 to G_TRIG_CONDS - 1 loop
                     if to_integer(cond_sel_r) = i then
-                        rd_data <= cond_cfg_flat((i + 1) * 32 - 1 downto i * 32);
+                        rd_data_o <= cond_cfg_flat((i + 1) * 32 - 1 downto i * 32);
                     end if;
                 end loop;
             when C_ADDR_COND_VAL =>
-                rd_data <= (others => '0');
+                rd_data_o <= (others => '0');
                 for i in 0 to G_TRIG_CONDS - 1 loop
                     if to_integer(cond_sel_r) = i then
-                        rd_data <= cond_val_flat((i + 1) * 32 - 1 downto i * 32);
+                        rd_data_o <= cond_val_flat((i + 1) * 32 - 1 downto i * 32);
                     end if;
                 end loop;
-            when C_ADDR_SOURCE      => rd_data <= source_r;
-            when C_ADDR_CHAN_SEL    => rd_data <= chan_sel_r;
-            when C_ADDR_NUM_CHAN    => rd_data <= C_REG_NUM_CHAN;
-            when C_ADDR_DECIM       => rd_data <= decim_r;
-            when C_ADDR_TIMESTAMP_W => rd_data <= C_REG_TIMESTAMP_W;
-            when C_ADDR_START_PTR   => rd_data <= spr;
+            when C_ADDR_SOURCE      => rd_data_o <= source_r;
+            when C_ADDR_CHAN_SEL    => rd_data_o <= chan_sel_r;
+            when C_ADDR_NUM_CHAN    => rd_data_o <= C_REG_NUM_CHAN;
+            when C_ADDR_DECIM       => rd_data_o <= decim_r;
+            when C_ADDR_TIMESTAMP_W => rd_data_o <= C_REG_TIMESTAMP_W;
+            when C_ADDR_START_PTR   => rd_data_o <= spr;
             when C_ADDR_DATA_WORD_SEL =>
-                rd_data <= (others => '0');
-                rd_data(7 downto 0) <= std_logic_vector(data_word_sel_r);
-            when C_ADDR_FEATURES    => rd_data <= C_REG_FEATURES;
-            when C_ADDR_BUILD_ID    => rd_data <= C_REA_BUILD_ID;
+                rd_data_o <= (others => '0');
+                rd_data_o(7 downto 0) <= std_logic_vector(data_word_sel_r);
+            when C_ADDR_FEATURES    => rd_data_o <= C_REG_FEATURES;
+            when C_ADDR_BUILD_ID    => rd_data_o <= C_REA_BUILD_ID;
             when C_ADDR_DATA_PLANE_SEL =>
-                rd_data <= (others => '0');
-                rd_data(0) <= data_plane_sel_r;
-            when others             => rd_data <= (others => '0');
+                rd_data_o <= (others => '0');
+                rd_data_o(0) <= data_plane_sel_r;
+            when others             => rd_data_o <= (others => '0');
         end case;
         end if;
     end process;

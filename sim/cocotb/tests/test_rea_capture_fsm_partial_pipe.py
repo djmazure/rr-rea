@@ -54,76 +54,76 @@ def _pack(values: list[int], width: int) -> int:
 
 
 async def _reset(dut) -> None:
-    dut.sample_rst.value = 1
-    dut.probe_in.value = 0
-    dut.arm_pulse.value = 0
-    dut.reset_pulse.value = 0
-    dut.trigger_in.value = 0
-    dut.pretrig_len_in.value = 0
-    dut.posttrig_len_in.value = 2
-    dut.trig_value_in.value = 0
-    dut.trig_mask_in.value = 0
-    dut.trig_mode_in.value = 0
-    dut.decim_ratio_in.value = 0
-    dut.seq_enable_in.value = 0
-    dut.array_enable_in.value = 0
-    dut.ext_trigger_in.value = 0
-    dut.ext_enable_in.value = 0
-    dut.ext_and_in.value = 0
-    await ClockCycles(dut.sample_clk, 4)
-    dut.sample_rst.value = 0
-    await RisingEdge(dut.sample_clk)
+    dut.sample_rst_i.value = 1
+    dut.probe_i.value = 0
+    dut.arm_pulse_i.value = 0
+    dut.reset_pulse_i.value = 0
+    dut.trigger_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 2
+    dut.trig_value_i.value = 0
+    dut.trig_mask_i.value = 0
+    dut.trig_mode_i.value = 0
+    dut.decim_ratio_i.value = 0
+    dut.seq_enable_i.value = 0
+    dut.array_enable_i.value = 0
+    dut.ext_trigger_i.value = 0
+    dut.ext_enable_i.value = 0
+    dut.ext_and_i.value = 0
+    await ClockCycles(dut.sample_clk_i, 4)
+    dut.sample_rst_i.value = 0
+    await RisingEdge(dut.sample_clk_i)
 
 
 @cocotb.test()
 @requires("REA-REQ-320", "REA-REQ-321", "REA-REQ-325", "REA-REQ-326")
 async def test_partial_top_slice_and_three_way_reduction(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, 8.0, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, 8.0, unit="ns").start())
     await _reset(dut)
 
-    dut.array_enable_in.value = 1
-    dut.cond_values_in.value = _pack([1 << 32, 0x10, 0x2000], SAMPLE_W)
-    dut.cond_masks_in.value = _pack([1 << 32, 0xFF, 0xFF00], SAMPLE_W)
-    dut.cond_ops_in.value = _pack([0, 3, 2], 4)
-    dut.cond_valid_in.value = 0b111
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
+    dut.array_enable_i.value = 1
+    dut.cond_values_i.value = _pack([1 << 32, 0x10, 0x2000], SAMPLE_W)
+    dut.cond_masks_i.value = _pack([1 << 32, 0xFF, 0xFF00], SAMPLE_W)
+    dut.cond_ops_i.value = _pack([0, 3, 2], 4)
+    dut.cond_valid_i.value = 0b111
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
 
-    dut.probe_in.value = (1 << 32) | 0x1011
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
+    dut.probe_i.value = (1 << 32) | 0x1011
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
     for completed_stage in range(1, PIPE_STAGES):
-        await RisingEdge(dut.sample_clk)
+        await RisingEdge(dut.sample_clk_i)
         await ReadOnly()
-        assert int(dut.triggered.value) == 0, (
+        assert int(dut.triggered_o.value) == 0, (
             f"33-bit/3-condition trigger fired after {completed_stage} stages"
         )
 
-    await RisingEdge(dut.sample_clk)
+    await RisingEdge(dut.sample_clk_i)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1
+    assert int(dut.triggered_o.value) == 1
 
 
 @cocotb.test()
 @requires("REA-REQ-325", "REA-REQ-326")
 async def test_rise_on_bit_32_survives_partial_slice(dut):
-    cocotb.start_soon(Clock(dut.sample_clk, 8.0, unit="ns").start())
+    cocotb.start_soon(Clock(dut.sample_clk_i, 8.0, unit="ns").start())
     await _reset(dut)
 
-    dut.trig_mask_in.value = 1 << 32
-    dut.trig_mode_in.value = 1 | (4 << 4)
-    dut.arm_pulse.value = 1
-    await RisingEdge(dut.sample_clk)
-    dut.arm_pulse.value = 0
-    dut.probe_in.value = 0
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 1 << 32
-    await RisingEdge(dut.sample_clk)
-    dut.probe_in.value = 0
-    await ClockCycles(dut.sample_clk, PIPE_STAGES)
+    dut.trig_mask_i.value = 1 << 32
+    dut.trig_mode_i.value = 1 | (4 << 4)
+    dut.arm_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.arm_pulse_i.value = 0
+    dut.probe_i.value = 0
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 1 << 32
+    await RisingEdge(dut.sample_clk_i)
+    dut.probe_i.value = 0
+    await ClockCycles(dut.sample_clk_i, PIPE_STAGES)
     await ReadOnly()
-    assert int(dut.triggered.value) == 1
+    assert int(dut.triggered_o.value) == 1
 
 
 if __name__ == "__main__":

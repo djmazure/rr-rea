@@ -74,37 +74,37 @@ CLK_NS = 25.0
 
 
 async def _start_clk(dut):
-    cocotb.start_soon(Clock(dut.jtag_clk, CLK_NS, unit="ns").start())
+    cocotb.start_soon(Clock(dut.jtag_clk_i, CLK_NS, unit="ns").start())
 
 
 async def _reset(dut):
-    dut.jtag_rst.value = 1
-    dut.wr_en.value = 0
-    dut.wr_addr.value = 0
-    dut.wr_data.value = 0
-    dut.rd_addr.value = 0
-    dut.armed_in.value = 0
-    dut.triggered_in.value = 0
-    dut.done_in.value = 0
-    dut.overflow_in.value = 0
-    dut.start_ptr_in.value = 0
-    await ClockCycles(dut.jtag_clk, 4)
-    dut.jtag_rst.value = 0
-    await ClockCycles(dut.jtag_clk, 1)
+    dut.jtag_rst_i.value = 1
+    dut.wr_en_i.value = 0
+    dut.wr_addr_i.value = 0
+    dut.wr_data_i.value = 0
+    dut.rd_addr_i.value = 0
+    dut.armed_i.value = 0
+    dut.triggered_i.value = 0
+    dut.done_i.value = 0
+    dut.overflow_i.value = 0
+    dut.start_ptr_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 4)
+    dut.jtag_rst_i.value = 0
+    await ClockCycles(dut.jtag_clk_i, 1)
 
 
 async def _write(dut, addr: int, data: int):
-    dut.wr_addr.value = addr
-    dut.wr_data.value = data
-    dut.wr_en.value = 1
-    await RisingEdge(dut.jtag_clk)
-    dut.wr_en.value = 0
+    dut.wr_addr_i.value = addr
+    dut.wr_data_i.value = data
+    dut.wr_en_i.value = 1
+    await RisingEdge(dut.jtag_clk_i)
+    dut.wr_en_i.value = 0
 
 
 async def _read(dut, addr: int) -> int:
-    dut.rd_addr.value = addr
-    await ClockCycles(dut.jtag_clk, 2)
-    return int(dut.rd_data.value)
+    dut.rd_addr_i.value = addr
+    await ClockCycles(dut.jtag_clk_i, 2)
+    return int(dut.rd_data_o.value)
 
 
 async def _write_word(dut, base_addr: int, word: int, data: int):
@@ -141,7 +141,7 @@ async def test_rea_req_013_wide_value_paging(dut):
 
     # The full-width comparator output is little-endian {w1, w0}.
     expected = (w1 << 32) | w0
-    observed = int(dut.trig_value_out.value)
+    observed = int(dut.trig_value_o.value)
     assert observed == expected, (
         f"trig_value_out 0x{observed:016X} != 0x{expected:016X}"
     )
@@ -170,7 +170,7 @@ async def test_rea_req_013_wide_mask_paging(dut):
     assert (await _read(dut, ADDR_TRIG_MASK)) == mw1
 
     expected = (mw1 << 32) | mw0
-    observed = int(dut.trig_mask_out.value)
+    observed = int(dut.trig_mask_o.value)
     assert observed == expected, (
         f"trig_mask_out 0x{observed:016X} != 0x{expected:016X}"
     )
@@ -206,7 +206,7 @@ async def test_rea_req_013_word_sel_roundtrips_and_clamps(dut):
 
     # And the comparator output still reflects only the real words.
     expected = (0xDEAD_BEEF << 32) | 0xCAFE_F00D
-    assert int(dut.trig_value_out.value) == expected
+    assert int(dut.trig_value_o.value) == expected
 
     dut._log.info("REA-REQ-013 PASS — SEL round-trips; OOB bank write dropped")
 
@@ -227,8 +227,8 @@ async def test_rea_req_013_word0_back_compat(dut):
     assert (await _read(dut, ADDR_TRIG_VALUE)) == 0x42
     assert (await _read(dut, ADDR_TRIG_MASK)) == 0xFF
     # Upper word never written → output is just word 0.
-    assert int(dut.trig_value_out.value) == 0x42
-    assert int(dut.trig_mask_out.value) == 0xFF
+    assert int(dut.trig_value_o.value) == 0x42
+    assert int(dut.trig_mask_o.value) == 0xFF
 
     dut._log.info("REA-REQ-013 PASS — SEL=0 reset default is legacy-identical")
 
