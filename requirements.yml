@@ -625,14 +625,33 @@ functional_contract:
       moves.
 
   # ── v0.8 Trust Tier — readback integrity (REA-P2.1..3, REA-P3.1) ──
-  # Contract-first per docs/FDD_REA_TRUST_TIER_V08.md rev2. The formal:
-  # blocks below name FORWARD-CONTRACT signals the sweep/selftest RTL must
-  # implement with these exact names: crc_valid, sweep_busy, fill_busy,
-  # fill_we, sweep_rd_en, dpram_we (capture write), ts_dpram_we,
-  # capture_epoch. Every formal property is subject to the rr-formal
-  # ANTI-VACUITY GATE: each must be shown to yield a COUNTEREXAMPLE when
-  # tightened (REA-P3.1) before its PASS counts — a vacuous green on a
-  # trust feature is the exact failure mode this tier exists to kill.
+  # Contract-first per docs/FDD_REA_TRUST_TIER_V08.md rev2.
+  #
+  # REA-P3.1 reconciliation (2026-07-24): the forward-contract names the FDD
+  # assumed (crc_valid, dpram_we, sweep_rd_en, ts_dpram_we, capture_epoch) were
+  # NOT the names the shipped v0.8 RTL used. The formal: blocks below now
+  # reference the REAL nets in their NATIVE clock domain, each carrying an
+  # explicit `clock:`:
+  #   sample_clk_i : fill_we, fill_busy, dpram_we_sclk, sweep_busy,
+  #                  sweep_owns_a (sweep read grant; crc_sweep mem_rd_en_o is
+  #                  `open`), capture_epoch_r, pub_pending_r, pub_done_r,
+  #                  invalidate_toggle_r, arm_pulse_sclk, reset_pulse_sclk,
+  #                  g_timestamp_plane.ts_we_a
+  #   reg_clk_o    : crc_valid_jr, publish_pulse_jclk, invalidate_pulse_jclk
+  # crc_valid is reg-domain (`crc_valid_jr`), so REA-REQ-800/803/811 are
+  # cross-CDC and are split into a single-clock sample-domain KERNEL (the
+  # formal: psl) + a reg-domain ENDPOINT (documented in prose on each block);
+  # their full cross-CDC behaviour stays covered by the bound cocotb tests.
+  # REA-REQ-810/854 are clean single-sample-clock properties.
+  #
+  # NOT YET PROVEN: rr formal --contract cannot build this multi-clock top
+  # (reg_clk_o is derived inside the BSCAN wrapper) — tracked RTL-P3.1406. A
+  # hand-rolled multiclock + clk2fflogic + memory_nordff sby builds and solves;
+  # sound proofs additionally need a reset/reachability assumption. Every
+  # property remains subject to the rr-formal ANTI-VACUITY GATE: each must be
+  # shown to yield a COUNTEREXAMPLE when tightened before its PASS counts — a
+  # vacuous green on a trust feature is the exact failure mode this tier exists
+  # to kill.
   - id: REA-REQ-800
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
@@ -640,7 +659,18 @@ functional_contract:
       The CRC sweep auto-runs on the rising edge of done (and on selftest
       fill completion) with no host action; crc_valid asserts only after
       BOTH plane results are published atomically (never between planes).
-    formal: { psl: "always (crc_valid = '1' -> sweep_busy = '0')" }
+    formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.1: the literal cross-CDC form `crc_valid -> not sweep_busy` is
+      # UNSOUND as a single-clock invariant — crc_valid is `crc_valid_jr`
+      # (reg_clk_o domain), sweep_busy is sample_clk_i. Sample-domain KERNEL:
+      # a publication can only be pending once both plane sweeps have finished,
+      # i.e. the sweep engine is idle. Reg-domain ENDPOINT (prose, pending
+      # RTL-P3.1406 rr-formal multi-clock support): crc_valid_jr rises ONLY on
+      # publish_pulse_jclk, itself derived from this pending state — kernel +
+      # endpoint compose to the full claim. Full cross-CDC behaviour is covered
+      # by the cocotb test bound to this REQ.
+      psl: "always (pub_pending_r = '1' -> sweep_busy = '0')"
   - id: REA-REQ-801
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.4 Contract: canonical page-stream serialization" }]
@@ -666,7 +696,19 @@ functional_contract:
       arm_pulse or soft reset during a sweep or a fill ABORTS it, clears
       crc_valid, and increments CAPTURE_EPOCH — before any subsequent
       port-A write can become externally observable.
-    formal: { psl: "always (capture_epoch /= prev(capture_epoch) -> crc_valid = '0')" }
+    formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.1: cross-CDC. capture_epoch is `capture_epoch_r` (sample),
+      # crc_valid is `crc_valid_jr` (reg_clk_o). Sample-domain KERNEL: the
+      # invalidate toggle flips ONLY as a consequence of an arm / soft-reset
+      # pulse. Reg-domain ENDPOINT (prose, pending RTL-P3.1406): on reg_clk_o,
+      # invalidate_pulse_jclk = '1' forces crc_valid_jr = '0' next cycle
+      # (invalidation wins). Kernel + endpoint compose to "epoch change ->
+      # crc cleared". CANDIDATE the proof must reconcile: a fill_accept bumps
+      # the epoch WITHOUT flipping invalidate_toggle_r (see REA-REQ-811 note).
+      psl: >-
+        always ( (invalidate_toggle_r /= prev(invalidate_toggle_r))
+                 -> (prev(arm_pulse_sclk) = '1' or prev(reset_pulse_sclk) = '1') )
   - id: REA-REQ-804
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
@@ -722,9 +764,18 @@ functional_contract:
       fill > capture > sweep. Formal-first requirement: the mutual-exclusion
       invariants are proven exhaustively, the priority order by directed sim.
     formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.1: original `always A and always B` is INVALID PSL (a boolean
+      # `and` cannot join two FL properties) — one `always` over the conjunction
+      # is equivalent. Real names: capture write = `dpram_we_sclk`; the sweep
+      # read grant = `sweep_owns_a` (= sweep_busy) — the crc_sweep `mem_rd_en_o`
+      # port is left `open`, so sweep_owns_a is port-A read ownership. CANDIDATE
+      # the proof must confirm: the RTL comment asserts fill/sweep never overlap;
+      # a fill accepted while a PRIOR sweep is still busy must not violate this.
       psl: >-
-        always (not (fill_we = '1' and dpram_we = '1')) and
-        always (not (sweep_rd_en = '1' and (fill_we = '1' or dpram_we = '1')))
+        always ( (not (fill_we = '1' and dpram_we_sclk = '1'))
+                 and (not (sweep_owns_a = '1'
+                           and (fill_we = '1' or dpram_we_sclk = '1'))) )
   - id: REA-REQ-811
     kind: negative
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
@@ -732,7 +783,18 @@ functional_contract:
       Any port-A write outside the sweep engine's own sweep (a capture write
       or a fill write) implies crc_valid is already clear on that cycle — a
       stale CRC can never coexist with a mutating buffer.
-    formal: { psl: "always ((dpram_we = '1' or fill_we = '1') -> crc_valid = '0')" }
+    formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.1: cross-CDC (crc_valid = crc_valid_jr, reg domain; writes are
+      # sample domain). SOUND sample-domain KERNEL, CAPTURE-write branch only:
+      # a capture write (dpram_we_sclk) can only occur before `done`, when this
+      # generation has NOT yet published, so pub_done_r is low. The FILL-write
+      # branch is DELIBERATELY EXCLUDED here: a fill does NOT assert sweep_rst
+      # nor flip invalidate_toggle_r, so a STALE crc_valid_jr from a prior
+      # generation can persist across a fill — a CANDIDATE DEFECT vs this REQ's
+      # intent, to be resolved by the proof/directed sim (pending RTL-P3.1406),
+      # not asserted true here.
+      psl: "always (dpram_we_sclk = '1' -> pub_done_r = '0')"
   - id: REA-REQ-850
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
@@ -776,4 +838,10 @@ functional_contract:
       free-running counter and its write enable stays low for the entire
       fill (the v0.7 stored-timestamp-equals-counter semantic survives
       selftest).
-    formal: { psl: "always (fill_busy = '1' -> ts_dpram_we = '0')" }
+    formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.1: ts_dpram_we is `ts_we_a`, declared inside the
+      # `g_timestamp_plane` generate (elaborated only when G_TIMESTAMP_W > 0);
+      # referenced by its hierarchical path. Single sample-clock — cleanly
+      # provable once RTL-P3.1406 gives multi-clock build support for the top.
+      psl: "always (fill_busy = '1' -> g_timestamp_plane.ts_we_a = '0')"
