@@ -45,20 +45,36 @@ vunit rr_rea_trust_core_formal (rr_rea_trust_core(rtl)) {
   A6_ARMED_RISE_NEEDS_ARM_PULSE :
     assume always ( (armed_i = '1' and prev(armed_i) = '0')
                     -> prev(arm_pulse_i) = '1' );
+  -- Steady-state (post-reset) scope: the register init values give the reset
+  -- state; these invariants govern operation, not the hard-reset transient.
+  A7_NO_HARD_RESET :
+    assume always ( sample_rst_i = '0' );
 
-  -- ── REQ-807: CAPTURE_EPOCH changes ONLY on arm / soft-reset / accepted
-  --    fill — the host's anti-tear anchor. next() form → clean at cycle 0. ─
+  -- ── REQ-807: CAPTURE_EPOCH changes ONLY on arm / soft-reset / accepted fill —
+  --    the host's anti-tear anchor. NB the naive `next(epoch)=epoch` form is
+  --    VACUOUS (ghdl PSL parses it as `next(epoch=epoch)` = `next(true)`), so
+  --    this uses the prev() value form; the leading next() skips cycle 0 where
+  --    prev() is unconstrained. Anti-vacuity: the CEX-direction (an accepted
+  --    fill DOES move the epoch) is confirmed in the cover harness + a manual
+  --    tighten (REA-P3.2 session). ─
   REQ807_EPOCH_SOURCE :
-    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0'
-                     and fill_accept_o = '0')
-                    -> next(capture_epoch_o) = capture_epoch_o );
+    assert next ( always (
+      (capture_epoch_o = prev(capture_epoch_o))
+      or prev(arm_pulse_i = '1' or reset_pulse_i = '1' or fill_accept_o = '1') ) );
 
   -- ── REQ-803: the invalidate toggle (which clears crc_valid on the reg side)
-  --    flips ONLY on an arm / soft-reset pulse — a fill's epoch bump does NOT
-  --    flip it (a fill freezes, it does not mutate a published buffer). ──
-  REQ803_INVALIDATE_SOURCE :
-    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0')
-                    -> next(invalidate_toggle_o) = invalidate_toggle_o );
+  --    flips ONLY on an arm / soft-reset / accepted-fill pulse. A fill IS a new
+  --    generation (REA-T2.2): it bumps the epoch and overwrites the buffer, so
+  --    it MUST clear a prior crc_valid. Split by value with next-to-CONSTANT so
+  --    it can't mis-parse to `next(true)` (the REQ-807 vacuity trap). ──
+  REQ803_INVALIDATE_HELD_0 :
+    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0'
+                     and fill_accept_o = '0' and invalidate_toggle_o = '0')
+                    -> next(invalidate_toggle_o) = '0' );
+  REQ803_INVALIDATE_HELD_1 :
+    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0'
+                     and fill_accept_o = '0' and invalidate_toggle_o = '1')
+                    -> next(invalidate_toggle_o) = '1' );
 
   -- ── Invariant: a fill is never busy while a capture is armed or triggered.
   --    The fill FSM REFUSES to start while armed/triggered (REQ-852) AND — post

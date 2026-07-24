@@ -38,6 +38,7 @@ ADDR_STATUS         = 0x08
 ADDR_SELFTEST_CTRL  = 0xDC
 ADDR_SELFTEST_SEED  = 0xE0
 ADDR_CAPTURE_EPOCH  = 0xEC
+ADDR_CRC_SAMPLE     = 0xE4
 ADDR_DATA_PLANE_SEL = 0xD8
 ADDR_DATA_BASE      = 0x100
 CTRL_BIT_ARM   = 0x01
@@ -156,6 +157,77 @@ async def _read_sample_buffer(dut) -> list[int]:
     for i in range(DEPTH):
         cells.append(await _jtag_read(dut, ADDR_DATA_BASE + 4 * i) & ((1 << SAMPLE_W) - 1))
     return cells
+
+
+async def _await_sample_signal(dut, sig, want, max_cyc, desc):
+    """Wait up to max_cyc sample-clock edges for `sig` to reach `want`; leaves
+    the ReadOnly phase before returning so JTAG lines can be driven next."""
+    for _ in range(max_cyc):
+        await RisingEdge(dut.sample_clk_i)
+        await ReadOnly()
+        if int(sig.value) == want:
+            await RisingEdge(dut.tck_i)   # leave ReadOnly before any JTAG drive
+            return
+    raise AssertionError(desc)
+
+
+@cocotb.test()
+@requires("REA-REQ-807", "REA-REQ-808")
+async def test_back_to_back_fills_are_clean_generations(dut):
+    """REA-T2.2: two back-to-back selftest fills must each be a CLEAN publication
+    generation. A new fill must (a) INVALIDATE the prior generation's crc_valid
+    while it overwrites the buffer, then (b) RE-PUBLISH its own CRC.
+
+    Before the fix, fill_accept was not a publication generation boundary:
+    pub_done_r / sample_done_r reset only on arm/soft-reset (sweep_rst), so after
+    fill#1 published, pub_done stayed high → fill#2's sweep never re-published;
+    and a fill never flipped invalidate_toggle → fill#1's crc_valid stayed HIGH
+    while fill#2 rewrote the buffer (a stale/torn valid over a mutating buffer)."""
+    await _start_clocks(dut)
+    await _reset(dut)
+
+    epoch0 = await _jtag_read(dut, ADDR_CAPTURE_EPOCH)
+
+    # ── fill #1 (seed A) — publishes crc_valid for generation 1 ──
+    SEED_A = 0x12345678
+    await _jtag_write(dut, ADDR_SELFTEST_SEED, SEED_A)
+    await _trigger_fill(dut, 1)
+    await _capture_phase(dut)   # (re)establish a known JTAG phase
+    crc1 = await _jtag_read(dut, ADDR_CRC_SAMPLE)
+    assert await _read_sample_buffer(dut) == lfsr_cells(SEED_A, DEPTH, SAMPLE_W), \
+        "fill#1 buffer must be word-exact"
+
+    # ── fill #2 (seed B) — a NEW generation, different pattern ──
+    SEED_B = 0x0BADCAFE
+    await _jtag_write(dut, ADDR_SELFTEST_SEED, SEED_B)
+    await RisingEdge(dut.tck_i)
+    await _jtag_write(dut, ADDR_SELFTEST_CTRL, 0)   # fresh fill request (toggle)
+
+    # (a) the new fill must clear the prior crc_valid — a stale valid over a
+    #     buffer being overwritten is the REA-T2.2 tear.
+    await _await_sample_signal(
+        dut, dut.crc_valid_jr, 0, 2 * DEPTH + 200,
+        "REA-T2.2: a new fill did NOT clear the prior generation's crc_valid — "
+        "it stayed high while fill#2 overwrote the buffer (stale/torn valid).")
+    # (b) fill#2's own sweep must re-publish crc_valid.
+    await _await_sample_signal(
+        dut, dut.crc_valid_jr, 1, 8 * DEPTH + 400,
+        "REA-T2.2: fill#2 never re-published crc_valid (pub_done stuck at the "
+        "prior generation).")
+    await ClockCycles(dut.tck_i, 4)
+
+    crc2 = await _jtag_read(dut, ADDR_CRC_SAMPLE)
+    epoch2 = await _jtag_read(dut, ADDR_CAPTURE_EPOCH)
+    assert await _read_sample_buffer(dut) == lfsr_cells(SEED_B, DEPTH, SAMPLE_W), \
+        "fill#2 buffer must be word-exact"
+    assert epoch2 == (epoch0 + 2) & 0xFFFFFFFF, \
+        "REQ-807: two accepted fills bump CAPTURE_EPOCH twice"
+    assert crc2 != crc1, (
+        f"REA-T2.2: fill#2's published CRC 0x{crc2:08x} must be its OWN "
+        f"generation's, not fill#1's 0x{crc1:08x}.")
+    dut._log.info(
+        "REA-T2.2 PASS — back-to-back fills are clean generations "
+        "(invalidate then re-publish; consistent epoch/CRC)")
 
 
 @cocotb.test()

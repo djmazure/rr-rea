@@ -700,17 +700,21 @@ functional_contract:
       port-A write can become externally observable.
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.2 (PROVEN UNBOUNDED, k-induction). Sample-domain KERNEL: the
-      # invalidate toggle (which clears crc_valid_jr on the reg side) flips ONLY
-      # as a consequence of an arm / soft-reset pulse — a fill's epoch bump does
-      # NOT flip it (a fill freezes, it does not mutate a published buffer).
-      # Stated in next() form so it is clean at cycle 0 (prev() is unconstrained
-      # at reset). Reg-domain ENDPOINT (prose, pending RTL-P3.1406): on reg_clk_o
-      # invalidate_pulse_jclk='1' forces crc_valid_jr='0' next cycle. Proven on
-      # rr_rea_trust_core (verif/rr_rea_trust_core_formal.{psl,sby}).
+      # REA-P3.2 + REA-T2.2 (PROVEN UNBOUNDED, k-induction). The invalidate
+      # toggle (which clears crc_valid_jr on the reg side) flips ONLY on an arm /
+      # soft-reset / accepted-fill pulse. REA-T2.2: a fill IS a new generation
+      # (it bumps CAPTURE_EPOCH and overwrites the buffer), so it MUST clear a
+      # prior crc_valid — leaving it high while the fill rewrites the buffer is a
+      # stale/torn valid. VACUITY NOTE: the `next(toggle)=toggle` form is
+      # VACUOUS in ghdl PSL (parses as next(toggle=toggle)=next(true)); the sound
+      # proof splits by value with next-to-CONSTANT — see
+      # verif/rr_rea_trust_core_formal.psl (REQ803_INVALIDATE_HELD_0/1) + the
+      # COVER_INVAL_FLIP_VIA_FILL non-vacuity gate. Reg-domain ENDPOINT: on
+      # reg_clk_o invalidate_pulse_jclk='1' forces crc_valid_jr='0' next cycle.
       psl: >-
-        always ( (arm_pulse_sclk = '0' and reset_pulse_sclk = '0')
-                 -> next(invalidate_toggle_r) = invalidate_toggle_r )
+        always ( (arm_pulse_sclk = '0' and reset_pulse_sclk = '0'
+                  and fill_accept = '0' and invalidate_toggle_r = '0')
+                 -> next(invalidate_toggle_r) = '0' )
   - id: REA-REQ-804
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
@@ -749,13 +753,17 @@ functional_contract:
     formal:
       clock: rising_edge(sample_clk_i)
       # REA-P3.2 (PROVEN UNBOUNDED, k-induction). CAPTURE_EPOCH changes ONLY on
-      # an arm / soft-reset / accepted-fill pulse. next() form → clean at cycle
-      # 0. Proven on rr_rea_trust_core (verif/rr_rea_trust_core_formal.{psl,sby}),
-      # anti-vacuity gated (fill_accept + epoch-moved covers reachable).
+      # an arm / soft-reset / accepted-fill pulse. VACUITY NOTE: `next(epoch)=
+      # epoch` is VACUOUS in ghdl PSL (→ next(true)); the sound proof uses the
+      # prev() value form with a leading next() to skip cycle 0 (prev()
+      # unconstrained at reset) — see verif/rr_rea_trust_core_formal.psl
+      # (REQ807_EPOCH_SOURCE). Anti-vacuity gated (fill_accept + epoch-moved
+      # covers reachable).
       psl: >-
-        always ( (arm_pulse_sclk = '0' and reset_pulse_sclk = '0'
-                  and fill_accept = '0')
-                 -> next(capture_epoch_r) = capture_epoch_r )
+        next ( always (
+          (capture_epoch_r = prev(capture_epoch_r))
+          or prev(arm_pulse_sclk = '1' or reset_pulse_sclk = '1'
+                  or fill_accept = '1') ) )
   - id: REA-REQ-808
     kind: negative
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.5 CDC — snapshot-and-toggle publication" }]

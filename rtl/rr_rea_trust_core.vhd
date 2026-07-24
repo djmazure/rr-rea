@@ -246,13 +246,19 @@ begin
     -- Sample-plane CRC latch + done flag (REQ-800). The timestamp plane drives
     -- its own crc_ts_r / ts_done_r (fed back via ts_done_i, or ts_done_i='1'
     -- when there is no timestamp plane, so publication gates on this plane only).
+    -- REA-T2.2: an accepted fill (fill_accept) is a NEW generation boundary — it
+    -- clears sample_done_r so a stale prior-generation done cannot feed a
+    -- publication for the new epoch (the sample_done→pending gap tear). The CRC
+    -- value is left; the fill's own validation sweep overwrites it.
     process (sample_clk_i, sweep_rst)
     begin
         if sweep_rst = '1' then
             crc_sample_r  <= (others => '0');
             sample_done_r <= '0';
         elsif rising_edge(sample_clk_i) then
-            if sweep_crc_done = '1' then
+            if fill_accept = '1' then
+                sample_done_r <= '0';
+            elsif sweep_crc_done = '1' then
                 crc_sample_r  <= sweep_crc_o;
                 sample_done_r <= '1';
             end if;
@@ -265,6 +271,10 @@ begin
     -- then can crc_valid rise. pub_done_r fires exactly one publish per capture
     -- generation; a mid-settle epoch change cancels; sweep_rst (arm/reset)
     -- resets the whole FSM.
+    -- REA-T2.2: an accepted fill (fill_accept) also resets the publication state
+    -- — a new generation must be able to re-publish (else pub_done stuck high
+    -- after the first fill blocks every subsequent fill's crc_valid), and any
+    -- in-flight publication for the prior generation is abandoned.
     process (sample_clk_i, sweep_rst)
     begin
         if sweep_rst = '1' then
@@ -272,7 +282,11 @@ begin
             pub_done_r    <= '0';
             pub_settle_r  <= 0;
         elsif rising_edge(sample_clk_i) then
-            if sample_done_r = '1' and ts_done_i = '1'
+            if fill_accept = '1' then
+                pub_pending_r <= '0';
+                pub_done_r    <= '0';
+                pub_settle_r  <= 0;
+            elsif sample_done_r = '1' and ts_done_i = '1'
                and pub_pending_r = '0' and pub_done_r = '0' then
                 epoch_snap_r  <= capture_epoch_r;
                 pub_settle_r  <= G_PUB_SETTLE;
@@ -292,15 +306,17 @@ begin
         end if;
     end process;
 
-    -- Invalidate toggle: flips on any epoch bump from arm / soft reset (a fill's
-    -- epoch bump does NOT flip it — a fill freezes rather than mutates the buffer
-    -- and does not clear a prior crc_valid; REQ-811 fill branch, see REA-T2.1).
+    -- Invalidate toggle: flips on any epoch bump — arm, soft reset, OR an
+    -- accepted fill (REA-T2.2). A fill IS a new generation (it bumps
+    -- CAPTURE_EPOCH and overwrites the buffer), so it MUST clear a prior
+    -- crc_valid: leaving it high while the fill rewrites the buffer is a
+    -- stale/torn valid (the fill's own validation sweep re-publishes afterwards).
     process (sample_clk_i, sample_rst_i)
     begin
         if sample_rst_i = '1' then
             invalidate_toggle_r <= '0';
         elsif rising_edge(sample_clk_i) then
-            if arm_pulse_i = '1' or reset_pulse_i = '1' then
+            if arm_pulse_i = '1' or reset_pulse_i = '1' or fill_accept = '1' then
                 invalidate_toggle_r <= not invalidate_toggle_r;
             end if;
         end if;

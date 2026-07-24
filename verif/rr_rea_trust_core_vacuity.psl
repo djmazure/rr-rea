@@ -38,6 +38,13 @@ vunit rr_rea_trust_core_vacuity (rr_rea_trust_core(rtl)) {
 
   -- REQ-803 consequent reachable: the invalidate toggle can actually flip.
   COVER_INVALIDATE_TOGGLE : cover {invalidate_toggle_o = '1'};
+  -- REQ-803 NON-VACUITY guard (REA-T2.2): the toggle actually FLIPS on an
+  -- accepted fill with NO arm/reset — i.e. the "flips only on arm/reset/fill"
+  -- exclusion constrains real behaviour, it is not the vacuous next(X)=X form.
+  COVER_INVAL_FLIP_VIA_FILL :
+    cover {(prev(fill_accept_o) = '1') and (prev(arm_pulse_i) = '0')
+           and (prev(reset_pulse_i) = '0')
+           and (invalidate_toggle_o /= prev(invalidate_toggle_o))};
 
   -- REQ-800 antecedent: a publication CAN be pending (else 800 is vacuous).
   COVER_PUB_PENDING : cover {pub_pending_o = '1'};
