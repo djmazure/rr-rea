@@ -141,6 +141,30 @@ architecture rtl of rr_rea_top is
     signal capture_epoch_r    : std_logic_vector(31 downto 0) := (others => '0');
     signal capture_epoch_jclk : std_logic_vector(31 downto 0);
 
+    -- ── v0.8 CRC sweep (REA-P2.2 increment 2): sample-plane engine reading
+    --    dpram port A after done. sweep_rst aborts it on arm/soft reset so
+    --    capture reclaims port A (REQ-803); the arbiter grants port A to the
+    --    sweep only while busy (which only happens after done). ────────────
+    signal sweep_rst        : std_logic;
+    signal sweep_start      : std_logic;
+    signal prev_done_r      : std_logic := '0';
+    signal sweep_owns_a     : std_logic;
+    signal sweep_busy       : std_logic;
+    signal sweep_crc_done   : std_logic;
+    signal sweep_crc_o      : std_logic_vector(31 downto 0);
+    signal sweep_mem_addr   : std_logic_vector(C_PTR_W - 1 downto 0);
+    signal sweep_mem_dout   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
+    signal dpram_addr_a     : std_logic_vector(C_PTR_W - 1 downto 0);
+    signal dpram_we_a       : std_logic;
+    -- Intermediate crc_valid (set on sweep completion, cleared on abort). The
+    -- proper snapshot/settle/toggle + epoch-suppress publication is increment 3
+    -- (REQ-808); this simple valid + a held (set-once) CRC is coherent for a
+    -- single capture (REQ-800/802).
+    signal crc_sample_r     : std_logic_vector(31 downto 0) := (others => '0');
+    signal crc_valid_r      : std_logic := '0';
+    signal crc_sample_jclk  : std_logic_vector(31 downto 0);
+    signal crc_valid_jclk   : std_logic_vector(0 downto 0);
+
     -- ── Comparator-array config (RTL-P3.647): regbank → CDC → FSM ──
     -- array_enable rides in trig_mode bit[2] (already CDC'd); only the
     -- per-condition value/mask/op/valid arrays need their own sync.
@@ -265,10 +289,10 @@ begin
             -- v0.8 readback integrity (REA-P2.2). CRC values + crc_valid arrive
             -- with the sweep (P2.2p2-sweep); selftest bits with fill (P2.3).
             -- Wired to their inert defaults until then; the epoch counter is live.
-            crc_sample_i       => (others => '0'),
-            crc_ts_i           => (others => '0'),
+            crc_sample_i       => crc_sample_jclk,
+            crc_ts_i           => (others => '0'),  -- timestamp-plane sweep: later sub-step
             capture_epoch_i    => capture_epoch_jclk,
-            crc_valid_i        => '0',
+            crc_valid_i        => crc_valid_jclk(0),
             selftest_busy_i    => '0',
             selftest_mode_i    => '0',
             selftest_refused_i => '0',
@@ -478,6 +502,70 @@ begin
         port map (dst_clk_i => reg_clk_o, din_i => capture_epoch_r,
                   dout_o => capture_epoch_jclk);
 
+    -- ── CRC sweep (REA-P2.2 increment 2) ─────────────────────────────
+    -- Abort on arm / soft reset so capture reclaims port A (REQ-803). Driven
+    -- synchronously (the pulses are registered), so this is a synchronous
+    -- reset assertion — no async-deassertion metastability.
+    sweep_rst <= sample_rst_i or arm_pulse_sclk or reset_pulse_sclk;
+
+    -- Start a sweep on the rising edge of done (capture just completed).
+    process (sample_clk_i, sample_rst_i)
+    begin
+        if sample_rst_i = '1' then
+            prev_done_r <= '0';
+        elsif rising_edge(sample_clk_i) then
+            prev_done_r <= done_sclk;
+        end if;
+    end process;
+    sweep_start <= done_sclk and not prev_done_r;
+
+    -- Arbiter: the sweep owns port A only while it is busy, which by
+    -- construction is only after done (writes are off then). An arm/reset
+    -- aborts the sweep (sweep_rst) → busy drops → capture reclaims port A.
+    sweep_owns_a <= sweep_busy;
+    dpram_addr_a <= sweep_mem_addr when sweep_owns_a = '1' else dpram_addr_sclk;
+    dpram_we_a   <= '0'            when sweep_owns_a = '1' else dpram_we_sclk;
+
+    u_crc_sweep : entity work.rr_rea_crc_sweep
+        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
+        port map (
+            sample_clk_i => sample_clk_i,
+            sample_rst_i => sweep_rst,
+            start_i      => sweep_start,
+            mem_dout_i   => sweep_mem_dout,
+            mem_addr_o   => sweep_mem_addr,
+            mem_rd_en_o  => open,
+            busy_o       => sweep_busy,
+            crc_done_o   => sweep_crc_done,
+            crc_o        => sweep_crc_o
+        );
+
+    -- Latch the CRC + set the (intermediate) valid on sweep completion; both
+    -- clear on abort. The CRC is set-once and held, so the plain word/bit sync
+    -- below is coherent for a single capture (proper snapshot/toggle + epoch
+    -- suppress is increment 3, REQ-808).
+    process (sample_clk_i, sweep_rst)
+    begin
+        if sweep_rst = '1' then
+            crc_sample_r <= (others => '0');
+            crc_valid_r  <= '0';
+        elsif rising_edge(sample_clk_i) then
+            if sweep_crc_done = '1' then
+                crc_sample_r <= sweep_crc_o;
+                crc_valid_r  <= '1';
+            end if;
+        end if;
+    end process;
+
+    u_cdc_crc_sample : rr_rea_sync_word
+        generic map (G_WIDTH => 32)
+        port map (dst_clk_i => reg_clk_o, din_i => crc_sample_r,
+                  dout_o => crc_sample_jclk);
+    u_cdc_crc_valid : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o, din_i(0) => crc_valid_r,
+                  dout_o => crc_valid_jclk);
+
     -- ── Capture FSM ──────────────────────────────────────────────
     u_fsm : entity work.rr_rea_capture_fsm
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
@@ -570,10 +658,10 @@ begin
         generic map (G_WIDTH => G_SAMPLE_W, G_DEPTH => G_DEPTH)
         port map (
             clk_a_i  => sample_clk_i,
-            we_a_i   => dpram_we_sclk,
-            addr_a_i => dpram_addr_sclk,
+            we_a_i   => dpram_we_a,      -- arbitrated: capture writes / sweep reads
+            addr_a_i => dpram_addr_a,    -- muxed: capture ptr / sweep addr
             din_a_i  => dpram_din_sclk,
-            dout_a_o => open,
+            dout_a_o => sweep_mem_dout,  -- port-A read → CRC sweep engine
             clk_b_i  => reg_clk_o,
             addr_b_i => dpram_addr_b,
             dout_b_o => dpram_dout_b

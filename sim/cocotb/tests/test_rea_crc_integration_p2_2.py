@@ -1,15 +1,21 @@
 # SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 # SPDX-License-Identifier: MIT
-"""REA-P2.2 part 2, increment 1 — CAPTURE_EPOCH counter + v0.8 STATUS/readback.
+"""REA-P2.2 part 2, increment 2 — CRC sweep integrated into rr_rea_top.
 
-REA-REQ-807: CAPTURE_EPOCH (0xEC) increments on exactly an accepted arm or soft
-reset, read over JTAG. In this increment the CRC registers + crc_valid are inert
-(0) until the sweep lands (P2.2p2-sweep); selftest bits are 0 until P2.3.
-Expected values are hard-coded per ROUTERTL-002 (deterministic counter values).
+REA-REQ-800: the sweep auto-runs on `done` and CRC_SAMPLE becomes readable
+(STATUS[4]=crc_valid).
+REA-REQ-802 (cross-path integrity — the whole point of v0.8): the on-chip CRC
+computed by the port-A sweep MUST equal zlib.crc32 of the port-B DATA_BASE
+readback of the same physical buffer. Two INDEPENDENT readback paths + an
+INDEPENDENT reference algorithm (zlib) — a genuine cross-check, not a
+same-logic tautology (ROUTERTL-002 respected: the reference is not the DUT's
+CRC engine).
 """
 from __future__ import annotations
 
+import struct
 import sys as _sys
+import zlib
 from pathlib import Path as _Path
 
 import cocotb
@@ -26,15 +32,22 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 _RTL = str(_Path(__file__).resolve().parents[3] / "rtl")
 _FIX = str(_Path(__file__).resolve().parent / "fixtures")
 
-GENERICS = {"G_SAMPLE_W": 12, "G_DEPTH": 256, "G_TIMESTAMP_W": 0, "G_NUM_CHAN": 1}
+DEPTH = 32
+SAMPLE_W = 12
+GENERICS = {"G_SAMPLE_W": SAMPLE_W, "G_DEPTH": DEPTH, "G_TIMESTAMP_W": 0, "G_NUM_CHAN": 1}
 
 ADDR_CTRL          = 0x04
 ADDR_STATUS        = 0x08
+ADDR_PRETRIG       = 0x14
+ADDR_POSTTRIG      = 0x18
+ADDR_TRIG_MODE     = 0x20
+ADDR_TRIG_VALUE    = 0x24
+ADDR_TRIG_MASK     = 0x28
 ADDR_CRC_SAMPLE    = 0xE4
-ADDR_CRC_TS        = 0xE8
-ADDR_CAPTURE_EPOCH = 0xEC
+ADDR_DATA_BASE     = 0x100
 CTRL_BIT_ARM   = 0x01
-CTRL_BIT_RESET = 0x02
+STATUS_BIT_DONE      = 1 << 2
+STATUS_BIT_CRC_VALID = 1 << 4
 
 SAMPLE_PERIOD_NS = 8.0
 TCK_PERIOD_NS    = 25.0
@@ -48,12 +61,8 @@ async def _start_clocks(dut):
 async def _reset(dut):
     dut.sample_rst_i.value = 1
     dut.arst_i.value = 1
-    dut.tdi_i.value = 0
-    dut.capture_i.value = 0
-    dut.shift_en_i.value = 0
-    dut.update_i.value = 0
-    dut.sel_i.value = 0
-    dut.probe_i.value = 0
+    for s in ("tdi_i", "capture_i", "shift_en_i", "update_i", "sel_i", "probe_i"):
+        getattr(dut, s).value = 0
     await ClockCycles(dut.tck_i, 4)
     dut.sample_rst_i.value = 0
     dut.arst_i.value = 0
@@ -117,53 +126,69 @@ async def _jtag_read(dut, addr: int) -> int:
     return out & 0xFFFF_FFFF
 
 
-async def _pulse_ctrl(dut, bit: int):
-    """CTRL is write-toggle: writing `bit` XORs it, producing one toggle → one
-    sample-domain pulse. Wait for the toggle to cross to the sample domain,
-    bump the epoch, and re-cross the counter to the jtag domain before reading."""
-    await _jtag_write(dut, ADDR_CTRL, bit)
-    await ClockCycles(dut.sample_clk_i, 12)  # toggle→pulse + counter + word sync
-    await ClockCycles(dut.tck_i, 4)
+async def _drive_probe_counter(dut, cycles: int):
+    cnt = 0
+    for _ in range(cycles):
+        dut.probe_i.value = (cnt & 0xFF) | 0x100  # never zero → no uninit-cell alias
+        await RisingEdge(dut.sample_clk_i)
+        cnt = (cnt + 1) & 0xFF
 
 
 @cocotb.test()
-@requires("REA-REQ-807")
-async def test_capture_epoch_increments_on_arm_and_reset(dut):
+@requires("REA-REQ-800", "REA-REQ-802")
+async def test_sweep_crc_matches_portb_readback(dut):
     await _start_clocks(dut)
     await _reset(dut)
 
-    # Post-reset: epoch 0, CRC regs inert, v0.8 STATUS bits clear.
-    assert await _jtag_read(dut, ADDR_CAPTURE_EPOCH) == 0
-    assert await _jtag_read(dut, ADDR_CRC_SAMPLE) == 0
-    assert await _jtag_read(dut, ADDR_CRC_TS) == 0
-    status = await _jtag_read(dut, ADDR_STATUS)
-    assert (status >> 4) & 0xF == 0, f"STATUS[7:4] must be 0 in P2.2, got {status:#010x}"
+    cocotb.start_soon(_drive_probe_counter(dut, 100_000))
+    await ClockCycles(dut.sample_clk_i, 2 * DEPTH)  # warm the free-running buffer
 
-    # Each accepted arm bumps the epoch by exactly one. Cross-check the
-    # JTAG-read value against the internal sample-domain counter capture_epoch_r
-    # (proves the sample→jtag word sync carried it faithfully).
-    await _pulse_ctrl(dut, CTRL_BIT_ARM)
-    assert await _jtag_read(dut, ADDR_CAPTURE_EPOCH) == 1
-    assert int(dut.capture_epoch_r.value) == 1
-    await _pulse_ctrl(dut, CTRL_BIT_ARM)
-    assert await _jtag_read(dut, ADDR_CAPTURE_EPOCH) == 2
-    assert int(dut.capture_epoch_r.value) == 2
+    # Configure a window that fits, arm, wait for done.
+    await _jtag_write(dut, ADDR_PRETRIG, DEPTH // 2 - 1)
+    await _jtag_write(dut, ADDR_POSTTRIG, DEPTH // 2 - 1)
+    await _jtag_write(dut, ADDR_TRIG_MODE, 0x1)   # value-match
+    await _jtag_write(dut, ADDR_TRIG_VALUE, 0)
+    await _jtag_write(dut, ADDR_TRIG_MASK, 0)     # mask 0 → fire immediately
+    await _jtag_write(dut, ADDR_CTRL, CTRL_BIT_ARM)
 
-    # A soft reset (CTRL bit[1]) also bumps it.
-    await _pulse_ctrl(dut, CTRL_BIT_RESET)
-    assert await _jtag_read(dut, ADDR_CAPTURE_EPOCH) == 3
-    assert int(dut.capture_epoch_r.value) == 3
+    for _ in range(200):
+        if await _jtag_read(dut, ADDR_STATUS) & STATUS_BIT_DONE:
+            break
+        await ClockCycles(dut.tck_i, 4)
+    else:
+        raise AssertionError("REA-REQ-800: capture never reached done")
 
-    # A plain read does NOT move it.
-    assert await _jtag_read(dut, ADDR_CAPTURE_EPOCH) == 3
+    # REA-REQ-800: the sweep auto-ran and published crc_valid.
+    for _ in range(200):
+        if await _jtag_read(dut, ADDR_STATUS) & STATUS_BIT_CRC_VALID:
+            break
+        await ClockCycles(dut.tck_i, 4)
+    else:
+        raise AssertionError("REA-REQ-800: crc_valid never set after done")
 
-    dut._log.info("REA-REQ-807 PASS — CAPTURE_EPOCH bumps on arm/reset, stable otherwise")
+    crc_on_chip = await _jtag_read(dut, ADDR_CRC_SAMPLE)
+
+    # REA-REQ-802: read the PHYSICAL buffer over port B (DATA_BASE, address
+    # order — no rotation), then compute the canonical §2.4 page-stream CRC with
+    # zlib. For SAMPLE_W=12 each cell is one 32-bit page (value zero-padded).
+    pages = b""
+    for i in range(DEPTH):
+        cell = await _jtag_read(dut, ADDR_DATA_BASE + 4 * i) & ((1 << SAMPLE_W) - 1)
+        pages += struct.pack("<I", cell)
+    crc_ref = zlib.crc32(pages) & 0xFFFFFFFF
+
+    assert crc_on_chip == crc_ref, (
+        f"REA-REQ-802: port-A sweep CRC 0x{crc_on_chip:08X} != "
+        f"zlib CRC of port-B readback 0x{crc_ref:08X} — the two readback paths "
+        f"DISAGREE (the exact silicon-corruption class v0.8 exists to catch)"
+    )
+    dut._log.info(f"REA-REQ-800/802 PASS — both readback paths agree, CRC=0x{crc_on_chip:08X}")
 
 
 def main() -> None:
     run_simulation(
         top_level="rr_rea_top",
-        module="test_rea_epoch_status_p2_2",
+        module="test_rea_crc_integration_p2_2",
         custom_libraries={
             "work": [
                 f"{_RTL}/rr_rea_pkg.vhd",

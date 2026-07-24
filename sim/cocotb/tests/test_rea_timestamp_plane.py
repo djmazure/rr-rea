@@ -61,6 +61,7 @@ def main() -> None:
                 str(_RTL_DIR / "rr_rea_regbank.vhd"),
                 str(_RTL_DIR / "rr_rea_cdc.vhd"),
                 str(_RTL_DIR / "rr_rea_jtag_iface.vhd"),
+                str(_RTL_DIR / "rr_rea_crc_sweep.vhd"),
                 str(_RTL_DIR / "rr_rea_top.vhd"),
             ],
         },
