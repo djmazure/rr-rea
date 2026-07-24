@@ -629,7 +629,14 @@ begin
             case fill_state_r is
                 when F_IDLE =>
                     if fill_request = '1' then
-                        if armed_sclk = '1' or triggered_sclk = '1' then
+                        -- REA-T1.2: also refuse while a CRC sweep is active. A
+                        -- fill-triggered validation sweep runs with armed=0, so
+                        -- without this guard a fill accepted mid-sweep would win
+                        -- the port-A arbiter and hijack the sweep's read address
+                        -- (dpram_addr_a <= fill_addr_r when fill_busy), corrupting
+                        -- the CRC over the wrong cells. Sticky, per REQ-852.
+                        if armed_sclk = '1' or triggered_sclk = '1'
+                           or sweep_busy = '1' then
                             selftest_refused_r <= '1';               -- REQ-852
                         else
                             selftest_refused_r <= '0';

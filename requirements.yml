@@ -816,11 +816,13 @@ functional_contract:
     kind: negative
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
     desc: >-
-      A fill toggle while armed, while a fill is active, or mid-capture is
-      REFUSED (not queued): no port-A write occurs, the sticky
-      selftest_refused STATUS bit sets (cleared on the next accepted fill,
-      arm, or reset), and capture state — done, triggered, START_PTR,
-      CAPTURE_LEN — is untouched by any fill, accepted or refused.
+      A fill toggle while armed, while a fill is active, mid-capture, OR while a
+      CRC sweep is active (REA-T1.2) is REFUSED (not queued): no port-A write
+      occurs, the sticky selftest_refused STATUS bit sets (cleared on the next
+      accepted fill, arm, or reset), and capture state — done, triggered,
+      START_PTR, CAPTURE_LEN — is untouched by any fill, accepted or refused.
+      The sweep guard closes a port-A hazard: a fill accepted mid-sweep wins the
+      arbiter and hijacks the sweep's read address, corrupting the CRC.
   - id: REA-REQ-853
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
