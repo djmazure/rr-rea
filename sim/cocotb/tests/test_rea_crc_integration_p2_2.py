@@ -185,6 +185,48 @@ async def test_sweep_crc_matches_portb_readback(dut):
     dut._log.info(f"REA-REQ-800/802 PASS — both readback paths agree, CRC=0x{crc_on_chip:08X}")
 
 
+@cocotb.test()
+@requires("REA-REQ-803")
+async def test_arm_clears_crc_valid_and_bumps_epoch(dut):
+    """After a completed capture publishes crc_valid, a fresh arm must clear it
+    (the invalidate always wins) and increment CAPTURE_EPOCH — so a host that
+    re-arms mid-read can detect the generation changed. The publication FSM's
+    settle+epoch-snapshot also structurally suppresses a torn publish (REQ-808).
+    """
+    await _start_clocks(dut)
+    await _reset(dut)
+    cocotb.start_soon(_drive_probe_counter(dut, 100_000))
+    await ClockCycles(dut.sample_clk_i, 2 * DEPTH)
+
+    await _jtag_write(dut, ADDR_PRETRIG, DEPTH // 2 - 1)
+    await _jtag_write(dut, ADDR_POSTTRIG, DEPTH // 2 - 1)
+    await _jtag_write(dut, ADDR_TRIG_MODE, 0x1)
+    await _jtag_write(dut, ADDR_TRIG_VALUE, 0)
+    await _jtag_write(dut, ADDR_TRIG_MASK, 0)
+    await _jtag_write(dut, ADDR_CTRL, CTRL_BIT_ARM)
+
+    for _ in range(200):
+        if await _jtag_read(dut, ADDR_STATUS) & STATUS_BIT_CRC_VALID:
+            break
+        await ClockCycles(dut.tck_i, 4)
+    else:
+        raise AssertionError("crc_valid never set after the first capture")
+    epoch_before = await _jtag_read(dut, 0xEC)
+
+    # Re-arm: crc_valid must clear (invalidate wins) and the epoch must advance.
+    await _jtag_write(dut, ADDR_CTRL, CTRL_BIT_ARM)
+    await ClockCycles(dut.sample_clk_i, 12)
+    await ClockCycles(dut.tck_i, 4)
+    status = await _jtag_read(dut, ADDR_STATUS)
+    assert status & STATUS_BIT_CRC_VALID == 0, (
+        f"REA-REQ-803: re-arm must clear crc_valid, STATUS=0x{status:08x}")
+    epoch_after = await _jtag_read(dut, 0xEC)
+    assert epoch_after == (epoch_before + 1) & 0xFFFFFFFF, (
+        f"REA-REQ-803/807: epoch {epoch_before}→{epoch_after}, expected +1")
+
+    dut._log.info("REA-REQ-803 PASS — re-arm cleared crc_valid + bumped epoch")
+
+
 def main() -> None:
     run_simulation(
         top_level="rr_rea_top",

@@ -156,14 +156,23 @@ architecture rtl of rr_rea_top is
     signal sweep_mem_dout   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal dpram_addr_a     : std_logic_vector(C_PTR_W - 1 downto 0);
     signal dpram_we_a       : std_logic;
-    -- Intermediate crc_valid (set on sweep completion, cleared on abort). The
-    -- proper snapshot/settle/toggle + epoch-suppress publication is increment 3
-    -- (REQ-808); this simple valid + a held (set-once) CRC is coherent for a
-    -- single capture (REQ-800/802).
-    signal crc_sample_r     : std_logic_vector(31 downto 0) := (others => '0');
-    signal crc_valid_r      : std_logic := '0';
-    signal crc_sample_jclk  : std_logic_vector(31 downto 0);
-    signal crc_valid_jclk   : std_logic_vector(0 downto 0);
+    -- Publication (REA-P2.2 increment 3, REQ-808 torn-publish guard). The CRC
+    -- is latched + held; after a settle window (so the CRC word sync fully
+    -- lands in the jtag domain) a publish toggle flips and, only then, sets the
+    -- jtag-domain crc_valid. An arm/reset (epoch bump) during the settle
+    -- SUPPRESSES the publish; an arm/reset after it CLEARS crc_valid (invalidate
+    -- always wins). crc_valid therefore never rises for a stale/torn generation.
+    signal crc_sample_r        : std_logic_vector(31 downto 0) := (others => '0');
+    signal crc_sample_jclk     : std_logic_vector(31 downto 0);
+    signal epoch_snap_r        : std_logic_vector(31 downto 0) := (others => '0');
+    constant C_PUB_SETTLE      : natural := 8;
+    signal pub_settle_r        : natural range 0 to C_PUB_SETTLE := 0;
+    signal pub_pending_r       : std_logic := '0';
+    signal publish_toggle_r    : std_logic := '0';
+    signal invalidate_toggle_r : std_logic := '0';
+    signal publish_pulse_jclk    : std_logic;
+    signal invalidate_pulse_jclk : std_logic;
+    signal crc_valid_jr        : std_logic := '0';
 
     -- ── Comparator-array config (RTL-P3.647): regbank → CDC → FSM ──
     -- array_enable rides in trig_mode bit[2] (already CDC'd); only the
@@ -292,7 +301,7 @@ begin
             crc_sample_i       => crc_sample_jclk,
             crc_ts_i           => (others => '0'),  -- timestamp-plane sweep: later sub-step
             capture_epoch_i    => capture_epoch_jclk,
-            crc_valid_i        => crc_valid_jclk(0),
+            crc_valid_i        => crc_valid_jr,
             selftest_busy_i    => '0',
             selftest_mode_i    => '0',
             selftest_refused_i => '0',
@@ -540,19 +549,44 @@ begin
             crc_o        => sweep_crc_o
         );
 
-    -- Latch the CRC + set the (intermediate) valid on sweep completion; both
-    -- clear on abort. The CRC is set-once and held, so the plain word/bit sync
-    -- below is coherent for a single capture (proper snapshot/toggle + epoch
-    -- suppress is increment 3, REQ-808).
+    -- Publication FSM (REQ-808). On sweep completion latch the CRC + a snapshot
+    -- of the epoch, then hold a settle window before flipping publish_toggle_r,
+    -- so the crc_sample word sync (below) has fully landed in the jtag domain
+    -- before crc_valid can rise. A mid-settle epoch change (arm/reset) cancels
+    -- the publish; sweep_rst resets the FSM.
     process (sample_clk_i, sweep_rst)
     begin
         if sweep_rst = '1' then
-            crc_sample_r <= (others => '0');
-            crc_valid_r  <= '0';
+            crc_sample_r  <= (others => '0');
+            pub_pending_r <= '0';
+            pub_settle_r  <= 0;
         elsif rising_edge(sample_clk_i) then
-            if sweep_crc_done = '1' then
-                crc_sample_r <= sweep_crc_o;
-                crc_valid_r  <= '1';
+            if sweep_crc_done = '1' and pub_pending_r = '0' then
+                crc_sample_r  <= sweep_crc_o;
+                epoch_snap_r  <= capture_epoch_r;
+                pub_settle_r  <= C_PUB_SETTLE;
+                pub_pending_r <= '1';
+            elsif pub_pending_r = '1' then
+                if epoch_snap_r /= capture_epoch_r then
+                    pub_pending_r <= '0';                     -- invalidated: cancel
+                elsif pub_settle_r = 0 then
+                    publish_toggle_r <= not publish_toggle_r; -- publish
+                    pub_pending_r <= '0';
+                else
+                    pub_settle_r <= pub_settle_r - 1;
+                end if;
+            end if;
+        end if;
+    end process;
+
+    -- Invalidate toggle: flips on any epoch bump (accepted arm / soft reset).
+    process (sample_clk_i, sample_rst_i)
+    begin
+        if sample_rst_i = '1' then
+            invalidate_toggle_r <= '0';
+        elsif rising_edge(sample_clk_i) then
+            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
+                invalidate_toggle_r <= not invalidate_toggle_r;
             end if;
         end if;
     end process;
@@ -561,10 +595,29 @@ begin
         generic map (G_WIDTH => 32)
         port map (dst_clk_i => reg_clk_o, din_i => crc_sample_r,
                   dout_o => crc_sample_jclk);
-    u_cdc_crc_valid : rr_rea_sync_word
-        generic map (G_WIDTH => 1)
-        port map (dst_clk_i => reg_clk_o, din_i(0) => crc_valid_r,
-                  dout_o => crc_valid_jclk);
+    u_cdc_publish : rr_rea_pulse_xfer
+        port map (src_toggle_i => publish_toggle_r,
+                  dst_clk_i => reg_clk_o, dst_rst_i => reg_rst_o,
+                  dst_pulse_o => publish_pulse_jclk);
+    u_cdc_invalidate : rr_rea_pulse_xfer
+        port map (src_toggle_i => invalidate_toggle_r,
+                  dst_clk_i => reg_clk_o, dst_rst_i => reg_rst_o,
+                  dst_pulse_o => invalidate_pulse_jclk);
+
+    -- jtag-domain crc_valid: set by the publish pulse, cleared by an invalidate
+    -- pulse. Invalidation wins on a same-cycle tie (checked first) — REQ-808.
+    process (reg_clk_o, reg_rst_o)
+    begin
+        if reg_rst_o = '1' then
+            crc_valid_jr <= '0';
+        elsif rising_edge(reg_clk_o) then
+            if invalidate_pulse_jclk = '1' then
+                crc_valid_jr <= '0';
+            elsif publish_pulse_jclk = '1' then
+                crc_valid_jr <= '1';
+            end if;
+        end if;
+    end process;
 
     -- ── Capture FSM ──────────────────────────────────────────────
     u_fsm : entity work.rr_rea_capture_fsm
