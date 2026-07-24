@@ -1,0 +1,27 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.3 — anti-vacuity gate for the capture-FSM contract proof. Each A1..A6
+-- is an implication; it is only meaningful if its ANTECEDENT is reachable. These
+-- covers prove every antecedent is hit, so no A-guarantee passes vacuously.
+-- (The A4 CEX direction is separately demonstrated: A4 FAILED before the
+-- REA-T1.5 fix — a real done∧¬triggered state — and PASSES after.)
+--
+--   cd verif && sby -f rr_rea_capture_fsm_contract_vacuity.sby
+vunit rr_rea_capture_fsm_contract_vacuity (rr_rea_capture_fsm(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+  NORST : assume always ( sample_rst_i = '0' );
+
+  -- A1 antecedent: a capture write actually happens.
+  COVER_DPRAM_WE : cover {dpram_we_o = '1'};
+  -- A2/A3/A4 antecedent: done reaches '1', and a done RISING edge occurs.
+  COVER_DONE       : cover {done_o = '1'};
+  COVER_DONE_RISE  : cover {prev(done_o) = '0' and done_o = '1'};
+  -- A5 antecedent: a triggered RISING edge occurs.
+  COVER_TRIG_RISE  : cover {prev(triggered_o) = '0' and triggered_o = '1'};
+  -- A6 antecedent: an armed RISING edge occurs.
+  COVER_ARMED_RISE : cover {prev(armed_o) = '0' and armed_o = '1'};
+  -- Non-triviality: done can be high WITH triggered high (A4's guarded state is
+  -- the real reachable one, not the empty set).
+  COVER_DONE_AND_TRIG : cover {done_o = '1' and triggered_o = '1'};
+}

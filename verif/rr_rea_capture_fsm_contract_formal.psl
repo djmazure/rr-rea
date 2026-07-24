@@ -1,0 +1,63 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.3 — formal DISCHARGE of the trust-core assume-guarantee cut.
+--
+-- rr_rea_trust_core's formal proofs (REQ-800/803/807/810/811, verif/
+-- rr_rea_trust_core_{formal,bmc}.psl) are an assume-guarantee decomposition:
+-- they ASSUME six capture-FSM control guarantees (A1..A6) on their free inputs.
+-- This harness PROVES those same guarantees on rr_rea_capture_fsm's own ports,
+-- so the trust proof is airtight end-to-end (no unproven assumption remains).
+--
+-- Scope: post-reset operation (sample_rst_i='0'); the register init values
+-- (armed_r/triggered_r/done_r := '0') give the reset state, so the edge-based
+-- properties are clean at cycle 0 (their antecedents are false there).
+--
+--   rr eda install formal   # once
+--   cd verif && sby -f rr_rea_capture_fsm_contract.sby
+vunit rr_rea_capture_fsm_contract (rr_rea_capture_fsm(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+
+  NORST : assume always ( sample_rst_i = '0' );
+
+  -- A1 — a capture write only happens before done. dpram_we_o = store_sample,
+  -- and store_sample requires done_r='0' (the sliding-window write stops at
+  -- done). COMBINATIONAL — the trust core's REQ-811 leans on this.
+  A1_WRITE_BEFORE_DONE :
+    assert always ( dpram_we_o = '1' -> done_o = '0' );
+
+  -- A2 — done is STICKY: once set it holds until an arm / soft-reset pulse
+  -- (done_r is cleared only in the arm_pulse / reset_pulse / sample_rst
+  -- branches). Underpins REQ-800/810 (no spurious second done-edge without a
+  -- re-arm → no orphaned sweep).
+  A2_DONE_STICKY :
+    assert always ( (done_o = '1'
+                     and not (arm_pulse_i = '1' or reset_pulse_i = '1'))
+                    -> next(done_o) = '1' );
+
+  -- A3 — a done RISING edge implies triggered was high the cycle before
+  -- (done_r is set only inside the armed_r='1' and triggered_r='1' branch).
+  A3_DONE_RISE_NEEDS_TRIGGER :
+    assert always ( (done_o = '1' and prev(done_o) = '0')
+                    -> prev(triggered_o) = '1' );
+
+  -- A4 — done is a SUBSTATE of triggered: done is never high while triggered is
+  -- low. Both are set from the trigger and cleared only together (arm/reset/
+  -- sample_rst), and done is set only when triggered_r='1'. Underpins the
+  -- REQ-810 "done ⇒ triggered ⇒ fill idle" chain.
+  A4_DONE_IMPLIES_TRIGGERED :
+    assert always ( done_o = '1' -> triggered_o = '1' );
+
+  -- A5 — triggered can only RISE from the armed state (triggered_r <= '1' only
+  -- inside the armed_r='1' and triggered_r='0' branch).
+  A5_TRIGGERED_RISE_NEEDS_ARMED :
+    assert always ( (triggered_o = '1' and prev(triggered_o) = '0')
+                    -> prev(armed_o) = '1' );
+
+  -- A6 — armed can only RISE from an arm_pulse (armed_r <= '1' only in the
+  -- arm_pulse_i='1' branch). Closes the "no capture from nowhere" chain that
+  -- makes the trust-core arbiter proofs sound.
+  A6_ARMED_RISE_NEEDS_ARM_PULSE :
+    assert always ( (armed_o = '1' and prev(armed_o) = '0')
+                    -> prev(arm_pulse_i) = '1' );
+}

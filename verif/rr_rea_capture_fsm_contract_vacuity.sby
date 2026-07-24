@@ -1,0 +1,21 @@
+# REA-P3.3 — discharge the trust-core assume-guarantee cut.
+# Run from verif/ :  sby -f rr_rea_capture_fsm_contract.sby
+# Small generics: the control guarantees (armed/triggered/done) are
+# datapath-width and depth independent; small design → k-induction closes fast.
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc
+
+[script]
+plugin -i ghdl
+ghdl --std=08 -fpsl -gG_DEPTH=4 -gG_SAMPLE_W=8 -gG_TRIG_STAGES=1 -gG_TRIG_CONDS=1 rr_rea_pkg.vhd rr_rea_trig_xbar.vhd rr_rea_capture_fsm.vhd rr_rea_capture_fsm_contract_vacuity.psl -e rr_rea_capture_fsm
+prep -top rr_rea_capture_fsm
+
+[files]
+../rtl/rr_rea_pkg.vhd
+../rtl/rr_rea_trig_xbar.vhd
+../rtl/rr_rea_capture_fsm.vhd
+rr_rea_capture_fsm_contract_vacuity.psl

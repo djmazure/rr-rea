@@ -911,5 +911,62 @@ async def test_rea_req_600b_host_literal_mode_0x01_is_eq(dut):
     dut._log.info("REA-REQ-600 PASS — host-literal TRIG_MODE=0x01 == EQ")
 
 
+@cocotb.test()
+async def test_rea_t1_5_reset_wins_over_coincident_posttrig_done(dut):
+    """REA-T1.5: a reset_pulse coincident with the post-trigger completion cycle
+    must ABORT the capture — it must NOT leave done=1 (and never done=1 with
+    triggered=0). Before the fix the later sequential post-trig `done_r<='1'`
+    overrode the reset's `done_r<='0'`, so a soft-reset racing the done edge left
+    a stale inconsistent 'completed' state (which also falsified the A4
+    guarantee the trust core assumes; verif/rr_rea_capture_fsm_contract)."""
+    await _start_clk(dut)
+    await _reset(dut)
+
+    # posttrig_len=0 → the post-trigger window completes the cycle AFTER trigger,
+    # making the race a tight 1-cycle target. Block the local comparator so only
+    # the direct trigger_i path fires (deterministic timing).
+    dut.probe_i.value = 0
+    dut.pretrig_len_i.value = 0
+    dut.posttrig_len_i.value = 0
+    dut.trig_value_i.value = 0xFFF
+    dut.trig_mask_i.value  = 0xFFF
+    dut.trigger_i.value    = 0
+
+    await _pulse(dut.arm_pulse_i, dut, 1)
+    await ClockCycles(dut.sample_clk_i, 3)          # armed, watching
+    assert int(dut.armed_o.value) == 1 and int(dut.triggered_o.value) == 0
+
+    # Fire the trigger; triggered asserts on this edge, post-trig (posttrig=0)
+    # would set done on the NEXT edge.
+    dut.trigger_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.trigger_i.value = 0
+    await ReadOnly()
+    assert int(dut.triggered_o.value) == 1, "trigger must have fired"
+    assert int(dut.done_o.value) == 0, "done not set yet"
+
+    # RACE: assert reset_pulse on the exact cycle the post-trigger done would fire.
+    await RisingEdge(dut.sample_clk_i)
+    dut.reset_pulse_i.value = 1
+    await RisingEdge(dut.sample_clk_i)
+    dut.reset_pulse_i.value = 0
+
+    # A few cycles for the state to settle; done must have been CLEARED by the
+    # reset (aborted), and the state must never be the inconsistent done∧¬trig.
+    for _ in range(4):
+        await ReadOnly()
+        d = int(dut.done_o.value)
+        t = int(dut.triggered_o.value)
+        assert not (d == 1 and t == 0), (
+            "REA-T1.5: inconsistent state done=1 & triggered=0 — a reset_pulse "
+            "raced the post-trig done and the done write won.")
+        await RisingEdge(dut.sample_clk_i)
+    await ReadOnly()
+    assert int(dut.done_o.value) == 0, (
+        "REA-T1.5: reset_pulse must ABORT the capture — done must be 0, not a "
+        "stale post-trig completion.")
+    dut._log.info("REA-T1.5 PASS — reset wins over a coincident post-trig done")
+
+
 if __name__ == "__main__":
     main()

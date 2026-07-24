@@ -1018,7 +1018,14 @@ begin
             -- would ping-pong each other forever).
             -- REA-REQ-602: in seq_enable mode, trigger_hit is the
             -- final-stage match path (seq_final_fire).
-            if armed_r = '1' and triggered_r = '0' and done_r = '0' then
+            -- REA-T1.5: arm_pulse / reset_pulse take PRIORITY over trigger
+            -- detection. Both write triggered_r/done_r/armed_r earlier in this
+            -- process; without this guard a trigger (or post-trig completion,
+            -- below) racing an arm/reset on the same cycle would win the later
+            -- sequential write, leaving an inconsistent state (e.g. done=1 with
+            -- triggered=0). The arm/reset branch must fully own that cycle.
+            if armed_r = '1' and triggered_r = '0' and done_r = '0'
+               and arm_pulse_i = '0' and reset_pulse_i = '0' then
                 if local_fire_pipe = '1' or trigger_i = '1' then
                     triggered_r <= '1';
                     if local_fire_pipe = '1' then
@@ -1043,7 +1050,8 @@ begin
             -- so the post-trigger window is `posttrig_len` cells
             -- regardless of decimation ratio.
             if armed_r = '1' and triggered_r = '1' and done_r = '0'
-               and decim_tick = '1' then
+               and decim_tick = '1'
+               and arm_pulse_i = '0' and reset_pulse_i = '0' then  -- REA-T1.5
                 if post_count_r >= posttrig_len_r then
                     -- Done capturing the post-trigger window.
                     -- REA-REQ-104: start_ptr <= trig_ptr - pretrig_len

@@ -25,3 +25,5 @@ verif/rr_rea_trust_core_bmc/
 verif/rr_rea_trust_core_vacuity/
 verif/rr_rea_fill_fsm_formal/
 artifacts/
+verif/rr_rea_capture_fsm_contract/
+verif/rr_rea_capture_fsm_contract_vacuity/

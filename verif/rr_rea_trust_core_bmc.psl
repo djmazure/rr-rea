@@ -10,7 +10,9 @@
 -- vs sync-selftest-clear coupling — the fill FSM is already separately proven, so
 -- per the rr-formal "accept BMC-bounded proofs" guidance (RTL T2.1 finding #2) we
 -- prove them exhaustively to depth 20 here and cover the full cross-CDC behaviour
--- with the bound cocotb tests. The same assume-guarantee A1..A6 apply.
+-- with the bound cocotb tests. The same assume-guarantee A1..A6 apply — and are
+-- DISCHARGED on the capture FSM in verif/rr_rea_capture_fsm_contract.{psl,sby}
+-- (REA-P3.3; surfaced+fixed REA-T1.5).
 --
 -- Both REQ-810 and REQ-811 are the reformulations REA-T2.1 called for: the raw
 -- capture-write signal (dpram_we_sclk) is free-running, so the sound properties

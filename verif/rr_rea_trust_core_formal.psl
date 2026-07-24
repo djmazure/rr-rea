@@ -15,8 +15,10 @@
 -- ASSUME-GUARANTEE: the capture writes (cap_we_i), the capture-done level
 -- (done_i) and the armed/triggered status are free inputs constrained by the
 -- rr_rea_capture_fsm's OWN proven contract (REQ-100..107), asserted here as
--- `assume`s (A1..A6). They are guarantees proven separately on the capture FSM's
--- free ports; a sound assume-guarantee cut, not a gap. Without them the solver
+-- `assume`s (A1..A6). They are DISCHARGED — formally proven on the capture FSM's
+-- own free ports in verif/rr_rea_capture_fsm_contract.{psl,sby} (REA-P3.3), which
+-- also surfaced+fixed REA-T1.5 (a reset/post-trig race that falsified A4). So
+-- this is a closed assume-guarantee cut, not a gap. Without them the solver
 -- is free to invent a physically-impossible capture (done rising with no capture
 -- in flight, triggered without an arm), which is not a real counterexample.
 --
