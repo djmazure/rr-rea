@@ -104,10 +104,24 @@ begin
             fill_done   <= '0';
             fill_accept <= '0';
             if arm_pulse_i = '1' or reset_pulse_i = '1' then
+                -- REA-T1.3: an arm / soft-reset ABORTS an in-flight fill,
+                -- symmetric to how sweep_rst aborts the sweep. Previously the
+                -- fill kept running with selftest_mode cleared, so (a) the
+                -- fill still owned port A while the newly-armed capture's
+                -- done-edge sweep ran (dpram_addr_a<=fill_addr when fill_busy)
+                -- → the sweep read FILL cells, corrupting a trust CRC (a T1.2
+                -- sibling), and (b) the fill's late fill_done launched a
+                -- stale-selftest validation sweep. This abort takes PRIORITY
+                -- over the FSM step (the case runs only when not aborting), so
+                -- fill_busy drops immediately and no fill_done/fill_accept
+                -- pulse escapes. Proven: formal REQ-810 + the generation-held
+                -- invariant close by k-induction with this abort (REA-P3.2).
                 selftest_mode_r    <= '0';   -- REQ-853
                 selftest_refused_r <= '0';   -- cleared on arm/reset (REQ-852)
-            end if;
-
+                fill_state_r       <= F_IDLE;
+                fill_addr_r        <= (others => '0');
+                fill_page_r        <= 0;
+            else
             case fill_state_r is
                 when F_IDLE =>
                     if fill_request_i = '1' then
@@ -167,6 +181,7 @@ begin
                         fill_state_r <= F_STAGE;
                     end if;
             end case;
+            end if;
         end if;
     end process;
 

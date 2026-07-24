@@ -1,0 +1,24 @@
+# REA-P3.2 — run from verif/ :  sby -f rr_rea_trust_core_formal.sby
+#
+# G_DEPTH / G_SAMPLE_W are downscaled for the proof (control invariants are
+# buffer-depth-independent; the real DEPTH=4096 / SAMPLE_W=12 path is covered by
+# the cocotb suite). Downscaling keeps the sweep/fill address counters small so
+# k-induction closes quickly.
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc
+
+[script]
+plugin -i ghdl
+ghdl --std=08 -fpsl -gG_DEPTH=4 -gG_SAMPLE_W=8 -gG_PUB_SETTLE=4 rr_rea_pkg.vhd rr_rea_crc_sweep.vhd rr_rea_fill_fsm.vhd rr_rea_trust_core.vhd rr_rea_trust_core_formal.psl -e rr_rea_trust_core
+prep -top rr_rea_trust_core
+
+[files]
+../rtl/rr_rea_pkg.vhd
+../rtl/rr_rea_crc_sweep.vhd
+../rtl/rr_rea_fill_fsm.vhd
+../rtl/rr_rea_trust_core.vhd
+rr_rea_trust_core_formal.psl

@@ -43,11 +43,18 @@ SAMPLE_W = 12
 TS_W = 16
 GENERICS = {"G_SAMPLE_W": SAMPLE_W, "G_DEPTH": DEPTH, "G_TIMESTAMP_W": TS_W, "G_NUM_CHAN": 1}
 
+ADDR_CTRL           = 0x04
 ADDR_STATUS         = 0x08
+ADDR_PRETRIG        = 0x14
+ADDR_POSTTRIG       = 0x18
+ADDR_TRIG_MODE      = 0x20
+ADDR_TRIG_VALUE     = 0x24
+ADDR_TRIG_MASK      = 0x28
 ADDR_SELFTEST_CTRL  = 0xDC
 ADDR_SELFTEST_SEED  = 0xE0
 ADDR_DATA_PLANE_SEL = 0xD8
 ADDR_DATA_BASE      = 0x100
+CTRL_BIT_ARM   = 0x01
 STATUS_BIT_CRC_VALID        = 1 << 4
 STATUS_BIT_SELFTEST_MODE    = 1 << 6
 STATUS_BIT_SELFTEST_REFUSED = 1 << 7
@@ -219,6 +226,69 @@ async def test_fill_during_sweep_is_refused(dut):
     dut._log.info("REA-T1.2 PASS — mid-sweep fill refused, port-A exclusion held, CRC intact")
 
 
+@cocotb.test()
+@requires("REA-REQ-852")
+async def test_arm_aborts_in_flight_fill(dut):
+    """REA-T1.3: an arm issued DURING an active selftest fill must ABORT the
+    fill — before the fix the fill kept running with selftest_mode cleared, so
+    the newly-armed capture's done-edge sweep ran while the fill still owned
+    port A (dpram_addr_a <= fill_addr when fill_busy), corrupting the trust CRC.
+    The port-A owner monitor must never trip across the whole window."""
+    await _start_clocks(dut)
+    await _reset(dut)
+
+    stop = Event()
+    cocotb.start_soon(_port_a_owner_monitor(dut, stop))
+
+    await _jtag_write(dut, ADDR_SELFTEST_SEED, 0xCAFEBABE)
+    await _jtag_write(dut, ADDR_SELFTEST_CTRL, 1)          # fill request
+
+    # Wait until the fill is actually running (fill_busy high), then arm.
+    for _ in range(40000):
+        await RisingEdge(dut.sample_clk_i)
+        await ReadOnly()
+        if int(dut.fill_busy.value) == 1:
+            break
+    else:
+        raise AssertionError("selftest fill never started")
+    assert int(dut.sweep_busy.value) == 0, "sweep must not be running yet"
+
+    await RisingEdge(dut.tck_i)
+    # Program a small trigger window so the armed capture reaches done quickly,
+    # then arm WHILE the fill is still in flight.
+    await _jtag_write(dut, ADDR_PRETRIG, 1)
+    await _jtag_write(dut, ADDR_POSTTRIG, 1)
+    await _jtag_write(dut, ADDR_TRIG_MODE, 0x1)
+    await _jtag_write(dut, ADDR_TRIG_VALUE, 0)
+    await _jtag_write(dut, ADDR_TRIG_MASK, 0)
+    await _jtag_write(dut, ADDR_CTRL, CTRL_BIT_ARM)        # arm mid-fill
+
+    # The fill must ABORT: fill_busy drops and selftest_mode clears within a few
+    # sample cycles of the arm pulse landing (not thousands of cycles later when
+    # the fill would otherwise have completed).
+    for _ in range(200):
+        await RisingEdge(dut.sample_clk_i)
+        await ReadOnly()
+        if int(dut.fill_busy.value) == 0:
+            break
+    else:
+        raise AssertionError(
+            "REA-T1.3: fill_busy never dropped after an arm — the fill was not "
+            "aborted (it kept running, contending for port A with the capture)."
+        )
+    await RisingEdge(dut.tck_i)   # leave ReadOnly before driving JTAG lines
+    status = await _jtag_read(dut, ADDR_STATUS)
+    assert not (status & STATUS_BIT_SELFTEST_MODE), (
+        "REA-T1.3: selftest_mode must clear when an arm aborts the fill"
+    )
+
+    # Let the armed capture and any resulting sweep run; the monitor stays armed.
+    await ClockCycles(dut.sample_clk_i, 4000)
+    await ClockCycles(dut.tck_i, 20)
+    stop.set()
+    dut._log.info("REA-T1.3 PASS — arm aborted the in-flight fill, port-A exclusion held")
+
+
 def main() -> None:
     run_simulation(
         top_level="rr_rea_top",
@@ -234,6 +304,7 @@ def main() -> None:
                 f"{_RTL}/rr_rea_jtag_iface.vhd",
                 f"{_RTL}/rr_rea_crc_sweep.vhd",
                 f"{_RTL}/rr_rea_fill_fsm.vhd",
+                f"{_RTL}/rr_rea_trust_core.vhd",
                 f"{_RTL}/rr_rea_top.vhd",
             ],
         },

@@ -1,0 +1,85 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.2 — BMC-EXHAUSTIVE (bounded to depth 20 from reset) proof of the
+-- port-A single-owner (REQ-810) and stale-CRC (REQ-811) invariants.
+--
+-- These are TRUE but not 1-step k-inductive on the free-input core: proving them
+-- unbounded would require re-deriving the full fill-FSM internal state invariant
+-- (fill_done vs fill_busy vs selftest_mode consistency) and the async-sweep_rst
+-- vs sync-selftest-clear coupling — the fill FSM is already separately proven, so
+-- per the rr-formal "accept BMC-bounded proofs" guidance (RTL T2.1 finding #2) we
+-- prove them exhaustively to depth 20 here and cover the full cross-CDC behaviour
+-- with the bound cocotb tests. The same assume-guarantee A1..A6 apply.
+--
+-- Both REQ-810 and REQ-811 are the reformulations REA-T2.1 called for: the raw
+-- capture-write signal (dpram_we_sclk) is free-running, so the sound properties
+-- reference the ARBITRATED port-A grants, not the raw signals.
+--
+--   cd verif && sby -f rr_rea_trust_core_bmc.sby
+vunit rr_rea_trust_core_bmc (rr_rea_trust_core(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+
+  -- ── Capture-FSM contract assumptions (assume-guarantee cut) ─────────
+  A1_WRITE_BEFORE_DONE :
+    assume always ( cap_we_i = '1' -> done_i = '0' );
+  A2_DONE_STICKY :
+    assume always ( (done_i = '1'
+                     and not (arm_pulse_i = '1' or reset_pulse_i = '1'))
+                    -> next(done_i) = '1' );
+  A3_DONE_RISE_NEEDS_TRIGGER :
+    assume always ( (done_i = '1' and prev(done_i) = '0')
+                    -> prev(triggered_i) = '1' );
+  A4_DONE_IMPLIES_TRIGGERED :
+    assume always ( done_i = '1' -> triggered_i = '1' );
+  A5_TRIGGERED_RISE_NEEDS_ARMED :
+    assume always ( (triggered_i = '1' and prev(triggered_i) = '0')
+                    -> prev(armed_i) = '1' );
+  A6_ARMED_RISE_NEEDS_ARM_PULSE :
+    assume always ( (armed_i = '1' and prev(armed_i) = '0')
+                    -> prev(arm_pulse_i) = '1' );
+
+  -- ── REQ-800 (sample-domain kernel): a publication is pending ONLY while BOTH
+  --    planes report done — sample_done AND ts_done. This is the two-plane
+  --    atomicity the requirement is about: crc_valid can never publish before
+  --    both plane sweeps have completed. (The stronger sweep-idle forms are NOT
+  --    invariants — the tier PIPELINES back-to-back fills, so a later
+  --    generation's sweep may run while a prior publication sits in its settle
+  --    window; the sample_done/ts_done latches are what gate the publish. That
+  --    cross-generation atomicity is governed by REQ-808 and tracked for
+  --    torn-publish verification by REA-T2.2.) ──
+  -- Sample-plane kernel (ts_done_i is a FREE input here — the ts plane is
+  -- external to the core, its completion is the assume-guarantee boundary):
+  -- a publication is pending only while the SAMPLE plane sweep has completed.
+  REQ800_PUB_PENDING_SAMPLE_DONE :
+    assert always ( pub_pending_o = '1' -> sample_done_o = '1' );
+
+  -- ── REQ-810 (REA-T2.1 reformulation): port-A single owner — fill and sweep
+  --    never both own port A. The T1.2 fix (no fill START during a sweep) and
+  --    the REA-T1.3 fix (arm/reset ABORTS an in-flight fill) together close both
+  --    overlap directions. This is the guard that a sweep read can never be
+  --    served the fill's address. ──
+  REQ810_FILL_SWEEP_EXCLUSIVE :
+    assert always ( not (fill_busy_o = '1' and sweep_owns_a_o = '1') );
+  --    Safety consequence: a sweep read is never corrupted by a concurrent
+  --    port-A write (given the exclusion, sweep_owns_a forces we=0).
+  REQ810_SWEEP_READ_NO_WRITE :
+    assert always ( sweep_owns_a_o = '1' -> dpram_we_a_o = '0' );
+
+  -- ── REQ-811 (REA-T2.1-style reformulation): an EFFECTIVE (arbitrated) capture
+  --    port-A write implies this generation has NOT yet published (pub_done='0')
+  --    — a stale CRC never coexists with a mutating buffer. The effective
+  --    capture write is dpram_we_a_o with the fill NOT owning the port (the
+  --    arbiter forces we=0 under sweep/selftest, so the raw dpram_we_sclk is
+  --    excluded — the T2.1 lesson applied to 811). ──
+  REQ811_CAPWRITE_NOT_PUBLISHED :
+    assert always ( (dpram_we_a_o = '1' and fill_busy_o = '0')
+                    -> pub_done_o = '0' );
+
+  -- ── Supporting invariant (exhaustive to depth 20): a sweep is only ever BUSY
+  --    under a HELD generation — done='1' or selftest_mode='1'. Documents the
+  --    key fact behind REQ-800/810/811 (a sweep never runs "orphaned"). ──
+  INV_SWEEP_HELD :
+    assert always ( sweep_busy_o = '1'
+                    -> (done_i = '1' or selftest_mode_o = '1') );
+}

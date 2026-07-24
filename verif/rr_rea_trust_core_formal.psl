@@ -1,0 +1,69 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.2 — formal proof of the extracted v0.8 sample-domain trust core's
+-- readback-integrity invariants. This file holds the UNBOUNDED (k-induction)
+-- set; the bounded set (REQ-810/811, which need heavier fill-FSM state
+-- strengthening) lives in the companion rr_rea_trust_core_bmc.{psl,sby}.
+--
+-- On the full rr_rea_top these invariants are conditioned on arm/reset/done/fill
+-- signals that sit ~40-60 cycles behind the BSCAN shift/update protocol, so any
+-- feasible-depth proof there is VACUOUS. Here those are FREE input ports, so the
+-- antecedents are reachable in a couple of cycles and the invariants prove
+-- directly. Single-clock (sample_clk_i) — no multiclock needed.
+--
+-- ASSUME-GUARANTEE: the capture writes (cap_we_i), the capture-done level
+-- (done_i) and the armed/triggered status are free inputs constrained by the
+-- rr_rea_capture_fsm's OWN proven contract (REQ-100..107), asserted here as
+-- `assume`s (A1..A6). They are guarantees proven separately on the capture FSM's
+-- free ports; a sound assume-guarantee cut, not a gap. Without them the solver
+-- is free to invent a physically-impossible capture (done rising with no capture
+-- in flight, triggered without an arm), which is not a real counterexample.
+--
+-- Proven UNBOUNDED (k-induction) + anti-vacuity gated (see
+-- rr_rea_trust_core_vacuity.sby):
+--   rr eda install formal        # once
+--   cd verif && sby -f rr_rea_trust_core_formal.sby
+vunit rr_rea_trust_core_formal (rr_rea_trust_core(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+
+  -- ── Capture-FSM contract assumptions (assume-guarantee cut) ─────────
+  A1_WRITE_BEFORE_DONE :
+    assume always ( cap_we_i = '1' -> done_i = '0' );
+  A2_DONE_STICKY :
+    assume always ( (done_i = '1'
+                     and not (arm_pulse_i = '1' or reset_pulse_i = '1'))
+                    -> next(done_i) = '1' );
+  A3_DONE_RISE_NEEDS_TRIGGER :
+    assume always ( (done_i = '1' and prev(done_i) = '0')
+                    -> prev(triggered_i) = '1' );
+  A4_DONE_IMPLIES_TRIGGERED :
+    assume always ( done_i = '1' -> triggered_i = '1' );
+  A5_TRIGGERED_RISE_NEEDS_ARMED :
+    assume always ( (triggered_i = '1' and prev(triggered_i) = '0')
+                    -> prev(armed_i) = '1' );
+  A6_ARMED_RISE_NEEDS_ARM_PULSE :
+    assume always ( (armed_i = '1' and prev(armed_i) = '0')
+                    -> prev(arm_pulse_i) = '1' );
+
+  -- ── REQ-807: CAPTURE_EPOCH changes ONLY on arm / soft-reset / accepted
+  --    fill — the host's anti-tear anchor. next() form → clean at cycle 0. ─
+  REQ807_EPOCH_SOURCE :
+    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0'
+                     and fill_accept_o = '0')
+                    -> next(capture_epoch_o) = capture_epoch_o );
+
+  -- ── REQ-803: the invalidate toggle (which clears crc_valid on the reg side)
+  --    flips ONLY on an arm / soft-reset pulse — a fill's epoch bump does NOT
+  --    flip it (a fill freezes, it does not mutate a published buffer). ──
+  REQ803_INVALIDATE_SOURCE :
+    assert always ( (arm_pulse_i = '0' and reset_pulse_i = '0')
+                    -> next(invalidate_toggle_o) = invalidate_toggle_o );
+
+  -- ── Invariant: a fill is never busy while a capture is armed or triggered.
+  --    The fill FSM REFUSES to start while armed/triggered (REQ-852) AND — post
+  --    REA-T1.3 — ABORTS on the arm_pulse that raises armed. Underpins REQ-810. ─
+  INV_FILL_IDLE_WHILE_CAPTURE :
+    assert always ( fill_busy_o = '1'
+                    -> (armed_i = '0' and triggered_i = '0') );
+}

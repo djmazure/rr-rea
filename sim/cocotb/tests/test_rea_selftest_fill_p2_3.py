@@ -251,6 +251,7 @@ def main() -> None:
                 f"{_RTL}/rr_rea_jtag_iface.vhd",
                 f"{_RTL}/rr_rea_crc_sweep.vhd",
                 f"{_RTL}/rr_rea_fill_fsm.vhd",
+                f"{_RTL}/rr_rea_trust_core.vhd",
                 f"{_RTL}/rr_rea_top.vhd",
             ],
         },

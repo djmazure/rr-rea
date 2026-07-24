@@ -661,16 +661,18 @@ functional_contract:
       BOTH plane results are published atomically (never between planes).
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.1: the literal cross-CDC form `crc_valid -> not sweep_busy` is
-      # UNSOUND as a single-clock invariant — crc_valid is `crc_valid_jr`
-      # (reg_clk_o domain), sweep_busy is sample_clk_i. Sample-domain KERNEL:
-      # a publication can only be pending once both plane sweeps have finished,
-      # i.e. the sweep engine is idle. Reg-domain ENDPOINT (prose, pending
-      # RTL-P3.1406 rr-formal multi-clock support): crc_valid_jr rises ONLY on
-      # publish_pulse_jclk, itself derived from this pending state — kernel +
-      # endpoint compose to the full claim. Full cross-CDC behaviour is covered
-      # by the cocotb test bound to this REQ.
-      psl: "always (pub_pending_r = '1' -> sweep_busy = '0')"
+      # REA-P3.2 (PROVEN sample-plane kernel). The earlier `pub_pending -> not
+      # sweep_busy` form is NOT a design invariant: the trust tier deliberately
+      # PIPELINES back-to-back fills, so a later generation's sweep can run while
+      # a prior publication sits in its settle window (formal CEX, BMC depth 90).
+      # The SOUND, PROVEN kernel is that a publication is pending only while the
+      # SAMPLE plane sweep has completed (sample_done). The ts plane is external
+      # to the extracted core (ts_done is a free input / assume-guarantee
+      # boundary). Proven BMC-exhaustive (depth 90) on rr_rea_trust_core, with
+      # pub_pending REACHED at step ~31 (anti-vacuity gated). The two-generation
+      # torn-publish question the pipeline raises is tracked by REA-T2.2 and
+      # governed by REQ-808. Full cross-CDC behaviour covered by the cocotb test.
+      psl: "always (pub_pending_r = '1' -> sample_done_r = '1')"
   - id: REA-REQ-801
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.4 Contract: canonical page-stream serialization" }]
@@ -698,17 +700,17 @@ functional_contract:
       port-A write can become externally observable.
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.1: cross-CDC. capture_epoch is `capture_epoch_r` (sample),
-      # crc_valid is `crc_valid_jr` (reg_clk_o). Sample-domain KERNEL: the
-      # invalidate toggle flips ONLY as a consequence of an arm / soft-reset
-      # pulse. Reg-domain ENDPOINT (prose, pending RTL-P3.1406): on reg_clk_o,
-      # invalidate_pulse_jclk = '1' forces crc_valid_jr = '0' next cycle
-      # (invalidation wins). Kernel + endpoint compose to "epoch change ->
-      # crc cleared". CANDIDATE the proof must reconcile: a fill_accept bumps
-      # the epoch WITHOUT flipping invalidate_toggle_r (see REA-REQ-811 note).
+      # REA-P3.2 (PROVEN UNBOUNDED, k-induction). Sample-domain KERNEL: the
+      # invalidate toggle (which clears crc_valid_jr on the reg side) flips ONLY
+      # as a consequence of an arm / soft-reset pulse — a fill's epoch bump does
+      # NOT flip it (a fill freezes, it does not mutate a published buffer).
+      # Stated in next() form so it is clean at cycle 0 (prev() is unconstrained
+      # at reset). Reg-domain ENDPOINT (prose, pending RTL-P3.1406): on reg_clk_o
+      # invalidate_pulse_jclk='1' forces crc_valid_jr='0' next cycle. Proven on
+      # rr_rea_trust_core (verif/rr_rea_trust_core_formal.{psl,sby}).
       psl: >-
-        always ( (invalidate_toggle_r /= prev(invalidate_toggle_r))
-                 -> (prev(arm_pulse_sclk) = '1' or prev(reset_pulse_sclk) = '1') )
+        always ( (arm_pulse_sclk = '0' and reset_pulse_sclk = '0')
+                 -> next(invalidate_toggle_r) = invalidate_toggle_r )
   - id: REA-REQ-804
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
@@ -744,6 +746,16 @@ functional_contract:
       (a completed sweep, a JTAG read, or a refused fill do not change it).
       The host's anti-tear anchor: epoch equality across a window read plus
       crc_valid proves the buffer and CRC belong to one generation.
+    formal:
+      clock: rising_edge(sample_clk_i)
+      # REA-P3.2 (PROVEN UNBOUNDED, k-induction). CAPTURE_EPOCH changes ONLY on
+      # an arm / soft-reset / accepted-fill pulse. next() form → clean at cycle
+      # 0. Proven on rr_rea_trust_core (verif/rr_rea_trust_core_formal.{psl,sby}),
+      # anti-vacuity gated (fill_accept + epoch-moved covers reachable).
+      psl: >-
+        always ( (arm_pulse_sclk = '0' and reset_pulse_sclk = '0'
+                  and fill_accept = '0')
+                 -> next(capture_epoch_r) = capture_epoch_r )
   - id: REA-REQ-808
     kind: negative
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.5 CDC — snapshot-and-toggle publication" }]
@@ -765,17 +777,20 @@ functional_contract:
       invariants are proven exhaustively, the priority order by directed sim.
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.1: original `always A and always B` is INVALID PSL (a boolean
-      # `and` cannot join two FL properties) — one `always` over the conjunction
-      # is equivalent. Real names: capture write = `dpram_we_sclk`; the sweep
-      # read grant = `sweep_owns_a` (= sweep_busy) — the crc_sweep `mem_rd_en_o`
-      # port is left `open`, so sweep_owns_a is port-A read ownership. CANDIDATE
-      # the proof must confirm: the RTL comment asserts fill/sweep never overlap;
-      # a fill accepted while a PRIOR sweep is still busy must not violate this.
+      # REA-P3.2 (REA-T2.1 reformulation, PROVEN). The raw-signal form was
+      # unsound (T2.1: dpram_we_sclk is the free-running capture write). The
+      # SOUND, PROVEN substance is fill/sweep port-A single-ownership: the fill
+      # and the sweep never both own port A, and a sweep read never coincides
+      # with a port-A write. Proven BMC-exhaustive (depth 90) on the extracted
+      # rr_rea_trust_core with free control inputs under the capture-FSM
+      # assume-guarantee (verif/rr_rea_trust_core_bmc.{psl,sby}), anti-vacuity
+      # gated (verif/rr_rea_trust_core_vacuity.sby). The proof SURFACED and drove
+      # fixes for two real port-A contention defects: REA-T1.3 (arm/reset now
+      # ABORTS an in-flight fill) and REA-T1.4 (the fill refuse now covers the
+      # sweep-START boundary, not just sweep_busy which lags one cycle).
       psl: >-
-        always ( (not (fill_we = '1' and dpram_we_sclk = '1'))
-                 and (not (sweep_owns_a = '1'
-                           and (fill_we = '1' or dpram_we_sclk = '1'))) )
+        always ( (not (fill_busy = '1' and sweep_owns_a = '1'))
+                 and (sweep_owns_a = '1' -> dpram_we_a = '0') )
   - id: REA-REQ-811
     kind: negative
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
@@ -785,16 +800,16 @@ functional_contract:
       stale CRC can never coexist with a mutating buffer.
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.1: cross-CDC (crc_valid = crc_valid_jr, reg domain; writes are
-      # sample domain). SOUND sample-domain KERNEL, CAPTURE-write branch only:
-      # a capture write (dpram_we_sclk) can only occur before `done`, when this
-      # generation has NOT yet published, so pub_done_r is low. The FILL-write
-      # branch is DELIBERATELY EXCLUDED here: a fill does NOT assert sweep_rst
-      # nor flip invalidate_toggle_r, so a STALE crc_valid_jr from a prior
-      # generation can persist across a fill — a CANDIDATE DEFECT vs this REQ's
-      # intent, to be resolved by the proof/directed sim (pending RTL-P3.1406),
-      # not asserted true here.
-      psl: "always (dpram_we_sclk = '1' -> pub_done_r = '0')"
+      # REA-P3.2 (REA-T2.1-style reformulation, PROVEN). The raw dpram_we_sclk is
+      # free-running (the same T2.1 lesson as REQ-810), so the sound property is
+      # over the EFFECTIVE (arbitrated) capture write: dpram_we_a='1' with the
+      # fill NOT owning the port (the arbiter forces we=0 under sweep/selftest).
+      # An effective capture write implies capture is running (done='0' by A1)
+      # and not-selftest, so a prior generation cannot still be published
+      # (pub_done='0'). Proven BMC-exhaustive (depth 90) on rr_rea_trust_core
+      # (verif/rr_rea_trust_core_bmc.{psl,sby}), anti-vacuity gated.
+      psl: >-
+        always ( (dpram_we_a = '1' and fill_busy = '0') -> pub_done_r = '0' )
   - id: REA-REQ-850
     kind: behavioral
     spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
@@ -842,8 +857,15 @@ functional_contract:
       selftest).
     formal:
       clock: rising_edge(sample_clk_i)
-      # REA-P3.1: ts_dpram_we is `ts_we_a`, declared inside the
-      # `g_timestamp_plane` generate (elaborated only when G_TIMESTAMP_W > 0);
-      # referenced by its hierarchical path. Single sample-clock — cleanly
-      # provable once RTL-P3.1406 gives multi-clock build support for the top.
-      psl: "always (fill_busy = '1' -> g_timestamp_plane.ts_we_a = '0')"
+      # REA-P3.2 (REA-T2.1 finding 3 rebind). The v0.8 trust core was extracted
+      # to rr_rea_trust_core; the TIMESTAMP PLANE stays in rr_rea_top's
+      # `g_timestamp_plane` generate (outside the extracted core), so this
+      # property is a TOP-level ts-plane obligation, not a trust-core one. The
+      # generate-nested `ts_we_a` is unresolvable by an external vunit bound to
+      # rr_rea_top(rtl) (P2.993 resolution gate). Sound arch-level rebind: the ts
+      # plane write is gated by selftest_mode_r (ts_we_a<='0' when ts_owns_a or
+      # selftest_mode_r), so during a fill (selftest_mode_r='1') it is low. Full
+      # behaviour covered by cocotb (test_rea_timestamp_plane, _crc_ts_plane);
+      # a formal binding needs ts_we_a hoisted to an arch-level signal (tracked
+      # under RTL-P2.989 REA-leaves-routertl cleanup).
+      psl: "always (selftest_mode_r = '1' -> ts_we_a = '0')"

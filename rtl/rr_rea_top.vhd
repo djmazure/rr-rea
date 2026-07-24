@@ -145,14 +145,16 @@ architecture rtl of rr_rea_top is
     --    dpram port A after done. sweep_rst aborts it on arm/soft reset so
     --    capture reclaims port A (REQ-803); the arbiter grants port A to the
     --    sweep only while busy (which only happens after done). ────────────
+    -- REA-P3.2: the sweep engine + port-A arbiter + sample CRC latch +
+    -- publication FSM + epoch/invalidate + the fill FSM now live in
+    -- rr_rea_trust_core (formally provable with free control inputs). These
+    -- top-level signals are wires driven by that core; the reg-domain crc_valid
+    -- endpoint and the (mirror) timestamp plane hang off sweep_start/sweep_rst/
+    -- selftest_mode below.
     signal sweep_rst        : std_logic;
     signal sweep_start      : std_logic;
-    signal prev_done_r      : std_logic := '0';
     signal sweep_owns_a     : std_logic;
     signal sweep_busy       : std_logic;
-    signal sweep_crc_done   : std_logic;
-    signal sweep_crc_o      : std_logic_vector(31 downto 0);
-    signal sweep_mem_addr   : std_logic_vector(C_PTR_W - 1 downto 0);
     signal sweep_mem_dout   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal dpram_addr_a     : std_logic_vector(C_PTR_W - 1 downto 0);
     signal dpram_we_a       : std_logic;
@@ -163,19 +165,13 @@ architecture rtl of rr_rea_top is
     -- jtag-domain crc_valid. An arm/reset (epoch bump) during the settle
     -- SUPPRESSES the publish; an arm/reset after it CLEARS crc_valid (invalidate
     -- always wins). crc_valid therefore never rises for a stale/torn generation.
-    signal crc_sample_r        : std_logic_vector(31 downto 0) := (others => '0');
+    signal crc_sample_r        : std_logic_vector(31 downto 0);
     signal crc_sample_jclk     : std_logic_vector(31 downto 0);
     signal crc_ts_r            : std_logic_vector(31 downto 0) := (others => '0');
     signal crc_ts_jclk         : std_logic_vector(31 downto 0);
-    signal sample_done_r       : std_logic := '0';
     signal ts_done_r           : std_logic := '0';  -- driven '1' when no ts plane
-    signal pub_done_r          : std_logic := '0';
-    signal epoch_snap_r        : std_logic_vector(31 downto 0) := (others => '0');
-    constant C_PUB_SETTLE      : natural := 8;
-    signal pub_settle_r        : natural range 0 to C_PUB_SETTLE := 0;
-    signal pub_pending_r       : std_logic := '0';
-    signal publish_toggle_r    : std_logic := '0';
-    signal invalidate_toggle_r : std_logic := '0';
+    signal publish_toggle_r    : std_logic;
+    signal invalidate_toggle_r : std_logic;
     signal publish_pulse_jclk    : std_logic;
     signal invalidate_pulse_jclk : std_logic;
     signal crc_valid_jr        : std_logic := '0';
@@ -183,18 +179,14 @@ architecture rtl of rr_rea_top is
     -- ── v0.8 selftest fill (REA-P2.3): host writes an LFSR pattern into the
     --    sample plane, then the sweep runs so the readback path can be
     --    validated word-exact + by CRC before any real capture is trusted. ──
-    -- Fill FSM extracted to rr_rea_fill_fsm (REA-P3.2); these wires interface to
-    -- the instance (u_fill_fsm). fill_addr_slv is the fill write pointer (slv).
+    -- Fill FSM now lives inside rr_rea_trust_core (REA-P3.2); these wires are the
+    -- request/seed feed and the core-driven selftest status the top still needs.
     signal fill_request   : std_logic;  -- SELFTEST_CTRL toggle → sample pulse
     signal selftest_ctrl_jclk : std_logic;
     signal selftest_seed_jclk : std_logic_vector(31 downto 0);
     signal selftest_seed_sclk : std_logic_vector(31 downto 0);
-    signal fill_addr_slv  : std_logic_vector(C_PTR_W - 1 downto 0);
-    signal fill_we        : std_logic;
-    signal fill_din       : std_logic_vector(G_SAMPLE_W - 1 downto 0);
-    signal fill_busy      : std_logic;
-    signal fill_done      : std_logic;  -- 1-cycle pulse when the last cell lands
-    signal fill_accept    : std_logic;  -- 1-cycle pulse when a fill is accepted
+    signal fill_we        : std_logic;  -- core-driven (arbiter + test probe)
+    signal fill_busy      : std_logic;  -- core-driven (selftest_busy + test)
     signal selftest_mode_r    : std_logic;
     signal selftest_refused_r : std_logic;
     signal selftest_busy_sclk : std_logic;
@@ -518,67 +510,9 @@ begin
             dst_pulse_o => reset_pulse_sclk
         );
 
-    -- ── CAPTURE_EPOCH counter (REA-P2.2, REQ-807) ────────────────────
-    -- Bumps on exactly: accepted arm, soft reset (and sweep abort / accepted
-    -- fill once those land). sample_rst_i is the hard reset to 0. Nothing else
-    -- moves it — a completed sweep / JTAG read / refused op does NOT.
-    process (sample_clk_i, sample_rst_i)
-    begin
-        if sample_rst_i = '1' then
-            capture_epoch_r <= (others => '0');
-        elsif rising_edge(sample_clk_i) then
-            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1'
-               or fill_accept = '1' then     -- REQ-853: accepted fill bumps epoch
-                capture_epoch_r <= std_logic_vector(unsigned(capture_epoch_r) + 1);
-            end if;
-        end if;
-    end process;
-
-    -- CAPTURE_EPOCH crossed sample_clk_i → jtag_clk_i (reg_clk_o) for regbank
-    -- readback. A word sync is adequate: the host reads it, brackets a window
-    -- read, and re-reads — a one-off skewed sample self-corrects on re-read.
-    u_cdc_epoch : rr_rea_sync_word
-        generic map (G_WIDTH => 32)
-        port map (dst_clk_i => reg_clk_o, din_i => capture_epoch_r,
-                  dout_o => capture_epoch_jclk);
-
-    -- ── CRC sweep (REA-P2.2 increment 2) ─────────────────────────────
-    -- Abort on arm / soft reset so capture reclaims port A (REQ-803). Driven
-    -- synchronously (the pulses are registered), so this is a synchronous
-    -- reset assertion — no async-deassertion metastability.
-    sweep_rst <= sample_rst_i or arm_pulse_sclk or reset_pulse_sclk;
-
-    -- Start a sweep on the rising edge of done (capture just completed).
-    process (sample_clk_i, sample_rst_i)
-    begin
-        if sample_rst_i = '1' then
-            prev_done_r <= '0';
-        elsif rising_edge(sample_clk_i) then
-            prev_done_r <= done_sclk;
-        end if;
-    end process;
-    -- A sweep also starts when a selftest fill has just finished (so the
-    -- pattern's CRC + word-exact readback can be validated). REA-P2.3.
-    sweep_start <= (done_sclk and not prev_done_r) or fill_done;
-
-    -- Port-A arbiter, fixed priority fill > sweep > capture (reset/arm handled
-    -- upstream via sweep_rst / the fill FSM's refuse-while-armed). The fill and
-    -- sweep never overlap (fill completes, THEN triggers the sweep), and the
-    -- fill only runs while capture is quiesced (selftest_mode), so this reduces
-    -- to a clean single-owner mux.
-    sweep_owns_a <= sweep_busy;
-    dpram_addr_a <= fill_addr_slv when fill_busy = '1'
-                    else sweep_mem_addr           when sweep_owns_a = '1'
-                    else dpram_addr_sclk;
-    -- Capture writes are suppressed for the whole selftest (selftest_mode) so
-    -- the fill pattern is not overwritten by the free-running capture after the
-    -- fill completes — the buffer stays frozen until the next arm.
-    dpram_we_a   <= fill_we when fill_busy = '1'
-                    else '0' when (sweep_owns_a = '1' or selftest_mode_r = '1')
-                    else dpram_we_sclk;
-    dpram_din_a  <= fill_din when fill_busy = '1' else dpram_din_sclk;
-
-    -- ── Selftest fill (REA-P2.3) ─────────────────────────────────────
+    -- ── Selftest fill request / seed CDC (REA-P2.3) ──────────────────
+    -- These produce the FREE control inputs the trust core consumes; the fill
+    -- FSM itself now lives INSIDE the core (REA-P3.2).
     u_cdc_fill_req : rr_rea_pulse_xfer
         port map (src_toggle_i => selftest_ctrl_jclk,
                   dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
@@ -588,32 +522,64 @@ begin
         port map (dst_clk_i => sample_clk_i, din_i => selftest_seed_jclk,
                   dout_o => selftest_seed_sclk);
 
-    -- ── Fill FSM (REA-P3.2 extraction) ───────────────────────────────
-    -- Extracted verbatim to rr_rea_fill_fsm so its control contract
-    -- (REQ-850..854, incl. the REA-T1.2 sweep-refuse guard) is formally provable
-    -- with FREE control inputs. fill_we is combinational on F_WRITE inside the
-    -- module (lands the same edge as the registered addr/data).
-    u_fill_fsm : entity work.rr_rea_fill_fsm
-        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
+    -- ── v0.8 trust core (REA-P3.2) ───────────────────────────────────
+    -- Sample-domain readback-integrity logic — CRC sweep + sample CRC latch +
+    -- snapshot/settle publication FSM + port-A single-owner arbiter +
+    -- CAPTURE_EPOCH + invalidate toggle + the selftest fill FSM — extracted so
+    -- its trust invariants (REQ-800/803/807/808/810/811, and REQ-850..854 via
+    -- the nested fill FSM) are FORMALLY PROVABLE with free control inputs (on the
+    -- full top they sit ~40-60 cycles behind BSCAN → any feasible-depth proof is
+    -- vacuous). Behaviour is byte-identical to the former in-top processes.
+    -- The reg-domain crc_valid endpoint + the (mirror) timestamp plane hang off
+    -- the exposed sweep_start / sweep_rst / selftest_mode control and the
+    -- ts_done_r status feed below.
+    u_trust_core : entity work.rr_rea_trust_core
+        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
+                     G_PUB_SETTLE => 8)
         port map (
-            sample_clk_i       => sample_clk_i,
-            sample_rst_i       => sample_rst_i,
-            arm_pulse_i        => arm_pulse_sclk,
-            reset_pulse_i      => reset_pulse_sclk,
-            fill_request_i     => fill_request,
-            armed_i            => armed_sclk,
-            triggered_i        => triggered_sclk,
-            sweep_busy_i       => sweep_busy,
-            selftest_seed_i    => selftest_seed_sclk,
-            fill_we_o          => fill_we,
-            fill_busy_o        => fill_busy,
-            fill_din_o         => fill_din,
-            fill_addr_o        => fill_addr_slv,
-            fill_done_o        => fill_done,
-            fill_accept_o      => fill_accept,
-            selftest_mode_o    => selftest_mode_r,
-            selftest_refused_o => selftest_refused_r
+            sample_clk_i        => sample_clk_i,
+            sample_rst_i        => sample_rst_i,
+            arm_pulse_i         => arm_pulse_sclk,
+            reset_pulse_i       => reset_pulse_sclk,
+            armed_i             => armed_sclk,
+            triggered_i         => triggered_sclk,
+            done_i              => done_sclk,
+            cap_we_i            => dpram_we_sclk,
+            cap_addr_i          => dpram_addr_sclk,
+            cap_din_i           => dpram_din_sclk,
+            fill_request_i      => fill_request,
+            selftest_seed_i     => selftest_seed_sclk,
+            sweep_mem_dout_i    => sweep_mem_dout,
+            ts_done_i           => ts_done_r,
+            dpram_we_a_o        => dpram_we_a,
+            dpram_addr_a_o      => dpram_addr_a,
+            dpram_din_a_o       => dpram_din_a,
+            sweep_start_o       => sweep_start,
+            sweep_rst_o         => sweep_rst,
+            sweep_busy_o        => sweep_busy,
+            sweep_owns_a_o      => sweep_owns_a,
+            crc_sample_o        => crc_sample_r,
+            sample_done_o       => open,
+            capture_epoch_o     => capture_epoch_r,
+            publish_toggle_o    => publish_toggle_r,
+            invalidate_toggle_o => invalidate_toggle_r,
+            pub_pending_o       => open,
+            pub_done_o          => open,
+            fill_we_o           => fill_we,
+            fill_busy_o         => fill_busy,
+            fill_done_o         => open,
+            fill_accept_o       => open,
+            selftest_mode_o     => selftest_mode_r,
+            selftest_refused_o  => selftest_refused_r
         );
+
+    -- CAPTURE_EPOCH crossed sample_clk_i → jtag_clk_i (reg_clk_o) for regbank
+    -- readback. A word sync is adequate: the host reads it, brackets a window
+    -- read, and re-reads — a one-off skewed sample self-corrects on re-read.
+    u_cdc_epoch : rr_rea_sync_word
+        generic map (G_WIDTH => 32)
+        port map (dst_clk_i => reg_clk_o, din_i => capture_epoch_r,
+                  dout_o => capture_epoch_jclk);
 
     -- selftest_busy = filling, or the sweep that a fill triggered (a normal
     -- capture's sweep does not set it — selftest_mode gates that).
@@ -630,81 +596,6 @@ begin
         generic map (G_WIDTH => 1)
         port map (dst_clk_i => reg_clk_o, din_i(0) => selftest_refused_r,
                   dout_o => selftest_refused_jclk);
-
-    u_crc_sweep : entity work.rr_rea_crc_sweep
-        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
-        port map (
-            sample_clk_i => sample_clk_i,
-            sample_rst_i => sweep_rst,
-            start_i      => sweep_start,
-            mem_dout_i   => sweep_mem_dout,
-            mem_addr_o   => sweep_mem_addr,
-            mem_rd_en_o  => open,
-            busy_o       => sweep_busy,
-            crc_done_o   => sweep_crc_done,
-            crc_o        => sweep_crc_o
-        );
-
-    -- Sample-plane CRC latch + done flag (REQ-800). The timestamp plane drives
-    -- crc_ts_r / ts_done_r from its own generate below (or ts_done_r='1' when
-    -- there is no timestamp plane, so publication gates on the sample plane only).
-    process (sample_clk_i, sweep_rst)
-    begin
-        if sweep_rst = '1' then
-            crc_sample_r  <= (others => '0');
-            sample_done_r <= '0';
-        elsif rising_edge(sample_clk_i) then
-            if sweep_crc_done = '1' then
-                crc_sample_r  <= sweep_crc_o;
-                sample_done_r <= '1';
-            end if;
-        end if;
-    end process;
-
-    -- Publication FSM (REQ-808). Once BOTH plane sweeps have completed, snapshot
-    -- the epoch and hold a settle window (so the crc_sample / crc_ts word syncs
-    -- fully land in the jtag domain) before flipping publish_toggle_r — only
-    -- then can crc_valid rise. pub_done_r fires exactly one publish per capture
-    -- generation; a mid-settle epoch change cancels; sweep_rst (arm/reset)
-    -- resets the whole FSM.
-    process (sample_clk_i, sweep_rst)
-    begin
-        if sweep_rst = '1' then
-            pub_pending_r <= '0';
-            pub_done_r    <= '0';
-            pub_settle_r  <= 0;
-        elsif rising_edge(sample_clk_i) then
-            if sample_done_r = '1' and ts_done_r = '1'
-               and pub_pending_r = '0' and pub_done_r = '0' then
-                epoch_snap_r  <= capture_epoch_r;
-                pub_settle_r  <= C_PUB_SETTLE;
-                pub_pending_r <= '1';
-            elsif pub_pending_r = '1' then
-                if epoch_snap_r /= capture_epoch_r then
-                    pub_pending_r <= '0';                     -- invalidated: cancel
-                    pub_done_r    <= '1';
-                elsif pub_settle_r = 0 then
-                    publish_toggle_r <= not publish_toggle_r; -- publish
-                    pub_pending_r <= '0';
-                    pub_done_r    <= '1';
-                else
-                    pub_settle_r <= pub_settle_r - 1;
-                end if;
-            end if;
-        end if;
-    end process;
-
-    -- Invalidate toggle: flips on any epoch bump (accepted arm / soft reset).
-    process (sample_clk_i, sample_rst_i)
-    begin
-        if sample_rst_i = '1' then
-            invalidate_toggle_r <= '0';
-        elsif rising_edge(sample_clk_i) then
-            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
-                invalidate_toggle_r <= not invalidate_toggle_r;
-            end if;
-        end if;
-    end process;
 
     u_cdc_crc_sample : rr_rea_sync_word
         generic map (G_WIDTH => 32)

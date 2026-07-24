@@ -1,0 +1,22 @@
+# REA-P3.2 — BMC-exhaustive (depth 90 from reset) proof of REQ-810/811.
+# Run from verif/ :  sby -f rr_rea_trust_core_bmc.sby
+# G_DEPTH / G_SAMPLE_W downscaled (control invariants are buffer-depth-independent;
+# the real DEPTH=4096 path is covered by the cocotb suite).
+[options]
+mode bmc
+depth 90
+
+[engines]
+smtbmc
+
+[script]
+plugin -i ghdl
+ghdl --std=08 -fpsl -gG_DEPTH=4 -gG_SAMPLE_W=8 -gG_PUB_SETTLE=4 rr_rea_pkg.vhd rr_rea_crc_sweep.vhd rr_rea_fill_fsm.vhd rr_rea_trust_core.vhd rr_rea_trust_core_bmc.psl -e rr_rea_trust_core
+prep -top rr_rea_trust_core
+
+[files]
+../rtl/rr_rea_pkg.vhd
+../rtl/rr_rea_crc_sweep.vhd
+../rtl/rr_rea_fill_fsm.vhd
+../rtl/rr_rea_trust_core.vhd
+rr_rea_trust_core_bmc.psl

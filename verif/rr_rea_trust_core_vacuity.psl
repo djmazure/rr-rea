@@ -1,0 +1,57 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.2 — ANTI-VACUITY GATE for the trust-core proofs (rr-formal skill: a
+-- PASS is worthless if the property never touched live state). Every implication
+-- proven in rr_rea_trust_core_formal / _bmc is only meaningful if its ANTECEDENT
+-- is reachable. These cover directives prove each key antecedent/state is
+-- reachable under the SAME assume-guarantee A1..A6 — so none of the PASSes is
+-- vacuously true. If any cover is UNREACHABLE, the corresponding proof is a
+-- false-green and must be re-examined.
+--
+--   cd verif && sby -f rr_rea_trust_core_vacuity.sby   # expect: PASS, all covered
+vunit rr_rea_trust_core_vacuity (rr_rea_trust_core(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+
+  A1_WRITE_BEFORE_DONE :
+    assume always ( cap_we_i = '1' -> done_i = '0' );
+  A2_DONE_STICKY :
+    assume always ( (done_i = '1'
+                     and not (arm_pulse_i = '1' or reset_pulse_i = '1'))
+                    -> next(done_i) = '1' );
+  A3_DONE_RISE_NEEDS_TRIGGER :
+    assume always ( (done_i = '1' and prev(done_i) = '0')
+                    -> prev(triggered_i) = '1' );
+  A4_DONE_IMPLIES_TRIGGERED :
+    assume always ( done_i = '1' -> triggered_i = '1' );
+  A5_TRIGGERED_RISE_NEEDS_ARMED :
+    assume always ( (triggered_i = '1' and prev(triggered_i) = '0')
+                    -> prev(armed_i) = '1' );
+  A6_ARMED_RISE_NEEDS_ARM_PULSE :
+    assume always ( (armed_i = '1' and prev(armed_i) = '0')
+                    -> prev(arm_pulse_i) = '1' );
+
+  -- REQ-807 antecedent: an accepted fill actually bumps the epoch (fill_accept
+  -- fires) — so REQ807's "epoch changes only on arm/reset/fill" is non-vacuous.
+  COVER_FILL_ACCEPT : cover {fill_accept_o = '1'};
+  COVER_EPOCH_MOVED : cover {capture_epoch_o = x"00000001"};
+
+  -- REQ-803 consequent reachable: the invalidate toggle can actually flip.
+  COVER_INVALIDATE_TOGGLE : cover {invalidate_toggle_o = '1'};
+
+  -- REQ-800 antecedent: a publication CAN be pending (else 800 is vacuous).
+  COVER_PUB_PENDING : cover {pub_pending_o = '1'};
+  COVER_PUB_DONE    : cover {pub_done_o = '1'};
+
+  -- REQ-810 operands both reachable: a fill runs AND a sweep runs (individually)
+  -- — so "they never overlap" is a real exclusion, not a vacuous never-both.
+  COVER_FILL_BUSY   : cover {fill_busy_o = '1'};
+  COVER_SWEEP_BUSY  : cover {sweep_busy_o = '1'};
+  COVER_SWEEP_OWNS  : cover {sweep_owns_a_o = '1'};
+
+  -- REQ-811 antecedent: an EFFECTIVE capture-domain port-A write is reachable.
+  COVER_EFF_CAP_WRITE : cover {dpram_we_a_o = '1' and fill_busy_o = '0'};
+
+  -- selftest generation reachable (used across REQ-800/810/811 reasoning).
+  COVER_SELFTEST_MODE : cover {selftest_mode_o = '1'};
+}
