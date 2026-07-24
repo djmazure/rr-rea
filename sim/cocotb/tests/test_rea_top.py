@@ -3,7 +3,7 @@
 #
 # rr_rea_top — full-stack integration test (REA-REQ-300).
 #
-# Mimics what the fcapz host SW does over JTAG:
+# Mimics what the REA host SW does over JTAG:
 #   1. configure: write PRETRIG / POSTTRIG / TRIG_VALUE / TRIG_MASK
 #   2. arm:       toggle CTRL.bit[0] (arm)
 #   3. wait_done: poll STATUS until bit[2] (done) goes high
@@ -12,7 +12,7 @@
 #                 with the trigger sample at start_ptr + pretrig.
 #
 # The TAP signals are driven directly (no BSCANE2). Same wire format
-# as fcapz, so a future host-SW integration test can use the real
+# as the reference host, so a future host-SW integration test can use the real
 # Analyzer untouched against a separate Verilog/Vivado smoke shim.
 
 from __future__ import annotations

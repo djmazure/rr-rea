@@ -9,9 +9,9 @@
 -- rr_rea_top. This is the only block in the IP that depends on an
 -- Intel vendor primitive.
 --
--- Reference: fpgacapZero v0.3.0 rtl/jtag_tap/jtag_tap_intel.v
--- (Apache-2.0, Leonardo Capossio / bard0). Same pattern, ported to
--- VHDL and adapted to rr_rea_top's port shape.
+-- Ported to VHDL from fpgacapZero v0.3.0 rtl/jtag_tap/jtag_tap_intel.v
+-- (Apache-2.0, Leonardo Capossio / bard0). Same pattern, adapted to
+-- rr_rea_top's port shape.
 --
 -- Chain selection note: unlike BSCANE2 (which is selected by the
 -- USERn IR), each sld_virtual_jtag instance gets its own virtual IR

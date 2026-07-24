@@ -129,7 +129,7 @@ async def _drive_counter_probe(dut, n_cycles: int, start: int = 0):
 async def test_rea_req_100_wr_ptr_free_runs_unarmed(dut):
     """Without `armed`, wr_ptr STILL increments every clock cycle —
     the dpram is a sliding-window buffer that records continuously
-    from reset. This pins the architectural contract that fcapz
+    from reset. This pins the architectural contract that the reference ELA
     violates."""
     await _start_clk(dut)
     await _reset(dut)
@@ -161,7 +161,7 @@ async def test_rea_req_100_wr_ptr_free_runs_unarmed(dut):
 @requires("REA-REQ-101")
 async def test_rea_req_101_arm_does_not_reset_wr_ptr(dut):
     """arm_pulse must NOT touch wr_ptr — the buffer's pre-arm context
-    is preserved across arm. Pins the architectural fix vs fcapz."""
+    is preserved across arm. Pins the architectural fix vs the reference ELA."""
     await _start_clk(dut)
     await _reset(dut)
 
@@ -248,7 +248,7 @@ async def test_rea_req_102_trig_ptr_captures_wr_ptr(dut):
 @requires("REA-REQ-103")
 async def test_rea_req_103_dpram_at_trig_ptr_is_trigger_sample(dut):
     """The cell at dpram[trig_ptr] must hold the sample whose value
-    matched the trigger condition. This is the bug fcapz has where
+    matched the trigger condition. This is the bug the naive design has where
     dpram[trig_ptr] is some neighbor of the trigger sample."""
     await _start_clk(dut)
     await _reset(dut)
@@ -406,7 +406,7 @@ async def test_rea_req_106_no_uninit_zeros_when_prewarmed(dut):
     """When the design has been running ≥ DEPTH cycles before arm,
     the captured window contains zero uninit cells — the sliding
     window has fully populated the buffer. This is the headline
-    architectural fix vs fcapz.
+    architectural fix vs the reference ELA.
 
     We use a probe pattern (counter | 0x100) that is NEVER zero, so
     any zero in the captured window must be uninit BRAM (the bug).
@@ -890,7 +890,7 @@ async def test_rea_req_630_not_equal_fires_on_any_bit_difference(dut):
 async def test_rea_req_600b_host_literal_mode_0x01_is_eq(dut):
     """Back-compat pin: the host library writes TRIG_MODE=0x01 (value_match
     set, op nibble 0). That literal must behave as EQ — masked equality —
-    so existing fcapz/host flows are unaffected by the op-nibble addition."""
+    so existing REA/host flows are unaffected by the op-nibble addition."""
     await _start_clk(dut)
     await _reset(dut)
 

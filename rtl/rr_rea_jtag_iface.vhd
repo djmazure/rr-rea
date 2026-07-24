@@ -3,8 +3,8 @@
 --
 -- rr_rea_jtag_iface — vendor-neutral BSCAN → register-bus bridge.
 --
--- Mirrors fcapz's `jtag_reg_iface.v` 49-bit DR protocol so the
--- existing fcapz host SW (Analyzer / XilinxHwServerTransport) connects
+-- Implements the frozen 49-bit DR JTAG register protocol so the
+-- existing REA host SW (Analyzer / XilinxHwServerTransport) connects
 -- unmodified. The protocol is the SW interface contract:
 --
 --   49-bit DR (LSB-first on the wire):

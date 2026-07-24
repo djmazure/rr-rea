@@ -3,7 +3,7 @@
 --
 -- rr_rea_capture_fsm — sliding-window capture_i state machine.
 --
--- THIS IS WHERE WE EXPLICITLY DIVERGE FROM fcapz.
+-- THIS IS WHERE WE EXPLICITLY DIVERGE FROM the reference ELA design.
 --
 -- The dpram write path is FREE-RUNNING from sample_rst_i deassertion:
 -- `dpram_we_o` is `!done_o && store_enable_in`, NOT gated by `armed_o`.
@@ -14,7 +14,7 @@
 -- immediately after `arm` still has the full pretrigger window of
 -- context already in the buffer.
 --
--- fcapz's `mem_we_a = armed_o && !done_o && store_enable` leaves uninit
+-- The naive `mem_we_a = armed_o && !done_o && store_enable` leaves uninit
 -- BRAM cells in the captured window when the trigger fires before
 -- pretrig_len cycles have elapsed since arm. We do not ship that.
 --
@@ -819,7 +819,7 @@ begin
     start_ptr_o <= std_logic_vector(start_ptr_r);
 
     -- ── DPRAM drive — sliding-window write enable. Note: NOT gated
-    -- by `armed_r`. This is the architectural fix vs fcapz.
+    -- by `armed_r`. This is the architectural fix vs the naive design.
     -- v0.3: also gated by decim_tick so only every (decim_ratio+1)
     -- sample is stored. With decim_ratio=0 the tick is always 1 and
     -- behavior matches v0.1/v0.2 exactly. ───────────────────────

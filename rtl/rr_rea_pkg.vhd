@@ -5,8 +5,8 @@
 -- Analyzer (REA) IP family. Pulled in by every block in the hierarchy.
 --
 -- The JTAG register addresses below are FROZEN — they form the SW-
--- interface contract with the fcapz host library (subset of the
--- fcapz_ela register map). Adding registers is fine; renumbering
+-- interface contract for the REA host library (subset of the
+-- frozen ELA register map). Adding registers is fine; renumbering
 -- existing ones breaks the host SW.
 
 library ieee;
@@ -111,7 +111,7 @@ package rr_rea_pkg is
     --   +0x08  mask_a
     --   +0x0C  value_b      (reserved for v0.4 compound conditions)
     --   +0x10  mask_b       (reserved for v0.4 compound conditions)
-    -- Layout matches fcapz_ela.v exactly so any future host SW
+    -- Layout is frozen (see SPEC.md) so any future host SW
     -- reuse keeps the same wire format.
     --
     -- WIDTH CONTRACT (RTL-P3.691, sibling of RTL-P2.658b): the per-stage
@@ -121,7 +121,7 @@ package rr_rea_pkg is
     -- MUST be banked exactly like TRIG_VALUE/TRIG_MASK — a 32-bit window
     -- into trig_words(G_SAMPLE_W) words, paged by TRIG_WORD_SEL (0x2C) or a
     -- SEQ-local equivalent. SEQ_STRIDE stays 20 bytes (one 32-bit window per
-    -- field) so the address map and fcapz wire format are preserved; the
+    -- field) so the address map and wire format are preserved; the
     -- extra words are reached by paging, never by widening the slot. Do NOT
     -- reintroduce a single-32-bit value_a/mask_a — that is the exact cap
     -- P2.658b removed from the legacy path.

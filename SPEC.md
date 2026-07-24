@@ -1,10 +1,10 @@
 # `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.7 Spec
 
 ## What it is
-Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Drop-in compatible at the JTAG register interface with `fcapz_ela_xilinx7`** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses fcapz's transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; fcapz owns the JTAG transport layer.
+Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
 
 ## Why first-party
-- **Sliding-window from day one**: the dpram records continuously from reset deassertion. fcapz gates the dpram write on `armed`, leaving uninit BRAM cells when the trigger fires before `pretrig_len` cycles have elapsed. We don't ship that bug.
+- **Sliding-window from day one**: the dpram records continuously from reset deassertion. The naive approach gates the dpram write on `armed`, leaving uninit BRAM cells when the trigger fires before `pretrig_len` cycles have elapsed. We don't ship that bug.
 - routertl-owned IP in the registry (`rr pkg add routertl/rea`).
 - VHDL throughout, modular, contract-first per ROUTERTL conventions.
 
@@ -21,7 +21,7 @@ These are parked on the version roadmap below.
 
 ---
 
-## SW Interface Contract (frozen — fcapz-compatible)
+## SW Interface Contract (frozen)
 
 JTAG register map at the burst slave (32-bit words). v0.1 implements the registers below; everything else reads as 0.
 
@@ -388,7 +388,7 @@ hard-pinned to USER1, so a second core on USER2+ was uncapturable.
 - On arm: `overflow` asserts when `pretrig_len + posttrig_len >= DEPTH`; a legal re-arm or reset clears it.
 - `dpram_we` is `!done` (always writes when capture is permitted).
 
-This is where we explicitly diverge from fcapz.
+This is where we explicitly diverge from the reference ELA design.
 
 ---
 
@@ -410,17 +410,17 @@ This is where we explicitly diverge from fcapz.
 ## Migration path
 
 1. Land `rr_rea` v0.1 in `routertl-tool-index/tools/routertl/rea/`. **Done — v0.1 shipped 2026-04-29.**
-2. Verify on Zybo against the unmodified fcapz host SW. **Done.**
-3. Switch `examples/zybo_fcapz_demo/` to instantiate `rr_rea_xilinx7`. **Done.**
-4. Open a courtesy upstream PR to fcapz with the sliding-window RTL fix (the `mem_we_a = !done && store_enable` patch + `wr_ptr`-not-reset-on-arm). **Issue posted 2026-04-29; awaiting maintainer response.**
+2. Verify on Zybo against the unmodified reference host SW. **Done.**
+3. Switch `examples/zybo_rea_demo/` to instantiate `rr_rea_xilinx7`. **Done.**
+4. Sliding-window RTL fix (`mem_we_a = !done && store_enable` + `wr_ptr` not reset on arm) is first-party in `rr_rea`. **Done.**
 5. Register `routertl/rea` in the IP registry — first-party debug IP for SDK users. **Done.**
 
 ## v0.2 — Host-side ownership (shipped 2026-04-29)
 
 The on-chip RTL is unchanged from v0.1. v0.2 ships:
 
-- **`REAClient` (routertl.sdk.cli.rea)** — first-party SDK host client owning the capture protocol (configure / arm / wait_done / capture). Uses fcapz's transport for JTAG plumbing only. Replaces fcapz's `Analyzer.capture()` in the `rr ila capture` bridge.
-- **Batched dpram readback** — single xsdb `jtag sequence` for all DEPTH cells with `delay 20` between scans (matches fcapz's single-reg `READ_IDLE_CYCLES`, which is the timing that works on rr_rea's regbank). One round-trip instead of N. Verified on Zybo Z7-20: capture+read in 1.9 s for DEPTH=4096, down from ~5 s with the v0.1 single-reg fallback.
+- **`REAClient` (routertl.sdk.cli.rea)** — first-party SDK host client owning the capture protocol (configure / arm / wait_done / capture). Uses the vendored transport for JTAG plumbing only. Replaces the vendored `Analyzer.capture()` in the `rr ila capture` bridge.
+- **Batched dpram readback** — single xsdb `jtag sequence` for all DEPTH cells with `delay 20` between scans (matches the vendored transport's single-reg `READ_IDLE_CYCLES`, which is the timing that works on rr_rea's regbank). One round-trip instead of N. Verified on Zybo Z7-20: capture+read in 1.9 s for DEPTH=4096, down from ~5 s with the v0.1 single-reg fallback.
 - **Native `start_ptr`-based rotation** — REAClient reads `ADDR_START_PTR` (0xC8) from the chip and rotates the buffer in software so the trigger sample lands at index `pretrigger` by construction. No timestamp dependency.
 - **Synthetic `sample_clk` anchor channel (host-side)** — the bridge appends a 1-bit `sample_clk` channel to the wave_stream_v1 HELO descriptor and emits two sub-samples per real sample so RouteWave displays the clock at the *true* sample frequency (not sample_freq/2). Zero RTL/JTAG cost.
 

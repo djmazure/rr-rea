@@ -7,7 +7,7 @@
 # kind:
 #   behavioral — positive contract (this MUST happen)
 #   negative   — explicit non-behavior (this MUST NOT happen — used to
-#                pin the architectural fixes vs fcapz, e.g. REA-REQ-101)
+#                pin the architectural fixes vs the reference ELA, e.g. REA-REQ-101)
 
 ip: rr_rea_top
 version: 0.1
@@ -61,19 +61,19 @@ functional_contract:
   # ── rr_rea_regbank (memory-mapped register file) ──────────────────
   - id: REA-REQ-010
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       Every RW register address round-trips an arbitrary 32-bit value
       (write then read returns the same value).
   - id: REA-REQ-011
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       STATUS register reflects its input wires (armed, triggered,
       done, overflow) combinationally.
   - id: REA-REQ-012
     kind: negative
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       Write to a RO address is a no-op (no aliasing into a RW slot
       at the same low-order bits).
@@ -112,14 +112,14 @@ functional_contract:
       into a RW slot.
   - id: REA-REQ-019
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact v0.7 feature-tier magic
       0x52454107. The value is a protocol discriminator, not an inferred
       string or a mutable register.
   - id: REA-REQ-022
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       CAPTURE_LEN (0x1C, RO) SHALL update combinationally from the current
       PRETRIG and POSTTRIG register values as PRETRIG + POSTTRIG + 1 using
@@ -127,7 +127,7 @@ functional_contract:
       capture before reporting the configured window length.
   - id: REA-REQ-023
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       TIMESTAMP_W (0xC4, RO) SHALL report the exact G_TIMESTAMP_W synth-time
       generic. In v0.7 FEATURES[18] SHALL be set exactly when TIMESTAMP_W is
@@ -207,7 +207,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
     desc: >-
       arm_pulse does NOT reset wr_ptr; the buffer's pre-arm context
-      is preserved across arm. Pins the architectural fix vs fcapz.
+      is preserved across arm. Pins the architectural fix vs the reference ELA.
   - id: REA-REQ-102
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
@@ -422,7 +422,7 @@ functional_contract:
       stage 0 regardless of where the previous capture left it.
   - id: REA-REQ-607
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen — fcapz-compatible)" }]
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       Per-stage config maps at ADDR_SEQ_BASE = 0x0040 with stride
       20 bytes. wr_addr / wr_data writes to the SEQ_BASE address
@@ -482,7 +482,7 @@ functional_contract:
     desc: >-
       Full end-to-end with mocked BSCAN — driving tdi / capture /
       shift_en / update / sel through the configure → arm → wait
-      done → read sequence the fcapz host uses, the dpram readback
+      done → read sequence the reference host uses, the dpram readback
       via tdo matches a known sample-clock counter pattern.
   - id: REA-REQ-301
     kind: negative
