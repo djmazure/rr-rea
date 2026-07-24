@@ -156,6 +156,7 @@ architecture rtl of rr_rea_top is
     signal sweep_mem_dout   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal dpram_addr_a     : std_logic_vector(C_PTR_W - 1 downto 0);
     signal dpram_we_a       : std_logic;
+    signal dpram_din_a      : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     -- Publication (REA-P2.2 increment 3, REQ-808 torn-publish guard). The CRC
     -- is latched + held; after a settle window (so the CRC word sync fully
     -- lands in the jtag domain) a publish toggle flips and, only then, sets the
@@ -178,6 +179,32 @@ architecture rtl of rr_rea_top is
     signal publish_pulse_jclk    : std_logic;
     signal invalidate_pulse_jclk : std_logic;
     signal crc_valid_jr        : std_logic := '0';
+
+    -- ── v0.8 selftest fill (REA-P2.3): host writes an LFSR pattern into the
+    --    sample plane, then the sweep runs so the readback path can be
+    --    validated word-exact + by CRC before any real capture is trusted. ──
+    constant C_PAGES : positive := (G_SAMPLE_W + 31) / 32;
+    type fill_state_t is (F_IDLE, F_STAGE, F_WRITE);
+    signal fill_state_r   : fill_state_t := F_IDLE;
+    signal fill_request   : std_logic;  -- SELFTEST_CTRL toggle → sample pulse
+    signal selftest_ctrl_jclk : std_logic;
+    signal selftest_seed_jclk : std_logic_vector(31 downto 0);
+    signal selftest_seed_sclk : std_logic_vector(31 downto 0);
+    signal lfsr_r         : std_logic_vector(31 downto 0) := C_SELFTEST_SEED_DEFAULT;
+    signal fill_stage_r   : std_logic_vector(G_SAMPLE_W - 1 downto 0) := (others => '0');
+    signal fill_addr_r    : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
+    signal fill_page_r    : natural range 0 to C_PAGES - 1 := 0;
+    signal fill_we        : std_logic;
+    signal fill_din       : std_logic_vector(G_SAMPLE_W - 1 downto 0);
+    signal fill_busy      : std_logic;
+    signal fill_done      : std_logic;  -- 1-cycle pulse when the last cell lands
+    signal fill_accept    : std_logic;  -- 1-cycle pulse when a fill is accepted
+    signal selftest_mode_r    : std_logic := '0';
+    signal selftest_refused_r : std_logic := '0';
+    signal selftest_busy_sclk : std_logic;
+    signal selftest_busy_jclk    : std_logic_vector(0 downto 0);
+    signal selftest_mode_jclk    : std_logic_vector(0 downto 0);
+    signal selftest_refused_jclk : std_logic_vector(0 downto 0);
 
     -- ── Comparator-array config (RTL-P3.647): regbank → CDC → FSM ──
     -- array_enable rides in trig_mode bit[2] (already CDC'd); only the
@@ -307,9 +334,9 @@ begin
             crc_ts_i           => crc_ts_jclk,
             capture_epoch_i    => capture_epoch_jclk,
             crc_valid_i        => crc_valid_jr,
-            selftest_busy_i    => '0',
-            selftest_mode_i    => '0',
-            selftest_refused_i => '0',
+            selftest_busy_i    => selftest_busy_jclk(0),
+            selftest_mode_i    => selftest_mode_jclk(0),
+            selftest_refused_i => selftest_refused_jclk(0),
             pretrig_len_o  => pretrig_jclk,
             posttrig_len_o => posttrig_jclk,
             trig_value_o   => trig_value_jclk,
@@ -319,8 +346,8 @@ begin
             decim_ratio_o  => decim_ratio_jclk,
             data_word_sel_o => data_word_sel_jclk,
             data_plane_sel_o => data_plane_sel_jclk,
-            selftest_ctrl_o => open,  -- consumed by the fill FSM (REA-P2.3 incr 2)
-            selftest_seed_o => open,
+            selftest_ctrl_o => selftest_ctrl_jclk,
+            selftest_seed_o => selftest_seed_jclk,
             cond_values_o  => cond_values_jclk,
             cond_masks_o   => cond_masks_jclk,
             cond_ops_o     => cond_ops_jclk,
@@ -504,7 +531,8 @@ begin
         if sample_rst_i = '1' then
             capture_epoch_r <= (others => '0');
         elsif rising_edge(sample_clk_i) then
-            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
+            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1'
+               or fill_accept = '1' then     -- REQ-853: accepted fill bumps epoch
                 capture_epoch_r <= std_logic_vector(unsigned(capture_epoch_r) + 1);
             end if;
         end if;
@@ -533,14 +561,141 @@ begin
             prev_done_r <= done_sclk;
         end if;
     end process;
-    sweep_start <= done_sclk and not prev_done_r;
+    -- A sweep also starts when a selftest fill has just finished (so the
+    -- pattern's CRC + word-exact readback can be validated). REA-P2.3.
+    sweep_start <= (done_sclk and not prev_done_r) or fill_done;
 
-    -- Arbiter: the sweep owns port A only while it is busy, which by
-    -- construction is only after done (writes are off then). An arm/reset
-    -- aborts the sweep (sweep_rst) → busy drops → capture reclaims port A.
+    -- Port-A arbiter, fixed priority fill > sweep > capture (reset/arm handled
+    -- upstream via sweep_rst / the fill FSM's refuse-while-armed). The fill and
+    -- sweep never overlap (fill completes, THEN triggers the sweep), and the
+    -- fill only runs while capture is quiesced (selftest_mode), so this reduces
+    -- to a clean single-owner mux.
     sweep_owns_a <= sweep_busy;
-    dpram_addr_a <= sweep_mem_addr when sweep_owns_a = '1' else dpram_addr_sclk;
-    dpram_we_a   <= '0'            when sweep_owns_a = '1' else dpram_we_sclk;
+    dpram_addr_a <= std_logic_vector(fill_addr_r) when fill_busy = '1'
+                    else sweep_mem_addr           when sweep_owns_a = '1'
+                    else dpram_addr_sclk;
+    -- Capture writes are suppressed for the whole selftest (selftest_mode) so
+    -- the fill pattern is not overwritten by the free-running capture after the
+    -- fill completes — the buffer stays frozen until the next arm.
+    dpram_we_a   <= fill_we when fill_busy = '1'
+                    else '0' when (sweep_owns_a = '1' or selftest_mode_r = '1')
+                    else dpram_we_sclk;
+    dpram_din_a  <= fill_din when fill_busy = '1' else dpram_din_sclk;
+
+    -- ── Selftest fill (REA-P2.3) ─────────────────────────────────────
+    u_cdc_fill_req : rr_rea_pulse_xfer
+        port map (src_toggle_i => selftest_ctrl_jclk,
+                  dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+                  dst_pulse_o => fill_request);
+    u_cdc_seed : rr_rea_sync_word
+        generic map (G_WIDTH => 32)
+        port map (dst_clk_i => sample_clk_i, din_i => selftest_seed_jclk,
+                  dout_o => selftest_seed_sclk);
+
+    fill_busy <= '1' when fill_state_r /= F_IDLE else '0';
+    fill_din  <= fill_stage_r;
+    -- fill_we is COMBINATIONAL on the F_WRITE state so it lands at the same
+    -- rising edge as the (stable, registered) fill_addr_r + fill_stage_r; a
+    -- registered we would fire a cycle late, after the address advanced.
+    fill_we   <= '1' when fill_state_r = F_WRITE else '0';
+
+    -- Fill FSM (REQ-850..854). On an accepted request, walk the sample plane
+    -- writing a deterministic LFSR pattern — C_PAGES stage cycles assemble one
+    -- cell, then one write cycle. Refused (sticky) while armed / mid-capture
+    -- (REQ-852). selftest_mode set before the first write, cleared on arm/reset
+    -- (REQ-853). The timestamp plane is never written (REQ-854, gated in its
+    -- generate). fill_done triggers the sweep so the pattern is validated.
+    process (sample_clk_i, sample_rst_i)
+        variable b : std_logic;
+    begin
+        if sample_rst_i = '1' then
+            fill_state_r       <= F_IDLE;
+            lfsr_r             <= C_SELFTEST_SEED_DEFAULT;
+            fill_addr_r        <= (others => '0');
+            fill_page_r        <= 0;
+            fill_stage_r       <= (others => '0');
+            selftest_mode_r    <= '0';
+            selftest_refused_r <= '0';
+            fill_done          <= '0';
+            fill_accept        <= '0';
+        elsif rising_edge(sample_clk_i) then
+            fill_done   <= '0';
+            fill_accept <= '0';
+            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
+                selftest_mode_r    <= '0';   -- REQ-853
+                selftest_refused_r <= '0';   -- cleared on arm/reset (REQ-852)
+            end if;
+
+            case fill_state_r is
+                when F_IDLE =>
+                    if fill_request = '1' then
+                        if armed_sclk = '1' or triggered_sclk = '1' then
+                            selftest_refused_r <= '1';               -- REQ-852
+                        else
+                            selftest_refused_r <= '0';
+                            selftest_mode_r <= '1';                  -- before 1st write
+                            fill_accept  <= '1';                     -- bumps epoch (REQ-853)
+                            if selftest_seed_sclk = x"00000000" then -- REQ-851
+                                lfsr_r <= C_SELFTEST_SEED_DEFAULT;
+                            else
+                                lfsr_r <= selftest_seed_sclk;
+                            end if;
+                            fill_addr_r  <= (others => '0');
+                            fill_page_r  <= 0;
+                            fill_state_r <= F_STAGE;
+                        end if;
+                    end if;
+
+                when F_STAGE =>
+                    -- Stage the current LFSR word (pre-step) into the cell's
+                    -- current 32-bit page, clipped to the final partial page.
+                    for k in 0 to C_PAGES - 1 loop
+                        if fill_page_r = k then
+                            if 32 * k + 31 <= G_SAMPLE_W - 1 then
+                                fill_stage_r(32 * k + 31 downto 32 * k) <= lfsr_r;
+                            else
+                                fill_stage_r(G_SAMPLE_W - 1 downto 32 * k) <=
+                                    lfsr_r(G_SAMPLE_W - 1 - 32 * k downto 0);
+                            end if;
+                        end if;
+                    end loop;
+                    b := lfsr_r(31) xor lfsr_r(21) xor lfsr_r(1) xor lfsr_r(0);
+                    lfsr_r <= b & lfsr_r(31 downto 1);
+                    if fill_page_r = C_PAGES - 1 then
+                        fill_state_r <= F_WRITE;
+                    else
+                        fill_page_r <= fill_page_r + 1;
+                    end if;
+
+                when F_WRITE =>
+                    -- fill_we is combinational (above), stable this whole state.
+                    if fill_addr_r = to_unsigned(G_DEPTH - 1, C_PTR_W) then
+                        fill_done    <= '1';
+                        fill_state_r <= F_IDLE;
+                    else
+                        fill_addr_r  <= fill_addr_r + 1;
+                        fill_page_r  <= 0;
+                        fill_state_r <= F_STAGE;
+                    end if;
+            end case;
+        end if;
+    end process;
+
+    -- selftest_busy = filling, or the sweep that a fill triggered (a normal
+    -- capture's sweep does not set it — selftest_mode gates that).
+    selftest_busy_sclk <= fill_busy or (sweep_busy and selftest_mode_r);
+    u_cdc_st_busy : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o, din_i(0) => selftest_busy_sclk,
+                  dout_o => selftest_busy_jclk);
+    u_cdc_st_mode : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o, din_i(0) => selftest_mode_r,
+                  dout_o => selftest_mode_jclk);
+    u_cdc_st_refused : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o, din_i(0) => selftest_refused_r,
+                  dout_o => selftest_refused_jclk);
 
     u_crc_sweep : entity work.rr_rea_crc_sweep
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
@@ -741,9 +896,9 @@ begin
         generic map (G_WIDTH => G_SAMPLE_W, G_DEPTH => G_DEPTH)
         port map (
             clk_a_i  => sample_clk_i,
-            we_a_i   => dpram_we_a,      -- arbitrated: capture writes / sweep reads
-            addr_a_i => dpram_addr_a,    -- muxed: capture ptr / sweep addr
-            din_a_i  => dpram_din_sclk,
+            we_a_i   => dpram_we_a,      -- arbitrated: fill / capture writes, sweep read
+            addr_a_i => dpram_addr_a,    -- muxed: fill / capture ptr / sweep addr
+            din_a_i  => dpram_din_a,      -- muxed: fill pattern / capture data
             dout_a_o => sweep_mem_dout,  -- port-A read → CRC sweep engine
             clk_b_i  => reg_clk_o,
             addr_b_i => dpram_addr_b,
@@ -778,9 +933,12 @@ begin
         end process;
 
         -- Port-A arbiter/mux for the timestamp plane (mirrors the sample plane).
+        -- The plane is NEVER written during a selftest fill (REQ-854) — its din
+        -- stays the free-running counter and we stays low.
         ts_owns_a <= ts_busy;
         ts_addr_a <= ts_mem_addr when ts_owns_a = '1' else dpram_addr_sclk;
-        ts_we_a   <= '0'         when ts_owns_a = '1' else dpram_we_sclk;
+        ts_we_a   <= '0' when (ts_owns_a = '1' or selftest_mode_r = '1')
+                     else dpram_we_sclk;
 
         u_timestamp_dpram : entity work.rr_rea_dpram
             generic map (G_WIDTH => G_TIMESTAMP_W, G_DEPTH => G_DEPTH)

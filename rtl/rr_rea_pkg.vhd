@@ -185,7 +185,12 @@ package rr_rea_pkg is
     constant C_FEAT_READBACK_INTEGRITY_BIT : natural := 19;
     -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
     -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
-    constant C_HAS_READBACK_INTEGRITY : boolean := false;  -- TODO(REA-P2.2)
+    -- REA-P2.3: the tier is complete (sweep + publication + selftest fill), so
+    -- FEATURES[19] now advertises readback integrity to the host (REQ-806).
+    constant C_HAS_READBACK_INTEGRITY : boolean := true;
+    -- Selftest LFSR default seed (substituted for a written seed of 0 — the
+    -- maximal-length LFSR would lock up at 0). REA-REQ-851.
+    constant C_SELFTEST_SEED_DEFAULT : std_logic_vector(31 downto 0) := x"52454108";
 
     -- ── CTRL register bit assignments ────────────────────────────
     constant C_CTRL_BIT_ARM     : natural := 0;

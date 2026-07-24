@@ -59,7 +59,7 @@ EXPECTED_VERSION = 0x52454107
 # uses the regbank entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 (GENERICS
 # above overrides neither) and G_SAMPLE_W=12 (<=32 → wide-sample bit clear),
 # so the expected fingerprint is fixed and hard-coded per ROUTERTL-002.
-EXPECTED_FEATURES = (4 << 0) | (1 << 8) | (1 << 18)
+EXPECTED_FEATURES = (4 << 0) | (1 << 8) | (1 << 18) | (1 << 19)  # bit19=readback_integrity (P2.3)
 
 
 def main() -> None:

@@ -59,7 +59,7 @@ OP_EQ = 0
 
 # FEATURES at G_SAMPLE_W=704 (>256): trig_conds=4, num_source=3, wide_sample[16],
 # wide_cond[17]. Hard-coded per ROUTERTL-002: 0x0003_0304.
-EXPECTED_FEATURES = (4 << 0) | (3 << 8) | (1 << 16) | (1 << 17)  # 0x0003_0304
+EXPECTED_FEATURES = (4 << 0) | (3 << 8) | (1 << 16) | (1 << 17) | (1 << 19)
 
 
 def _cfg(valid: int, op: int, width: int, lsb: int) -> int:
