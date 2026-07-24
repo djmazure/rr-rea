@@ -100,3 +100,42 @@ begin
 
     dst_pulse_o <= s2 xor s3;
 end architecture;
+
+-- ── Async-assert / sync-deassert reset synchronizer (RTL-P3.1115) ──────────
+-- A raw async reset released relative to a clock creates a recovery/removal
+-- (metastability) hazard on the release edge — STA flags it (Quartus recovery
+-- slack; not the combinational-glitch fallacy). This primitive asserts the reset
+-- ASYNCHRONOUSLY (immediate, so in-flight state is safe) but deasserts it
+-- SYNCHRONOUSLY, held for G_STAGES clk_i edges so the release meets recovery/
+-- removal in this clock domain. Feed the raw reset in, drive domain registers
+-- from srst_o.
+
+library ieee;
+    use ieee.std_logic_1164.all;
+
+entity rr_rea_rst_sync is
+    generic (
+        G_STAGES : positive := 2   -- release-path settling flops
+    );
+    port (
+        clk_i  : in  std_logic;
+        arst_i : in  std_logic;    -- raw async reset in
+        srst_o : out std_logic     -- async-assert, sync-deassert reset out
+    );
+end entity;
+
+architecture rtl of rr_rea_rst_sync is
+    signal sync_r : std_logic_vector(G_STAGES - 1 downto 0) := (others => '1');
+    attribute ASYNC_REG : string;
+    attribute ASYNC_REG of sync_r : signal is "TRUE";
+begin
+    process (clk_i, arst_i)
+    begin
+        if arst_i = '1' then
+            sync_r <= (others => '1');                        -- async assert
+        elsif rising_edge(clk_i) then
+            sync_r <= sync_r(G_STAGES - 2 downto 0) & '0';    -- sync deassert
+        end if;
+    end process;
+    srst_o <= sync_r(G_STAGES - 1);
+end architecture;

@@ -270,7 +270,27 @@ architecture rtl of rr_rea_top is
         );
     end component;
 
+    component rr_rea_rst_sync is
+        generic (G_STAGES : positive := 2);
+        port (
+            clk_i  : in  std_logic;
+            arst_i : in  std_logic;
+            srst_o : out std_logic
+        );
+    end component;
+
+    -- RTL-P3.1115: sample_rst_i deassertion synchronized into the sample_clk_i
+    -- domain (async-assert, sync-deassert). All sample-domain registers reset
+    -- from sample_rst_sync so the reset RELEASE meets recovery/removal — the raw
+    -- input is used ONLY to feed this synchronizer. Self-protecting: the IP no
+    -- longer relies on the consumer to clean up its reset deassertion.
+    signal sample_rst_sync : std_logic;
+
 begin
+
+    u_rst_sync : rr_rea_rst_sync
+        port map (clk_i => sample_clk_i, arst_i => sample_rst_i,
+                  srst_o => sample_rst_sync);
 
     -- ── JTAG protocol decoder ────────────────────────────────────
     u_jtag : entity work.rr_rea_jtag_iface
@@ -499,14 +519,14 @@ begin
     u_cdc_arm : rr_rea_pulse_xfer
         port map (
             src_toggle_i => arm_toggle_jclk,
-            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_sync,
             dst_pulse_o => arm_pulse_sclk
         );
 
     u_cdc_reset : rr_rea_pulse_xfer
         port map (
             src_toggle_i => reset_toggle_jclk,
-            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_sync,
             dst_pulse_o => reset_pulse_sclk
         );
 
@@ -515,7 +535,7 @@ begin
     -- FSM itself now lives INSIDE the core (REA-P3.2).
     u_cdc_fill_req : rr_rea_pulse_xfer
         port map (src_toggle_i => selftest_ctrl_jclk,
-                  dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_i,
+                  dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_sync,
                   dst_pulse_o => fill_request);
     u_cdc_seed : rr_rea_sync_word
         generic map (G_WIDTH => 32)
@@ -538,7 +558,7 @@ begin
                      G_PUB_SETTLE => 8)
         port map (
             sample_clk_i        => sample_clk_i,
-            sample_rst_i        => sample_rst_i,
+            sample_rst_i        => sample_rst_sync,
             arm_pulse_i         => arm_pulse_sclk,
             reset_pulse_i       => reset_pulse_sclk,
             armed_i             => armed_sclk,
@@ -635,7 +655,7 @@ begin
                      G_TRIG_CONDS => G_TRIG_CONDS)
         port map (
             sample_clk_i    => sample_clk_i,
-            sample_rst_i    => sample_rst_i,
+            sample_rst_i    => sample_rst_sync,
             probe_i      => probe_sclk,
             arm_pulse_i     => arm_pulse_sclk,
             reset_pulse_i   => reset_pulse_sclk,
@@ -705,9 +725,9 @@ begin
     --    flag flipped on each trigger so an LED can dance and the
     --    Vivado optimizer can't prune the hierarchy. ─────────────
     trigger_o <= trigger_sticky_r;
-    process (sample_clk_i, sample_rst_i)
+    process (sample_clk_i, sample_rst_sync)
     begin
-        if sample_rst_i = '1' then
+        if sample_rst_sync = '1' then
             trigger_sticky_r <= '0';
         elsif rising_edge(sample_clk_i) then
             if trigger_out_sclk = '1' then
@@ -748,9 +768,9 @@ begin
         signal ts_we_a     : std_logic;
         signal ts_addr_a   : std_logic_vector(C_PTR_W - 1 downto 0);
     begin
-        process (sample_clk_i, sample_rst_i)
+        process (sample_clk_i, sample_rst_sync)
         begin
-            if sample_rst_i = '1' then
+            if sample_rst_sync = '1' then
                 timestamp_r <= (others => '0');
             elsif rising_edge(sample_clk_i) then
                 timestamp_r <= timestamp_r + 1;
