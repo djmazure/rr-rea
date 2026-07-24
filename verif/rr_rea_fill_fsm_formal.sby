@@ -1,0 +1,17 @@
+# REA-P3.2 — run from verif/ :  sby -f rr_rea_fill_fsm_formal.sby
+[options]
+mode prove
+depth 20
+
+[engines]
+smtbmc
+
+[script]
+plugin -i ghdl
+ghdl --std=08 -fpsl rr_rea_pkg.vhd rr_rea_fill_fsm.vhd rr_rea_fill_fsm_formal.psl -e rr_rea_fill_fsm
+prep -top rr_rea_fill_fsm
+
+[files]
+../rtl/rr_rea_pkg.vhd
+../rtl/rr_rea_fill_fsm.vhd
+rr_rea_fill_fsm_formal.psl

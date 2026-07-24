@@ -183,24 +183,20 @@ architecture rtl of rr_rea_top is
     -- ── v0.8 selftest fill (REA-P2.3): host writes an LFSR pattern into the
     --    sample plane, then the sweep runs so the readback path can be
     --    validated word-exact + by CRC before any real capture is trusted. ──
-    constant C_PAGES : positive := (G_SAMPLE_W + 31) / 32;
-    type fill_state_t is (F_IDLE, F_STAGE, F_WRITE);
-    signal fill_state_r   : fill_state_t := F_IDLE;
+    -- Fill FSM extracted to rr_rea_fill_fsm (REA-P3.2); these wires interface to
+    -- the instance (u_fill_fsm). fill_addr_slv is the fill write pointer (slv).
     signal fill_request   : std_logic;  -- SELFTEST_CTRL toggle → sample pulse
     signal selftest_ctrl_jclk : std_logic;
     signal selftest_seed_jclk : std_logic_vector(31 downto 0);
     signal selftest_seed_sclk : std_logic_vector(31 downto 0);
-    signal lfsr_r         : std_logic_vector(31 downto 0) := C_SELFTEST_SEED_DEFAULT;
-    signal fill_stage_r   : std_logic_vector(G_SAMPLE_W - 1 downto 0) := (others => '0');
-    signal fill_addr_r    : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
-    signal fill_page_r    : natural range 0 to C_PAGES - 1 := 0;
+    signal fill_addr_slv  : std_logic_vector(C_PTR_W - 1 downto 0);
     signal fill_we        : std_logic;
     signal fill_din       : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal fill_busy      : std_logic;
     signal fill_done      : std_logic;  -- 1-cycle pulse when the last cell lands
     signal fill_accept    : std_logic;  -- 1-cycle pulse when a fill is accepted
-    signal selftest_mode_r    : std_logic := '0';
-    signal selftest_refused_r : std_logic := '0';
+    signal selftest_mode_r    : std_logic;
+    signal selftest_refused_r : std_logic;
     signal selftest_busy_sclk : std_logic;
     signal selftest_busy_jclk    : std_logic_vector(0 downto 0);
     signal selftest_mode_jclk    : std_logic_vector(0 downto 0);
@@ -571,7 +567,7 @@ begin
     -- fill only runs while capture is quiesced (selftest_mode), so this reduces
     -- to a clean single-owner mux.
     sweep_owns_a <= sweep_busy;
-    dpram_addr_a <= std_logic_vector(fill_addr_r) when fill_busy = '1'
+    dpram_addr_a <= fill_addr_slv when fill_busy = '1'
                     else sweep_mem_addr           when sweep_owns_a = '1'
                     else dpram_addr_sclk;
     -- Capture writes are suppressed for the whole selftest (selftest_mode) so
@@ -592,101 +588,32 @@ begin
         port map (dst_clk_i => sample_clk_i, din_i => selftest_seed_jclk,
                   dout_o => selftest_seed_sclk);
 
-    fill_busy <= '1' when fill_state_r /= F_IDLE else '0';
-    fill_din  <= fill_stage_r;
-    -- fill_we is COMBINATIONAL on the F_WRITE state so it lands at the same
-    -- rising edge as the (stable, registered) fill_addr_r + fill_stage_r; a
-    -- registered we would fire a cycle late, after the address advanced.
-    fill_we   <= '1' when fill_state_r = F_WRITE else '0';
-
-    -- Fill FSM (REQ-850..854). On an accepted request, walk the sample plane
-    -- writing a deterministic LFSR pattern — C_PAGES stage cycles assemble one
-    -- cell, then one write cycle. Refused (sticky) while armed / mid-capture
-    -- (REQ-852). selftest_mode set before the first write, cleared on arm/reset
-    -- (REQ-853). The timestamp plane is never written (REQ-854, gated in its
-    -- generate). fill_done triggers the sweep so the pattern is validated.
-    process (sample_clk_i, sample_rst_i)
-        variable b : std_logic;
-    begin
-        if sample_rst_i = '1' then
-            fill_state_r       <= F_IDLE;
-            lfsr_r             <= C_SELFTEST_SEED_DEFAULT;
-            fill_addr_r        <= (others => '0');
-            fill_page_r        <= 0;
-            fill_stage_r       <= (others => '0');
-            selftest_mode_r    <= '0';
-            selftest_refused_r <= '0';
-            fill_done          <= '0';
-            fill_accept        <= '0';
-        elsif rising_edge(sample_clk_i) then
-            fill_done   <= '0';
-            fill_accept <= '0';
-            if arm_pulse_sclk = '1' or reset_pulse_sclk = '1' then
-                selftest_mode_r    <= '0';   -- REQ-853
-                selftest_refused_r <= '0';   -- cleared on arm/reset (REQ-852)
-            end if;
-
-            case fill_state_r is
-                when F_IDLE =>
-                    if fill_request = '1' then
-                        -- REA-T1.2: also refuse while a CRC sweep is active. A
-                        -- fill-triggered validation sweep runs with armed=0, so
-                        -- without this guard a fill accepted mid-sweep would win
-                        -- the port-A arbiter and hijack the sweep's read address
-                        -- (dpram_addr_a <= fill_addr_r when fill_busy), corrupting
-                        -- the CRC over the wrong cells. Sticky, per REQ-852.
-                        if armed_sclk = '1' or triggered_sclk = '1'
-                           or sweep_busy = '1' then
-                            selftest_refused_r <= '1';               -- REQ-852
-                        else
-                            selftest_refused_r <= '0';
-                            selftest_mode_r <= '1';                  -- before 1st write
-                            fill_accept  <= '1';                     -- bumps epoch (REQ-853)
-                            if selftest_seed_sclk = x"00000000" then -- REQ-851
-                                lfsr_r <= C_SELFTEST_SEED_DEFAULT;
-                            else
-                                lfsr_r <= selftest_seed_sclk;
-                            end if;
-                            fill_addr_r  <= (others => '0');
-                            fill_page_r  <= 0;
-                            fill_state_r <= F_STAGE;
-                        end if;
-                    end if;
-
-                when F_STAGE =>
-                    -- Stage the current LFSR word (pre-step) into the cell's
-                    -- current 32-bit page, clipped to the final partial page.
-                    for k in 0 to C_PAGES - 1 loop
-                        if fill_page_r = k then
-                            if 32 * k + 31 <= G_SAMPLE_W - 1 then
-                                fill_stage_r(32 * k + 31 downto 32 * k) <= lfsr_r;
-                            else
-                                fill_stage_r(G_SAMPLE_W - 1 downto 32 * k) <=
-                                    lfsr_r(G_SAMPLE_W - 1 - 32 * k downto 0);
-                            end if;
-                        end if;
-                    end loop;
-                    b := lfsr_r(31) xor lfsr_r(21) xor lfsr_r(1) xor lfsr_r(0);
-                    lfsr_r <= b & lfsr_r(31 downto 1);
-                    if fill_page_r = C_PAGES - 1 then
-                        fill_state_r <= F_WRITE;
-                    else
-                        fill_page_r <= fill_page_r + 1;
-                    end if;
-
-                when F_WRITE =>
-                    -- fill_we is combinational (above), stable this whole state.
-                    if fill_addr_r = to_unsigned(G_DEPTH - 1, C_PTR_W) then
-                        fill_done    <= '1';
-                        fill_state_r <= F_IDLE;
-                    else
-                        fill_addr_r  <= fill_addr_r + 1;
-                        fill_page_r  <= 0;
-                        fill_state_r <= F_STAGE;
-                    end if;
-            end case;
-        end if;
-    end process;
+    -- ── Fill FSM (REA-P3.2 extraction) ───────────────────────────────
+    -- Extracted verbatim to rr_rea_fill_fsm so its control contract
+    -- (REQ-850..854, incl. the REA-T1.2 sweep-refuse guard) is formally provable
+    -- with FREE control inputs. fill_we is combinational on F_WRITE inside the
+    -- module (lands the same edge as the registered addr/data).
+    u_fill_fsm : entity work.rr_rea_fill_fsm
+        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
+        port map (
+            sample_clk_i       => sample_clk_i,
+            sample_rst_i       => sample_rst_i,
+            arm_pulse_i        => arm_pulse_sclk,
+            reset_pulse_i      => reset_pulse_sclk,
+            fill_request_i     => fill_request,
+            armed_i            => armed_sclk,
+            triggered_i        => triggered_sclk,
+            sweep_busy_i       => sweep_busy,
+            selftest_seed_i    => selftest_seed_sclk,
+            fill_we_o          => fill_we,
+            fill_busy_o        => fill_busy,
+            fill_din_o         => fill_din,
+            fill_addr_o        => fill_addr_slv,
+            fill_done_o        => fill_done,
+            fill_accept_o      => fill_accept,
+            selftest_mode_o    => selftest_mode_r,
+            selftest_refused_o => selftest_refused_r
+        );
 
     -- selftest_busy = filling, or the sweep that a fill triggered (a normal
     -- capture's sweep does not set it — selftest_mode gates that).

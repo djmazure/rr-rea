@@ -1,0 +1,27 @@
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- REA-P3.2 — formal proof of the extracted fill FSM's control contract.
+-- The fill FSM's control inputs (arm/reset/fill_request/armed/triggered/
+-- sweep_busy) are FREE input ports here, so the antecedents are reachable in a
+-- couple of cycles (vs ~40-60 behind the BSCAN protocol on the full top, where
+-- every feasible-depth proof is vacuous). Single-clock — no multiclock needed.
+--
+-- Proven UNBOUNDED (k-induction, basecase + induction) + anti-vacuity gated:
+--   rr eda install formal   # once
+--   cd verif && sby -f rr_rea_fill_fsm_formal.sby
+vunit rr_rea_fill_fsm_formal (rr_rea_fill_fsm(rtl)) {
+  default clock is rising_edge(sample_clk_i);
+
+  -- REA-T1.2 / REQ-852: an idle fill FSM CANNOT start a fill while a sweep is
+  -- active — it stays idle (the request is refused, never accepted). This is the
+  -- guard that closes the port-A conflict fixed in rr-rea 8c268e7.
+  T1_2_NO_START_DURING_SWEEP :
+    assert always ( (sweep_busy_i = '1' and fill_busy_o = '0')
+                    -> next(fill_busy_o) = '0' );
+
+  -- REQ-852: likewise while armed / triggered (mid-capture) — no fresh start.
+  NO_START_WHILE_ARMED :
+    assert always ( ((armed_i = '1' or triggered_i = '1') and fill_busy_o = '0')
+                    -> next(fill_busy_o) = '0' );
+}

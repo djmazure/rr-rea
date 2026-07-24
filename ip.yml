@@ -33,6 +33,7 @@ hdl:
     - rtl/rr_rea_regbank.vhd
     - rtl/rr_rea_cdc.vhd
     - rtl/rr_rea_jtag_iface.vhd
+    - rtl/rr_rea_fill_fsm.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
 
@@ -53,6 +54,7 @@ synthesis:
     - rtl/rr_rea_regbank.vhd
     - rtl/rr_rea_cdc.vhd
     - rtl/rr_rea_jtag_iface.vhd
+    - rtl/rr_rea_fill_fsm.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
   sources_per_vendor:
