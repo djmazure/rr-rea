@@ -164,6 +164,11 @@ architecture rtl of rr_rea_top is
     -- always wins). crc_valid therefore never rises for a stale/torn generation.
     signal crc_sample_r        : std_logic_vector(31 downto 0) := (others => '0');
     signal crc_sample_jclk     : std_logic_vector(31 downto 0);
+    signal crc_ts_r            : std_logic_vector(31 downto 0) := (others => '0');
+    signal crc_ts_jclk         : std_logic_vector(31 downto 0);
+    signal sample_done_r       : std_logic := '0';
+    signal ts_done_r           : std_logic := '0';  -- driven '1' when no ts plane
+    signal pub_done_r          : std_logic := '0';
     signal epoch_snap_r        : std_logic_vector(31 downto 0) := (others => '0');
     constant C_PUB_SETTLE      : natural := 8;
     signal pub_settle_r        : natural range 0 to C_PUB_SETTLE := 0;
@@ -299,7 +304,7 @@ begin
             -- with the sweep (P2.2p2-sweep); selftest bits with fill (P2.3).
             -- Wired to their inert defaults until then; the epoch counter is live.
             crc_sample_i       => crc_sample_jclk,
-            crc_ts_i           => (others => '0'),  -- timestamp-plane sweep: later sub-step
+            crc_ts_i           => crc_ts_jclk,
             capture_epoch_i    => capture_epoch_jclk,
             crc_valid_i        => crc_valid_jr,
             selftest_busy_i    => '0',
@@ -549,29 +554,48 @@ begin
             crc_o        => sweep_crc_o
         );
 
-    -- Publication FSM (REQ-808). On sweep completion latch the CRC + a snapshot
-    -- of the epoch, then hold a settle window before flipping publish_toggle_r,
-    -- so the crc_sample word sync (below) has fully landed in the jtag domain
-    -- before crc_valid can rise. A mid-settle epoch change (arm/reset) cancels
-    -- the publish; sweep_rst resets the FSM.
+    -- Sample-plane CRC latch + done flag (REQ-800). The timestamp plane drives
+    -- crc_ts_r / ts_done_r from its own generate below (or ts_done_r='1' when
+    -- there is no timestamp plane, so publication gates on the sample plane only).
     process (sample_clk_i, sweep_rst)
     begin
         if sweep_rst = '1' then
             crc_sample_r  <= (others => '0');
+            sample_done_r <= '0';
+        elsif rising_edge(sample_clk_i) then
+            if sweep_crc_done = '1' then
+                crc_sample_r  <= sweep_crc_o;
+                sample_done_r <= '1';
+            end if;
+        end if;
+    end process;
+
+    -- Publication FSM (REQ-808). Once BOTH plane sweeps have completed, snapshot
+    -- the epoch and hold a settle window (so the crc_sample / crc_ts word syncs
+    -- fully land in the jtag domain) before flipping publish_toggle_r — only
+    -- then can crc_valid rise. pub_done_r fires exactly one publish per capture
+    -- generation; a mid-settle epoch change cancels; sweep_rst (arm/reset)
+    -- resets the whole FSM.
+    process (sample_clk_i, sweep_rst)
+    begin
+        if sweep_rst = '1' then
             pub_pending_r <= '0';
+            pub_done_r    <= '0';
             pub_settle_r  <= 0;
         elsif rising_edge(sample_clk_i) then
-            if sweep_crc_done = '1' and pub_pending_r = '0' then
-                crc_sample_r  <= sweep_crc_o;
+            if sample_done_r = '1' and ts_done_r = '1'
+               and pub_pending_r = '0' and pub_done_r = '0' then
                 epoch_snap_r  <= capture_epoch_r;
                 pub_settle_r  <= C_PUB_SETTLE;
                 pub_pending_r <= '1';
             elsif pub_pending_r = '1' then
                 if epoch_snap_r /= capture_epoch_r then
                     pub_pending_r <= '0';                     -- invalidated: cancel
+                    pub_done_r    <= '1';
                 elsif pub_settle_r = 0 then
                     publish_toggle_r <= not publish_toggle_r; -- publish
                     pub_pending_r <= '0';
+                    pub_done_r    <= '1';
                 else
                     pub_settle_r <= pub_settle_r - 1;
                 end if;
@@ -595,6 +619,10 @@ begin
         generic map (G_WIDTH => 32)
         port map (dst_clk_i => reg_clk_o, din_i => crc_sample_r,
                   dout_o => crc_sample_jclk);
+    u_cdc_crc_ts : rr_rea_sync_word
+        generic map (G_WIDTH => 32)
+        port map (dst_clk_i => reg_clk_o, din_i => crc_ts_r,
+                  dout_o => crc_ts_jclk);
     u_cdc_publish : rr_rea_pulse_xfer
         port map (src_toggle_i => publish_toggle_r,
                   dst_clk_i => reg_clk_o, dst_rst_i => reg_rst_o,
@@ -729,6 +757,14 @@ begin
         signal timestamp_r : unsigned(G_TIMESTAMP_W - 1 downto 0) :=
             (others => '0');
         signal timestamp_dout : std_logic_vector(G_TIMESTAMP_W - 1 downto 0);
+        signal ts_owns_a   : std_logic;
+        signal ts_busy     : std_logic;
+        signal ts_crc_done : std_logic;
+        signal ts_crc_o    : std_logic_vector(31 downto 0);
+        signal ts_mem_addr : std_logic_vector(C_PTR_W - 1 downto 0);
+        signal ts_mem_dout : std_logic_vector(G_TIMESTAMP_W - 1 downto 0);
+        signal ts_we_a     : std_logic;
+        signal ts_addr_a   : std_logic_vector(C_PTR_W - 1 downto 0);
     begin
         process (sample_clk_i, sample_rst_i)
         begin
@@ -739,23 +775,58 @@ begin
             end if;
         end process;
 
+        -- Port-A arbiter/mux for the timestamp plane (mirrors the sample plane).
+        ts_owns_a <= ts_busy;
+        ts_addr_a <= ts_mem_addr when ts_owns_a = '1' else dpram_addr_sclk;
+        ts_we_a   <= '0'         when ts_owns_a = '1' else dpram_we_sclk;
+
         u_timestamp_dpram : entity work.rr_rea_dpram
             generic map (G_WIDTH => G_TIMESTAMP_W, G_DEPTH => G_DEPTH)
             port map (
                 clk_a_i  => sample_clk_i,
-                we_a_i   => dpram_we_sclk,
-                addr_a_i => dpram_addr_sclk,
+                we_a_i   => ts_we_a,
+                addr_a_i => ts_addr_a,
                 din_a_i  => std_logic_vector(timestamp_r),
-                dout_a_o => open,
+                dout_a_o => ts_mem_dout,   -- port-A read → timestamp CRC sweep
                 clk_b_i  => reg_clk_o,
                 addr_b_i => dpram_addr_b,
                 dout_b_o => timestamp_dout
             );
         timestamp_dout_b <= timestamp_dout;
+
+        u_ts_crc_sweep : entity work.rr_rea_crc_sweep
+            generic map (G_SAMPLE_W => G_TIMESTAMP_W, G_DEPTH => G_DEPTH)
+            port map (
+                sample_clk_i => sample_clk_i,
+                sample_rst_i => sweep_rst,
+                start_i      => sweep_start,
+                mem_dout_i   => ts_mem_dout,
+                mem_addr_o   => ts_mem_addr,
+                mem_rd_en_o  => open,
+                busy_o       => ts_busy,
+                crc_done_o   => ts_crc_done,
+                crc_o        => ts_crc_o
+            );
+
+        -- Timestamp-plane CRC latch + done flag (feeds the arch-level pub FSM).
+        process (sample_clk_i, sweep_rst)
+        begin
+            if sweep_rst = '1' then
+                crc_ts_r  <= (others => '0');
+                ts_done_r <= '0';
+            elsif rising_edge(sample_clk_i) then
+                if ts_crc_done = '1' then
+                    crc_ts_r  <= ts_crc_o;
+                    ts_done_r <= '1';
+                end if;
+            end if;
+        end process;
     end generate;
 
     g_no_timestamp_plane : if G_TIMESTAMP_W = 0 generate
         timestamp_dout_b <= (others => '0');
+        crc_ts_r  <= (others => '0');  -- no plane → CRC_TS reads 0 (REQ-804)
+        ts_done_r <= '1';              -- publication gates on the sample plane only
     end generate;
 
 end architecture;
