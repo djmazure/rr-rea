@@ -319,6 +319,8 @@ begin
             decim_ratio_o  => decim_ratio_jclk,
             data_word_sel_o => data_word_sel_jclk,
             data_plane_sel_o => data_plane_sel_jclk,
+            selftest_ctrl_o => open,  -- consumed by the fill FSM (REA-P2.3 incr 2)
+            selftest_seed_o => open,
             cond_values_o  => cond_values_jclk,
             cond_masks_o   => cond_masks_jclk,
             cond_ops_o     => cond_ops_jclk,

@@ -160,6 +160,28 @@ async def test_capture_epoch_increments_on_arm_and_reset(dut):
     dut._log.info("REA-REQ-807 PASS — CAPTURE_EPOCH bumps on arm/reset, stable otherwise")
 
 
+@cocotb.test()
+@requires("REA-REQ-010")
+async def test_selftest_ctrl_seed_round_trip(dut):
+    """SELFTEST_CTRL bit[0] and SELFTEST_SEED are RW and round-trip (REA-P2.3
+    register surface; the fill FSM that consumes them lands next)."""
+    ADDR_SELFTEST_CTRL = 0xDC
+    ADDR_SELFTEST_SEED = 0xE0
+    await _start_clocks(dut)
+    await _reset(dut)
+
+    await _jtag_write(dut, ADDR_SELFTEST_SEED, 0xDEADBEEF)
+    assert await _jtag_read(dut, ADDR_SELFTEST_SEED) == 0xDEADBEEF
+    await _jtag_write(dut, ADDR_SELFTEST_SEED, 0x00000000)
+    assert await _jtag_read(dut, ADDR_SELFTEST_SEED) == 0x00000000
+
+    await _jtag_write(dut, ADDR_SELFTEST_CTRL, 0x1)
+    assert await _jtag_read(dut, ADDR_SELFTEST_CTRL) & 0x1 == 1
+    await _jtag_write(dut, ADDR_SELFTEST_CTRL, 0x0)
+    assert await _jtag_read(dut, ADDR_SELFTEST_CTRL) & 0x1 == 0
+    dut._log.info("REA-REQ-010 PASS — SELFTEST_CTRL/SEED round-trip")
+
+
 def main() -> None:
     run_simulation(
         top_level="rr_rea_top",

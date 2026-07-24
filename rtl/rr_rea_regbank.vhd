@@ -99,6 +99,9 @@ entity rr_rea_regbank is
         decim_ratio_o  : out std_logic_vector(23 downto 0);
         data_word_sel_o : out std_logic_vector(7 downto 0);
         data_plane_sel_o : out std_logic;
+        -- v0.8 selftest (REA-P2.3): fill-toggle level + seed → sample domain.
+        selftest_ctrl_o : out std_logic;                       -- bit[0] fill toggle
+        selftest_seed_o : out std_logic_vector(31 downto 0);
 
         -- ── Per-condition comparator array (RTL-P3.647) ──────────
         -- Expanded full-width per slot: the compact {valid,op,width,lsb}
@@ -147,6 +150,8 @@ architecture rtl of rr_rea_regbank is
     signal trig_word_sel_r : unsigned(7 downto 0) := (others => '0');
     signal data_word_sel_r : unsigned(7 downto 0) := (others => '0');
     signal data_plane_sel_r : std_logic := '0';
+    signal selftest_ctrl_r  : std_logic := '0';
+    signal selftest_seed_r  : std_logic_vector(31 downto 0) := (others => '0');
     signal chan_sel_r   : std_logic_vector(31 downto 0) := (others => '0');
     signal decim_r      : std_logic_vector(31 downto 0) := (others => '0');
     -- RTL-P2.837: write-side source storage. Resets to 0 so the low
@@ -252,6 +257,8 @@ begin
     pretrig_len_o  <= pretrig_r(C_PTR_W - 1 downto 0);
     posttrig_len_o <= posttrig_r(C_PTR_W - 1 downto 0);
     data_plane_sel_o <= data_plane_sel_r;
+    selftest_ctrl_o  <= selftest_ctrl_r;
+    selftest_seed_o  <= selftest_seed_r;
     -- Full-width trigger value/mask to the FSM comparator. The flat
     -- vector is C_TRIG_WORDS*32 bits (>= G_SAMPLE_W), so the slice is
     -- always in range; bits above G_SAMPLE_W in the top word are unused.
@@ -334,6 +341,8 @@ begin
             trig_word_sel_r <= (others => '0');
             data_word_sel_r <= (others => '0');
             data_plane_sel_r <= '0';
+            selftest_ctrl_r <= '0';
+            selftest_seed_r <= (others => '0');
             cond_cfg_flat  <= (others => '0');
             cond_val_flat  <= (others => '0');
             cond_sel_r     <= (others => '0');
@@ -390,6 +399,10 @@ begin
                         data_word_sel_r <= unsigned(wr_data_i(7 downto 0));
                     when C_ADDR_DATA_PLANE_SEL =>
                         data_plane_sel_r <= wr_data_i(0);
+                    when C_ADDR_SELFTEST_CTRL =>
+                        selftest_ctrl_r <= wr_data_i(0);
+                    when C_ADDR_SELFTEST_SEED =>
+                        selftest_seed_r <= wr_data_i;
                     when C_ADDR_COND_SEL =>
                         -- RTL-P3.647: select which comparator-array slot the
                         -- next COND_CFG/COND_VAL write targets (paged, like
@@ -531,6 +544,10 @@ begin
             when C_ADDR_CRC_SAMPLE    => rd_data_o <= crc_sample_i;
             when C_ADDR_CRC_TS        => rd_data_o <= crc_ts_i;
             when C_ADDR_CAPTURE_EPOCH => rd_data_o <= capture_epoch_i;
+            when C_ADDR_SELFTEST_CTRL =>
+                rd_data_o <= (others => '0');
+                rd_data_o(0) <= selftest_ctrl_r;
+            when C_ADDR_SELFTEST_SEED => rd_data_o <= selftest_seed_r;
             when others             => rd_data_o <= (others => '0');
         end case;
         end if;
