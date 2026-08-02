@@ -56,9 +56,15 @@ architecture rtl of rr_rea_intel is
             sld_ir_width            : integer := 1
         );
         port (
-            tck_i               : out std_logic;
-            tdi_i               : out std_logic;
-            tdo_o               : in  std_logic;
+            -- ESA _i/_o naming STOPS at this boundary: these are the Intel
+            -- megafunction's OWN port names and Quartus binds by name, so
+            -- renaming them makes elaboration fail with
+            --   Error (13870): design entity "sld_virtual_jtag" does not
+            --   contain port "tck_i"
+            -- (RTL-T1.15). Local signal names below keep the ESA suffixes.
+            tck               : out std_logic;
+            tdi               : out std_logic;
+            tdo               : in  std_logic;
             virtual_state_cdr : out std_logic;
             virtual_state_sdr : out std_logic;
             virtual_state_udr : out std_logic;
@@ -93,9 +99,9 @@ begin
             sld_ir_width            => 1
         )
         port map (
-            tck_i               => tck_i,
-            tdi_i               => tdi_i,
-            tdo_o               => tdo_o,
+            tck               => tck_i,
+            tdi               => tdi_i,
+            tdo               => tdo_o,
             virtual_state_cdr => capture_i,
             virtual_state_sdr => shift_en_i,
             virtual_state_udr => update_i,
