@@ -1,20 +1,20 @@
 -- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 -- SPDX-License-Identifier: MIT
 --
--- rr_rea_capture_fsm — sliding-window capture_i state machine.
+-- rr_rea_capture_fsm — sliding-window capture state machine.
 --
 -- THIS IS WHERE WE EXPLICITLY DIVERGE FROM the reference ELA design.
 --
--- The dpram write path is FREE-RUNNING from sample_rst_i deassertion:
--- `dpram_we_o` is `!done_o && store_enable_in`, NOT gated by `armed_o`.
+-- The dpram write path is FREE-RUNNING from sample_rst deassertion:
+-- `dpram_we` is `!done && store_enable_in`, NOT gated by `armed`.
 -- Combined with `wr_ptr` that increments every cycle (also not gated
--- by `armed_o`), this implements the textbook ILA sliding-window model
+-- by `armed`), this implements the textbook ILA sliding-window model
 -- (Vivado ChipScope, Intel SignalTap, ARM ELA): the buffer always
 -- holds the most-recent DEPTH samples, so a trigger that fires
 -- immediately after `arm` still has the full pretrigger window of
 -- context already in the buffer.
 --
--- The naive `mem_we_a = armed_o && !done_o && store_enable` leaves uninit
+-- The naive `mem_we_a = armed && !done && store_enable` leaves uninit
 -- BRAM cells in the captured window when the trigger fires before
 -- pretrig_len cycles have elapsed since arm. We do not ship that.
 --
@@ -42,23 +42,23 @@ entity rr_rea_capture_fsm is
         sample_clk_i  : in  std_logic;
         sample_rst_i  : in  std_logic;
 
-        -- ── Probe input (sync'd to sample_clk_i by the caller) ─────
+        -- ── Probe input (sync'd to sample_clk by the caller) ─────
         probe_i    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
 
-        -- ── Control pulses (sync'd to sample_clk_i by rr_rea_cdc) ──
+        -- ── Control pulses (sync'd to sample_clk by rr_rea_cdc) ──
         arm_pulse_i   : in  std_logic;   -- 1 cycle wide
         reset_pulse_i : in  std_logic;   -- 1 cycle wide; clears state
 
         -- ── External trigger input (REA-REQ-400) ─────────────────
-        -- 1-cycle pulse on sample_clk_i from the cross-domain trigger
-        -- crossbar (rr_rea_trig_xbar) — when armed_o, fires the
-        -- capture_i as if the local comparator hit. Does NOT drive
-        -- trigger_o (that would create a ping-pong loop with
+        -- 1-cycle pulse on sample_clk from the cross-domain trigger
+        -- crossbar (rr_rea_trig_xbar) — when armed, fires the
+        -- capture as if the local comparator hit. Does NOT drive
+        -- trigger_out (that would create a ping-pong loop with
         -- other REA instances on the bus). Tied low when the
         -- crossbar isn't connected.
         trigger_i  : in  std_logic := '0';
 
-        -- ── Latched config (sample_clk_i domain) ───────────────────
+        -- ── Latched config (sample_clk domain) ───────────────────
         pretrig_len_i  : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         posttrig_len_i : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         trig_value_i   : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
@@ -67,15 +67,15 @@ entity rr_rea_capture_fsm is
         -- 645/646): bits[7:4] of TRIG_MODE = C_TRIG_OP_{EQ,NE,LT,GT,RISE,FALL}.
         -- Default 0 → EQ → historical masked-equality behaviour (back-compat).
         trig_mode_i    : in  std_logic_vector(7 downto 0) := (others => '0');
-        -- v0.3 decimation: capture_i every (decim_ratio + 1) samples.
+        -- v0.3 decimation: capture every (decim_ratio + 1) samples.
         -- Tied 0 disables decimation (every sample stored). Latched
-        -- on arm_pulse_i like the other config.
+        -- on arm_pulse like the other config.
         decim_ratio_i  : in  std_logic_vector(23 downto 0)
                               := (others => '0');
 
         -- ── v0.3 multi-stage sequencer (REA-REQ-600..607) ────────
-        -- seq_enable_i selects between the legacy single-comparator
-        -- path (trig_value_i / trig_mask_i) and the per-stage
+        -- seq_enable_in selects between the legacy single-comparator
+        -- path (trig_value_in / trig_mask_in) and the per-stage
         -- sequencer below. Tied 0 → legacy path (REA-REQ-600).
         seq_enable_i     : in  std_logic := '0';
 
@@ -102,10 +102,10 @@ entity rr_rea_capture_fsm is
                               := (others => '0');
 
         -- ── v0.5 per-condition comparator array (RTL-P3.647) ─────
-        -- array_enable_i selects the AND-of-conditions path: each valid
-        -- slot k applies its own op (cond_ops_i[k*4 +: 4] = C_TRIG_OP_*)
-        -- to the masked field (probe_i and cond_masks_i[k]) vs
-        -- (cond_values_i[k] and cond_masks_i[k]); the trigger fires when
+        -- array_enable_in selects the AND-of-conditions path: each valid
+        -- slot k applies its own op (cond_ops_in[k*4 +: 4] = C_TRIG_OP_*)
+        -- to the masked field (probe_in and cond_masks_in[k]) vs
+        -- (cond_values_in[k] and cond_masks_in[k]); the trigger fires when
         -- ALL valid slots match (mixed-op AND). Invalid slots don't block.
         -- value/mask are full G_SAMPLE_W (the regbank expands a compact
         -- 32-bit {op,lsb,width,value} slot into the shifted field). Tied 0 →
@@ -124,14 +124,14 @@ entity rr_rea_capture_fsm is
                               := (others => '0');
 
         -- ── v0.5 external board-pin trigger (RTL-P3.266) ─────────
-        -- ext_trigger_i is a package-pin input (synced to sample_clk_i in
+        -- ext_trigger_in is a package-pin input (synced to sample_clk in
         -- rr_rea_top) the user routes from a board pin — an oscilloscope
-        -- trigger-out, another FPGA's trigger_o, a push-button, etc.
-        -- When ext_enable_i='1' it joins the fire decision:
-        --   ext_and_i='0' (OR)  → fire on (internal hit) OR (ext pin)
-        --   ext_and_i='1' (AND) → fire only on (internal hit) AND (ext pin)
+        -- trigger-out, another FPGA's trigger_out, a push-button, etc.
+        -- When ext_enable_in='1' it joins the fire decision:
+        --   ext_and_in='0' (OR)  → fire on (internal hit) OR (ext pin)
+        --   ext_and_in='1' (AND) → fire only on (internal hit) AND (ext pin)
         -- Tied 0 / disabled → the pin is ignored (internal-only path,
-        -- back-compat). Distinct from the trig_xbar `trigger_i` pulse below,
+        -- back-compat). Distinct from the trig_xbar `trigger_in` pulse below,
         -- which stays an independent OR regardless of ext mode.
         ext_trigger_i    : in  std_logic := '0';
         ext_enable_i     : in  std_logic := '0';
@@ -164,6 +164,14 @@ architecture rtl of rr_rea_capture_fsm is
     constant C_REDUCE_STAGES : natural :=
         clog2(G_TRIG_CONDS);
     constant C_PIPE_STAGES : positive := C_WIDTH_STAGES + C_REDUCE_STAGES;
+    constant C_WIDTH_TREE_STAGES : positive :=
+        max_nat(1, (clog2(C_WIDTH_STAGES) + 1) / 2);
+    constant C_WIDTH_TREE_NODES : positive :=
+        max_nat(1, (C_WIDTH_STAGES + 3) / 4);
+    constant C_WIDTH_ALIGN_STAGES : natural :=
+        C_WIDTH_STAGES - C_WIDTH_TREE_STAGES;
+    constant C_WIDTH_ALIGN_STORAGE : positive :=
+        max_nat(1, C_WIDTH_ALIGN_STAGES);
     constant C_NUM_COMPARATORS : positive :=
         1 + G_TRIG_CONDS + G_TRIG_STAGES;
     constant C_COND_BASE : positive := 1;
@@ -171,6 +179,18 @@ architecture rtl of rr_rea_capture_fsm is
     constant C_REDUCE_WIDTH : positive := 2 ** C_REDUCE_STAGES;
     constant C_REDUCE_STORAGE : positive := max_nat(1, C_REDUCE_STAGES);
     constant C_CMP_EQUAL : t_cmp_token := (eq => '1', gt => '0', lt => '0');
+
+    type t_cmp_group is array (0 to 3) of t_cmp_token;
+
+    function cmp_group_combine(
+        token_group : t_cmp_group
+    ) return t_cmp_token is
+    begin
+        return cmp_combine(
+            cmp_combine(token_group(3), token_group(2)),
+            cmp_combine(token_group(1), token_group(0))
+        );
+    end function;
 
     function cmp_masked_slice(
         probe_value : std_logic_vector;
@@ -196,6 +216,29 @@ architecture rtl of rr_rea_capture_fsm is
             end if;
         end loop;
         return cmp_slice(masked_probe, masked_value);
+    end function;
+
+    function cmp_masked_group(
+        probe_value : std_logic_vector;
+        match_value : std_logic_vector;
+        match_mask  : std_logic_vector;
+        group_index : natural
+    ) return t_cmp_token is
+        variable token_group : t_cmp_group := (others => C_CMP_EQUAL);
+        variable slice_index : natural;
+    begin
+        for group_offset in 0 to 3 loop
+            slice_index := group_index * 4 + group_offset;
+            if slice_index < C_WIDTH_STAGES then
+                token_group(group_offset) := cmp_masked_slice(
+                    probe_value,
+                    match_value,
+                    match_mask,
+                    slice_index
+                );
+            end if;
+        end loop;
+        return cmp_group_combine(token_group);
     end function;
 
     function rise_masked_slice(
@@ -240,6 +283,52 @@ architecture rtl of rr_rea_capture_fsm is
         return result;
     end function;
 
+    function rise_masked_group(
+        current_value  : std_logic_vector;
+        previous_value : std_logic_vector;
+        match_mask     : std_logic_vector;
+        group_index    : natural
+    ) return std_logic is
+        variable result : std_logic := '0';
+        variable slice_index : natural;
+    begin
+        for group_offset in 0 to 3 loop
+            slice_index := group_index * 4 + group_offset;
+            if slice_index < C_WIDTH_STAGES then
+                result := result or rise_masked_slice(
+                    current_value,
+                    previous_value,
+                    match_mask,
+                    slice_index
+                );
+            end if;
+        end loop;
+        return result;
+    end function;
+
+    function fall_masked_group(
+        current_value  : std_logic_vector;
+        previous_value : std_logic_vector;
+        match_mask     : std_logic_vector;
+        group_index    : natural
+    ) return std_logic is
+        variable result : std_logic := '0';
+        variable slice_index : natural;
+    begin
+        for group_offset in 0 to 3 loop
+            slice_index := group_index * 4 + group_offset;
+            if slice_index < C_WIDTH_STAGES then
+                result := result or fall_masked_slice(
+                    current_value,
+                    previous_value,
+                    match_mask,
+                    slice_index
+                );
+            end if;
+        end loop;
+        return result;
+    end function;
+
     function token_matches(
         token_value : t_cmp_token;
         rise_value  : std_logic;
@@ -258,18 +347,34 @@ architecture rtl of rr_rea_capture_fsm is
         end case;
     end function;
 
-    type t_sample_pipe is array (0 to C_WIDTH_STAGES - 1)
-        of std_logic_vector(G_SAMPLE_W - 1 downto 0);
     type t_ptr_pipe is array (0 to C_WIDTH_STAGES - 1)
         of unsigned(C_PTR_W - 1 downto 0);
-    type t_token_pipe is array (
-        0 to C_WIDTH_STAGES - 1,
+    type t_token_tree is array (
+        0 to C_WIDTH_TREE_STAGES - 1,
+        0 to C_WIDTH_TREE_NODES - 1,
         0 to C_NUM_COMPARATORS - 1
     ) of t_cmp_token;
-    type t_edge_pipe is array (
-        0 to C_WIDTH_STAGES - 1,
+    type t_edge_token is record
+        rise : std_logic;
+        fall : std_logic;
+    end record;
+    type t_edge_tree is array (
+        0 to C_WIDTH_TREE_STAGES - 1,
+        0 to C_WIDTH_TREE_NODES - 1,
         0 to C_NUM_COMPARATORS - 1
-    ) of std_logic;
+    ) of t_edge_token;
+    type t_token_align_pipe is array (
+        0 to C_WIDTH_ALIGN_STORAGE - 1,
+        0 to C_NUM_COMPARATORS - 1
+    ) of t_cmp_token;
+    type t_edge_align_pipe is array (
+        0 to C_WIDTH_ALIGN_STORAGE - 1,
+        0 to C_NUM_COMPARATORS - 1
+    ) of t_edge_token;
+    type t_token_result is array (0 to C_NUM_COMPARATORS - 1)
+        of t_cmp_token;
+    type t_edge_result is array (0 to C_NUM_COMPARATORS - 1)
+        of t_edge_token;
     type t_condition_reduce_pipe is array (0 to C_REDUCE_STORAGE - 1)
         of std_logic_vector(C_REDUCE_WIDTH - 1 downto 0);
     type t_bit_reduce_pipe is array (0 to C_REDUCE_STORAGE - 1)
@@ -279,13 +384,21 @@ architecture rtl of rr_rea_capture_fsm is
     type t_ptr_reduce_pipe is array (0 to C_REDUCE_STORAGE - 1)
         of unsigned(C_PTR_W - 1 downto 0);
 
-    signal probe_pipe_r : t_sample_pipe := (others => (others => '0'));
-    signal previous_pipe_r : t_sample_pipe := (others => (others => '0'));
     signal pointer_width_r : t_ptr_pipe := (others => (others => '0'));
-    signal token_width_r : t_token_pipe :=
+    signal token_tree_r : t_token_tree :=
+        (others => (others => (others => C_CMP_EQUAL)));
+    signal edge_tree_r : t_edge_tree := (
+        others => (others => (others => (rise => '0', fall => '0')))
+    );
+    signal token_align_r : t_token_align_pipe :=
         (others => (others => C_CMP_EQUAL));
-    signal rise_width_r : t_edge_pipe := (others => (others => '0'));
-    signal fall_width_r : t_edge_pipe := (others => (others => '0'));
+    signal edge_align_r : t_edge_align_pipe := (
+        others => (others => (rise => '0', fall => '0'))
+    );
+    signal token_width_result : t_token_result :=
+        (others => C_CMP_EQUAL);
+    signal edge_width_result : t_edge_result :=
+        (others => (rise => '0', fall => '0'));
     signal valid_width_r : std_logic_vector(C_WIDTH_STAGES - 1 downto 0) :=
         (others => '0');
     signal ext_width_r : std_logic_vector(C_WIDTH_STAGES - 1 downto 0) :=
@@ -330,8 +443,8 @@ architecture rtl of rr_rea_capture_fsm is
     -- seq_state_r tracks the current stage (0..G_TRIG_STAGES-1).
     -- seq_counters_r[K] counts cumulative matches for stage K and
     -- resets when seq_state advances past K (or on arm).
-    -- Per-stage value/mask/count are LATCHED on arm_pulse_i just
-    -- like the legacy comparator config; this keeps mid-capture_i
+    -- Per-stage value/mask/count are LATCHED on arm_pulse just
+    -- like the legacy comparator config; this keeps mid-capture
     -- changes from disturbing an in-flight sequence.
     constant C_SEQ_STATE_W : positive :=
         clog2(G_TRIG_STAGES + 1);    -- +1 so we can express FINAL+1
@@ -397,8 +510,8 @@ architecture rtl of rr_rea_capture_fsm is
 
     -- ── External board-pin trigger (RTL-P3.266) ─────────────────
     -- ext_enable_r/ext_and_r latch on arm (like seq/array enables).
-    -- ext_trig_r double-registers the (already sample_clk_i-synced)
-    -- ext_trigger_i for clean edge timing alongside the comparator.
+    -- ext_trig_r double-registers the (already sample_clk-synced)
+    -- ext_trigger_in for clean edge timing alongside the comparator.
     -- effective_internal folds the external pin into the internal hit
     -- per the OR/AND mode; the FSM then fires on it (plus the
     -- independent trig_xbar OR).
@@ -450,57 +563,45 @@ begin
 
     trig_op <= to_integer(unsigned(trig_mode_r(7 downto 4)));
 
-    -- These wide sample-data stages carry no meaning unless valid_width_r is
-    -- set. Keeping them off sample_rst_i removes a reset tree that scales with
-    -- G_SAMPLE_W without changing the validity-gated interface contract.
-    process (sample_clk_i)
-    begin
-        if rising_edge(sample_clk_i) then
-            if reset_pulse_i = '0' and arm_pulse_i = '0' then
-                probe_pipe_r(0) <= probe_i;
-                previous_pipe_r(0) <= probe_prev_r;
-                for width_stage in 1 to C_WIDTH_STAGES - 1 loop
-                    probe_pipe_r(width_stage) <= probe_pipe_r(width_stage - 1);
-                    previous_pipe_r(width_stage) <=
-                        previous_pipe_r(width_stage - 1);
-                end loop;
-            end if;
-        end if;
-    end process;
-
     process (sample_clk_i, sample_rst_i)
+        variable token_group : t_cmp_group;
+        variable rise_group : std_logic_vector(3 downto 0);
+        variable fall_group : std_logic_vector(3 downto 0);
+        variable child_index : natural;
     begin
         if sample_rst_i = '1' then
-            -- Wide sample data is qualified by valid_width_r, so resetting it
-            -- would add recovery arcs without changing observable behaviour.
             pointer_width_r <= (others => (others => '0'));
-            token_width_r <= (others => (others => C_CMP_EQUAL));
-            rise_width_r <= (others => (others => '0'));
-            fall_width_r <= (others => (others => '0'));
             valid_width_r <= (others => '0');
             ext_width_r <= (others => '0');
         elsif rising_edge(sample_clk_i) then
             if reset_pulse_i = '1' or arm_pulse_i = '1' then
-                token_width_r <= (others => (others => C_CMP_EQUAL));
-                rise_width_r <= (others => (others => '0'));
-                fall_width_r <= (others => (others => '0'));
                 valid_width_r <= (others => '0');
                 ext_width_r <= (others => '0');
             else
                 pointer_width_r(0) <= wr_ptr_r;
                 valid_width_r(0) <= armed_r and not triggered_r and not done_r;
                 ext_width_r(0) <= ext_trig_r;
+                for width_stage in 1 to C_WIDTH_STAGES - 1 loop
+                    pointer_width_r(width_stage) <=
+                        pointer_width_r(width_stage - 1);
+                    valid_width_r(width_stage) <= valid_width_r(width_stage - 1);
+                    ext_width_r(width_stage) <= ext_width_r(width_stage - 1);
+                end loop;
 
-                token_width_r(0, 0) <= cmp_masked_slice(
-                    probe_i, trig_value_r, trig_mask_r, 0);
-                rise_width_r(0, 0) <= rise_masked_slice(
-                    probe_i, probe_prev_r, trig_mask_r, 0);
-                fall_width_r(0, 0) <= fall_masked_slice(
-                    probe_i, probe_prev_r, trig_mask_r, 0);
+                for width_node in 0 to C_WIDTH_TREE_NODES - 1 loop
+                    token_tree_r(0, width_node, 0) <= cmp_masked_group(
+                        probe_i, trig_value_r, trig_mask_r, width_node);
+                    edge_tree_r(0, width_node, 0).rise <= rise_masked_group(
+                        probe_i, probe_prev_r, trig_mask_r, width_node);
+                    edge_tree_r(0, width_node, 0).fall <= fall_masked_group(
+                        probe_i, probe_prev_r, trig_mask_r, width_node);
 
-                for condition_index in 0 to G_TRIG_CONDS - 1 loop
-                    token_width_r(0, C_COND_BASE + condition_index) <=
-                        cmp_masked_slice(
+                    for condition_index in 0 to G_TRIG_CONDS - 1 loop
+                        token_tree_r(
+                            0,
+                            width_node,
+                            C_COND_BASE + condition_index
+                        ) <= cmp_masked_group(
                             probe_i,
                             cond_values_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -508,31 +609,40 @@ begin
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto condition_index * G_SAMPLE_W),
-                            0
+                            width_node
                         );
-                    rise_width_r(0, C_COND_BASE + condition_index) <=
-                        rise_masked_slice(
+                        edge_tree_r(
+                            0,
+                            width_node,
+                            C_COND_BASE + condition_index
+                        ).rise <= rise_masked_group(
                             probe_i,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto condition_index * G_SAMPLE_W),
-                            0
+                            width_node
                         );
-                    fall_width_r(0, C_COND_BASE + condition_index) <=
-                        fall_masked_slice(
+                        edge_tree_r(
+                            0,
+                            width_node,
+                            C_COND_BASE + condition_index
+                        ).fall <= fall_masked_group(
                             probe_i,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto condition_index * G_SAMPLE_W),
-                            0
+                            width_node
                         );
-                end loop;
+                    end loop;
 
-                for sequence_index in 0 to G_TRIG_STAGES - 1 loop
-                    token_width_r(0, C_SEQ_BASE + sequence_index) <=
-                        cmp_masked_slice(
+                    for sequence_index in 0 to G_TRIG_STAGES - 1 loop
+                        token_tree_r(
+                            0,
+                            width_node,
+                            C_SEQ_BASE + sequence_index
+                        ) <= cmp_masked_group(
                             probe_i,
                             seq_value_r_flat(
                                 sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -540,149 +650,129 @@ begin
                             seq_mask_r_flat(
                                 sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto sequence_index * G_SAMPLE_W),
-                            0
+                            width_node
                         );
-                    rise_width_r(0, C_SEQ_BASE + sequence_index) <= '0';
-                    fall_width_r(0, C_SEQ_BASE + sequence_index) <= '0';
-                end loop;
-
-                for width_stage in 1 to C_WIDTH_STAGES - 1 loop
-                    pointer_width_r(width_stage) <=
-                        pointer_width_r(width_stage - 1);
-                    valid_width_r(width_stage) <= valid_width_r(width_stage - 1);
-                    ext_width_r(width_stage) <= ext_width_r(width_stage - 1);
-
-                    token_width_r(width_stage, 0) <= cmp_combine(
-                        cmp_masked_slice(
-                            probe_pipe_r(width_stage - 1),
-                            trig_value_r,
-                            trig_mask_r,
-                            width_stage
-                        ),
-                        token_width_r(width_stage - 1, 0)
-                    );
-                    rise_width_r(width_stage, 0) <=
-                        rise_width_r(width_stage - 1, 0) or
-                        rise_masked_slice(
-                            probe_pipe_r(width_stage - 1),
-                            previous_pipe_r(width_stage - 1),
-                            trig_mask_r,
-                            width_stage
-                        );
-                    fall_width_r(width_stage, 0) <=
-                        fall_width_r(width_stage - 1, 0) or
-                        fall_masked_slice(
-                            probe_pipe_r(width_stage - 1),
-                            previous_pipe_r(width_stage - 1),
-                            trig_mask_r,
-                            width_stage
-                        );
-
-                    for condition_index in 0 to G_TRIG_CONDS - 1 loop
-                        token_width_r(
-                            width_stage,
-                            C_COND_BASE + condition_index
-                        ) <= cmp_combine(
-                            cmp_masked_slice(
-                                probe_pipe_r(width_stage - 1),
-                                cond_values_r(
-                                    condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                    downto condition_index * G_SAMPLE_W),
-                                cond_masks_r(
-                                    condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                    downto condition_index * G_SAMPLE_W),
-                                width_stage
-                            ),
-                            token_width_r(
-                                width_stage - 1,
-                                C_COND_BASE + condition_index
-                            )
-                        );
-                        rise_width_r(
-                            width_stage,
-                            C_COND_BASE + condition_index
-                        ) <= rise_width_r(
-                            width_stage - 1,
-                            C_COND_BASE + condition_index
-                        ) or rise_masked_slice(
-                            probe_pipe_r(width_stage - 1),
-                            previous_pipe_r(width_stage - 1),
-                            cond_masks_r(
-                                condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                downto condition_index * G_SAMPLE_W),
-                            width_stage
-                        );
-                        fall_width_r(
-                            width_stage,
-                            C_COND_BASE + condition_index
-                        ) <= fall_width_r(
-                            width_stage - 1,
-                            C_COND_BASE + condition_index
-                        ) or fall_masked_slice(
-                            probe_pipe_r(width_stage - 1),
-                            previous_pipe_r(width_stage - 1),
-                            cond_masks_r(
-                                condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                downto condition_index * G_SAMPLE_W),
-                            width_stage
-                        );
-                    end loop;
-
-                    for sequence_index in 0 to G_TRIG_STAGES - 1 loop
-                        token_width_r(
-                            width_stage,
+                        edge_tree_r(
+                            0,
+                            width_node,
                             C_SEQ_BASE + sequence_index
-                        ) <= cmp_combine(
-                            cmp_masked_slice(
-                                probe_pipe_r(width_stage - 1),
-                                seq_value_r_flat(
-                                    sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                    downto sequence_index * G_SAMPLE_W),
-                                seq_mask_r_flat(
-                                    sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                                    downto sequence_index * G_SAMPLE_W),
-                                width_stage
-                            ),
-                            token_width_r(
-                                width_stage - 1,
-                                C_SEQ_BASE + sequence_index
-                            )
-                        );
-                        rise_width_r(
-                            width_stage,
+                        ).rise <= '0';
+                        edge_tree_r(
+                            0,
+                            width_node,
                             C_SEQ_BASE + sequence_index
-                        ) <= '0';
-                        fall_width_r(
-                            width_stage,
-                            C_SEQ_BASE + sequence_index
-                        ) <= '0';
+                        ).fall <= '0';
                     end loop;
                 end loop;
+
+                for width_level in 1 to C_WIDTH_TREE_STAGES - 1 loop
+                    for width_node in 0 to
+                        (
+                            C_WIDTH_STAGES + 4 ** (width_level + 1) - 1
+                        ) / (4 ** (width_level + 1)) - 1 loop
+                        for comparator_index in
+                            0 to C_NUM_COMPARATORS - 1 loop
+                            token_group := (others => C_CMP_EQUAL);
+                            rise_group := (others => '0');
+                            fall_group := (others => '0');
+                            for child_offset in 0 to 3 loop
+                                child_index := width_node * 4 + child_offset;
+                                if child_index < (
+                                    C_WIDTH_STAGES + 4 ** width_level - 1
+                                ) / (4 ** width_level) then
+                                    token_group(child_offset) := token_tree_r(
+                                        width_level - 1,
+                                        child_index,
+                                        comparator_index
+                                    );
+                                    rise_group(child_offset) := edge_tree_r(
+                                        width_level - 1,
+                                        child_index,
+                                        comparator_index
+                                    ).rise;
+                                    fall_group(child_offset) := edge_tree_r(
+                                        width_level - 1,
+                                        child_index,
+                                        comparator_index
+                                    ).fall;
+                                end if;
+                            end loop;
+                            token_tree_r(
+                                width_level,
+                                width_node,
+                                comparator_index
+                            ) <= cmp_group_combine(token_group);
+                            edge_tree_r(
+                                width_level,
+                                width_node,
+                                comparator_index
+                            ).rise <= rise_group(0) or rise_group(1)
+                                or rise_group(2) or rise_group(3);
+                            edge_tree_r(
+                                width_level,
+                                width_node,
+                                comparator_index
+                            ).fall <= fall_group(0) or fall_group(1)
+                                or fall_group(2) or fall_group(3);
+                        end loop;
+                    end loop;
+                end loop;
+
+                if C_WIDTH_ALIGN_STAGES > 0 then
+                    for comparator_index in
+                        0 to C_NUM_COMPARATORS - 1 loop
+                        token_align_r(0, comparator_index) <= token_tree_r(
+                            C_WIDTH_TREE_STAGES - 1, 0, comparator_index);
+                        edge_align_r(0, comparator_index) <= edge_tree_r(
+                            C_WIDTH_TREE_STAGES - 1, 0, comparator_index);
+                    end loop;
+                    for width_stage in 1 to C_WIDTH_ALIGN_STAGES - 1 loop
+                        for comparator_index in
+                            0 to C_NUM_COMPARATORS - 1 loop
+                            token_align_r(width_stage, comparator_index) <=
+                                token_align_r(width_stage - 1, comparator_index);
+                            edge_align_r(width_stage, comparator_index) <=
+                                edge_align_r(
+                                    width_stage - 1, comparator_index);
+                        end loop;
+                    end loop;
+                end if;
             end if;
         end if;
     end process;
 
+    g_width_tree_result : if C_WIDTH_ALIGN_STAGES = 0 generate
+        g_tree_result_comparators :
+        for comparator_index in 0 to C_NUM_COMPARATORS - 1 generate
+            token_width_result(comparator_index) <= token_tree_r(
+                C_WIDTH_TREE_STAGES - 1, 0, comparator_index);
+            edge_width_result(comparator_index) <= edge_tree_r(
+                C_WIDTH_TREE_STAGES - 1, 0, comparator_index);
+        end generate;
+    end generate;
+
+    g_width_aligned_result : if C_WIDTH_ALIGN_STAGES > 0 generate
+        g_aligned_result_comparators :
+        for comparator_index in 0 to C_NUM_COMPARATORS - 1 generate
+            token_width_result(comparator_index) <= token_align_r(
+                C_WIDTH_ALIGN_STAGES - 1, comparator_index);
+            edge_width_result(comparator_index) <= edge_align_r(
+                C_WIDTH_ALIGN_STAGES - 1, comparator_index);
+        end generate;
+    end generate;
+
     legacy_width_match <= token_matches(
-        token_width_r(C_WIDTH_STAGES - 1, 0),
-        rise_width_r(C_WIDTH_STAGES - 1, 0),
-        fall_width_r(C_WIDTH_STAGES - 1, 0),
+        token_width_result(0),
+        edge_width_result(0).rise,
+        edge_width_result(0).fall,
         trig_op
     );
 
     g_condition_results : for condition_index in 0 to G_TRIG_CONDS - 1 generate
         cond_width_match(condition_index) <= token_matches(
-            token_width_r(
-                C_WIDTH_STAGES - 1,
-                C_COND_BASE + condition_index
-            ),
-            rise_width_r(
-                C_WIDTH_STAGES - 1,
-                C_COND_BASE + condition_index
-            ),
-            fall_width_r(
-                C_WIDTH_STAGES - 1,
-                C_COND_BASE + condition_index
-            ),
+            token_width_result(C_COND_BASE + condition_index),
+            edge_width_result(C_COND_BASE + condition_index).rise,
+            edge_width_result(C_COND_BASE + condition_index).fall,
             to_integer(unsigned(
                 cond_ops_r(condition_index * 4 + 3 downto condition_index * 4)
             ))
@@ -690,10 +780,8 @@ begin
     end generate;
 
     g_sequence_results : for sequence_index in 0 to G_TRIG_STAGES - 1 generate
-        seq_width_match(sequence_index) <= token_width_r(
-            C_WIDTH_STAGES - 1,
-            C_SEQ_BASE + sequence_index
-        ).eq;
+        seq_width_match(sequence_index) <= token_width_result(
+            C_SEQ_BASE + sequence_index).eq;
     end generate;
 
     g_no_condition_reduction : if C_REDUCE_STAGES = 0 generate
@@ -883,17 +971,17 @@ begin
 
         elsif rising_edge(sample_clk_i) then
 
-            -- Default: trigger_o is a 1-cycle pulse.
+            -- Default: trigger_out is a 1-cycle pulse.
             trigger_out_r <= '0';
 
             -- External board-pin: register every cycle (RTL-P3.266). The pin
-            -- is already sample_clk_i-synced in rr_rea_top; this is the local
+            -- is already sample_clk-synced in rr_rea_top; this is the local
             -- pipeline flop so the fold above sees a clean registered level.
             ext_trig_r <= ext_trigger_i;
 
             -- ── Free-running write pointer ─────────────────────
             -- REA-REQ-100/101: wr_ptr advances every cycle while
-            -- !done_o, regardless of armed_o state. arm_pulse_i does NOT
+            -- !done, regardless of armed state. arm_pulse does NOT
             -- reset wr_ptr — pre-arm context is preserved.
             -- v0.3: also gated by decim_tick so wr_ptr only advances
             -- on stored samples (one per decim_ratio+1 cycles).
@@ -905,7 +993,7 @@ begin
             -- Down-counter that wraps at decim_ratio. When the counter
             -- hits 0, decim_tick fires for one cycle (storing this
             -- sample), then the counter reloads to decim_ratio.
-            -- arm_pulse_i resets the counter so each capture_i session
+            -- arm_pulse resets the counter so each capture session
             -- starts on a clean tick boundary.
             if done_r = '0' then
                 if decim_count_r = 0 then
@@ -915,7 +1003,7 @@ begin
                 end if;
             end if;
 
-            -- ── reset_pulse_i: hard reset of capture_i state ───────
+            -- ── reset_pulse: hard reset of capture state ───────
             if reset_pulse_i = '1' then
                 armed_r       <= '0';
                 triggered_r   <= '0';
@@ -923,13 +1011,13 @@ begin
                 overflow_r    <= '0';
                 post_count_r  <= (others => '0');
                 trigger_out_r <= '0';
-                -- NOTE: wr_ptr_r is NOT reset on reset_pulse_i for v0.1
+                -- NOTE: wr_ptr_r is NOT reset on reset_pulse for v0.1
                 -- — keeping the buffer state alive across soft resets
                 -- is consistent with sliding-window semantics. Hard
-                -- buffer-clearing only happens via sample_rst_i.
+                -- buffer-clearing only happens via sample_rst.
             end if;
 
-            -- ── arm_pulse_i: enable trigger watching ─────────────
+            -- ── arm_pulse: enable trigger watching ─────────────
             -- Latches config, but does NOT reset wr_ptr_r.
             if arm_pulse_i = '1' then
                 armed_r        <= '1';
@@ -940,7 +1028,7 @@ begin
                 posttrig_len_r <= unsigned(posttrig_len_i);
                 trig_mode_r    <= trig_mode_i;
                 decim_ratio_r  <= unsigned(decim_ratio_i);
-                -- REA-REQ-606: arm_pulse_i resets seq_state to 0 and
+                -- REA-REQ-606: arm_pulse resets seq_state to 0 and
                 -- clears all counters; latches the per-stage config.
                 seq_enable_r   <= seq_enable_i;
                 seq_state_r    <= (others => '0');
@@ -1011,10 +1099,10 @@ begin
             end if;
 
             -- ── Trigger detection ──────────────────────────────
-            -- Fires only when armed_o and not yet triggered_o.
-            -- REA-REQ-400/401: an external trigger_i pulse fires
-            -- the capture_i exactly like a local hit, but does NOT
-            -- drive trigger_o (otherwise N coupled REA cores
+            -- Fires only when armed and not yet triggered.
+            -- REA-REQ-400/401: an external trigger_in pulse fires
+            -- the capture exactly like a local hit, but does NOT
+            -- drive trigger_out (otherwise N coupled REA cores
             -- would ping-pong each other forever).
             -- REA-REQ-602: in seq_enable mode, trigger_hit is the
             -- final-stage match path (seq_final_fire).
