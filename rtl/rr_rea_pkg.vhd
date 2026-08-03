@@ -64,7 +64,15 @@ package rr_rea_pkg is
     -- (wide_cond). NB the on-silicon v0.5 magic 0x52454105 in closed tickets
     -- (RTL-P3.1198 identity, T2.119 handoff) is HISTORICAL fact — not rewritten.
     -- v0.7 adds the per-sample timestamp plane and DATA_PLANE_SEL (RTL-T2.123).
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454107";
+    -- v0.8 trust tier (CRC sweep + readback selftest, FEATURES[19]);
+    -- v0.9 adds PRETRIG_VALID (RTL-T1.16). The MINOR must track the
+    -- feature tier — the host reads it and REFUSES a trigger the core
+    -- cannot honour rather than degrading silently. It sat at 07 through
+    -- two feature tiers, which made the gate a lie waiting to be relied
+    -- on; every _FEATURE_MIN_MINOR entry happens to be <= 5, so nothing
+    -- had broken yet. Kept ODD on purpose: the one-read odd-VERSION probe
+    -- is how a wide-readback miscompile is detected (RTL-P1.96).
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454109";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;

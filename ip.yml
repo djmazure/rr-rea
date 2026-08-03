@@ -10,7 +10,7 @@
 
 name: rea
 namespace: routertl
-version: 0.7.0
+version: 0.9.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
