@@ -1,5 +1,5 @@
 name: rea_registers
-version: 0.8.0   # REA-P2.1: readback-integrity register window
+version: 0.9.0   # RTL-T1.16: PRETRIG_VALID (pre-trigger contiguity)
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -45,4 +45,11 @@ registers:
   - {name: CRC_SAMPLE, address: 0x00E4, access: RO, description: Sample-plane readback CRC}
   - {name: CRC_TS, address: 0x00E8, access: RO, description: Timestamp-plane readback CRC}
   - {name: CAPTURE_EPOCH, address: 0x00EC, access: RO, description: Capture generation counter}
+  # RTL-T1.16: how many pre-trigger cells in the captured window were
+  # actually written AFTER the arm, i.e. are contiguous with THIS trigger.
+  # Writes freeze at done so the window can be read back; if the trigger
+  # fires within pretrig_len samples of the arm, the remaining pre-trigger
+  # cells still hold the PREVIOUS capture's tail. Stale-but-plausible
+  # samples are worse than uninitialised ones, so the host trims to this.
+  - {name: PRETRIG_VALID, address: 0x00F0, access: RO, description: Pre-trigger samples contiguous with this capture}
   - {name: DATA_BASE, address: 0x0100, access: RO, description: Capture data window base}

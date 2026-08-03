@@ -152,7 +152,18 @@ entity rr_rea_capture_fsm is
         -- ── Pointer outputs (regbank readback) ───────────────────
         wr_ptr_o    : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         trig_ptr_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
-        start_ptr_o : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0)
+        start_ptr_o : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+
+        -- RTL-T1.16: how many PRE-TRIGGER cells in the captured window were
+        -- actually written after this arm, i.e. are contiguous with THIS
+        -- trigger. The sliding-window write enable stops at done_o so the
+        -- window can be read back (see A1 — that gate is load-bearing and must
+        -- NOT be widened), which means the buffer is frozen between captures.
+        -- If the trigger fires within pretrig_len samples of the arm, the
+        -- remaining pre-trigger cells still hold the PREVIOUS capture's tail —
+        -- stale but entirely plausible data, which is worse than uninitialised
+        -- cells because it reads as real context. The host trims to this count.
+        pretrig_valid_o : out std_logic_vector(clog2(G_DEPTH) downto 0)
     );
 end entity;
 
@@ -430,6 +441,11 @@ architecture rtl of rr_rea_capture_fsm is
     signal overflow_r    : std_logic := '0';
     signal wr_ptr_r      : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal trig_ptr_r    : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
+    -- RTL-T1.16 pre-trigger contiguity accounting.
+    signal since_arm_r     : unsigned(clog2(G_DEPTH) downto 0)
+        := (others => '0');
+    signal pretrig_valid_r : unsigned(clog2(G_DEPTH) downto 0)
+        := (others => '0');
     signal start_ptr_r   : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal post_count_r  : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
@@ -905,6 +921,7 @@ begin
     wr_ptr_o    <= std_logic_vector(wr_ptr_r);
     trig_ptr_o  <= std_logic_vector(trig_ptr_r);
     start_ptr_o <= std_logic_vector(start_ptr_r);
+    pretrig_valid_o <= std_logic_vector(pretrig_valid_r);
 
     -- ── DPRAM drive — sliding-window write enable. Note: NOT gated
     -- by `armed_r`. This is the architectural fix vs the naive design.
@@ -1019,10 +1036,23 @@ begin
 
             -- ── arm_pulse: enable trigger watching ─────────────
             -- Latches config, but does NOT reset wr_ptr_r.
+            -- RTL-T1.16: count samples actually STORED since this arm, so the
+            -- host can tell which pre-trigger cells belong to this capture.
+            -- Saturating: once a full window has been written every
+            -- pre-trigger cell is contiguous and the exact count stops
+            -- mattering.
+            if store_sample = '1' and armed_r = '1' and triggered_r = '0'
+               and since_arm_r /= to_unsigned(G_DEPTH, since_arm_r'length) then
+                since_arm_r <= since_arm_r + 1;
+            end if;
+
             if arm_pulse_i = '1' then
                 armed_r        <= '1';
                 triggered_r    <= '0';
                 done_r         <= '0';
+                -- Restart the contiguity count with the capture.
+                since_arm_r     <= (others => '0');
+                pretrig_valid_r <= (others => '0');
                 post_count_r   <= (others => '0');
                 pretrig_len_r  <= unsigned(pretrig_len_i);
                 posttrig_len_r <= unsigned(posttrig_len_i);
@@ -1116,6 +1146,28 @@ begin
                and arm_pulse_i = '0' and reset_pulse_i = '0' then
                 if local_fire_pipe = '1' or trigger_i = '1' then
                     triggered_r <= '1';
+                    -- RTL-T1.16: freeze the contiguity figure AT the trigger.
+                    -- Cells beyond this are pre-arm residue, not context.
+                    --
+                    -- Subtract C_PIPE_STAGES: trigger detection is pipelined,
+                    -- so the fire lands C_PIPE_STAGES cycles AFTER the sample
+                    -- that caused it (which is why trig_ptr_r comes from the
+                    -- pointer pipeline, not from wr_ptr_r). Samples stored
+                    -- during that latency sit AFTER the triggering sample and
+                    -- are post-trigger, not pre-trigger context — counting
+                    -- them overstated the valid window by exactly the pipeline
+                    -- depth, which the sim caught as a constant +4 at
+                    -- G_SAMPLE_W=12 / G_TRIG_CONDS=4.
+                    if since_arm_r <= to_unsigned(C_PIPE_STAGES,
+                                                  since_arm_r'length) then
+                        pretrig_valid_r <= (others => '0');
+                    elsif (since_arm_r - C_PIPE_STAGES)
+                          < resize(pretrig_len_r, since_arm_r'length) then
+                        pretrig_valid_r <= since_arm_r - C_PIPE_STAGES;
+                    else
+                        pretrig_valid_r <= resize(pretrig_len_r,
+                                                  pretrig_valid_r'length);
+                    end if;
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
                         post_count_r <= wr_ptr_r - local_fire_ptr;

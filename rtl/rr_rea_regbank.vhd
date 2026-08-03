@@ -84,6 +84,8 @@ entity rr_rea_regbank is
         crc_sample_i       : in std_logic_vector(31 downto 0) := (others => '0');
         crc_ts_i           : in std_logic_vector(31 downto 0) := (others => '0');
         capture_epoch_i    : in std_logic_vector(31 downto 0) := (others => '0');
+        -- RTL-T1.16: pre-trigger cells contiguous with this capture.
+        pretrig_valid_i    : in std_logic_vector(31 downto 0) := (others => '0');
         crc_valid_i        : in std_logic := '0';
         selftest_busy_i    : in std_logic := '0';  -- 0 in P2.2 (fill lands in P2.3)
         selftest_mode_i    : in std_logic := '0';  -- 0 in P2.2
@@ -544,6 +546,7 @@ begin
             when C_ADDR_CRC_SAMPLE    => rd_data_o <= crc_sample_i;
             when C_ADDR_CRC_TS        => rd_data_o <= crc_ts_i;
             when C_ADDR_CAPTURE_EPOCH => rd_data_o <= capture_epoch_i;
+            when C_ADDR_PRETRIG_VALID => rd_data_o <= pretrig_valid_i;
             when C_ADDR_SELFTEST_CTRL =>
                 rd_data_o <= (others => '0');
                 rd_data_o(0) <= selftest_ctrl_r;

@@ -47,6 +47,7 @@ package rr_rea_pkg is
     constant C_REGBANK_ADDR_CRC_SAMPLE         : unsigned(15 downto 0) := x"00E4";  -- RO
     constant C_REGBANK_ADDR_CRC_TS             : unsigned(15 downto 0) := x"00E8";  -- RO
     constant C_REGBANK_ADDR_CAPTURE_EPOCH      : unsigned(15 downto 0) := x"00EC";  -- RO
+    constant C_REGBANK_ADDR_PRETRIG_VALID      : unsigned(15 downto 0) := x"00F0";  -- RO
     constant C_REGBANK_ADDR_DATA_BASE          : unsigned(15 downto 0) := x"0100";  -- RO
     -- rr-regbank-end REGBANK_ADDRESSES
 
@@ -158,6 +159,8 @@ package rr_rea_pkg is
     constant C_ADDR_CRC_SAMPLE     : unsigned(15 downto 0) := C_REGBANK_ADDR_CRC_SAMPLE;
     constant C_ADDR_CRC_TS         : unsigned(15 downto 0) := C_REGBANK_ADDR_CRC_TS;
     constant C_ADDR_CAPTURE_EPOCH  : unsigned(15 downto 0) := C_REGBANK_ADDR_CAPTURE_EPOCH;
+    -- RTL-T1.16
+    constant C_ADDR_PRETRIG_VALID  : unsigned(15 downto 0) := C_REGBANK_ADDR_PRETRIG_VALID;
     constant C_ADDR_DATA_BASE   : unsigned(15 downto 0) := C_REGBANK_ADDR_DATA_BASE;
 
     -- ── FEATURES register (0xD0) field layout (RTL-P3.1198) ──────

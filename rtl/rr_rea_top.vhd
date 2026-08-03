@@ -219,6 +219,9 @@ architecture rtl of rr_rea_top is
     signal wr_ptr_sclk      : std_logic_vector(C_PTR_W - 1 downto 0);
     signal trig_ptr_sclk    : std_logic_vector(C_PTR_W - 1 downto 0);
     signal start_ptr_sclk   : std_logic_vector(C_PTR_W - 1 downto 0);
+    -- RTL-T1.16: pre-trigger contiguity count (C_PTR_W+1 bits so a full
+    -- window, i.e. G_DEPTH itself, is representable).
+    signal pretrig_valid_sclk : std_logic_vector(C_PTR_W downto 0);
 
     -- ── CDC: sample_clk_i → jtag_clk_i (status mirror) ───────────────
     signal armed_jclk     : std_logic_vector(0 downto 0);
@@ -226,6 +229,8 @@ architecture rtl of rr_rea_top is
     signal done_jclk      : std_logic_vector(0 downto 0);
     signal overflow_jclk  : std_logic_vector(0 downto 0);
     signal start_ptr_jclk : std_logic_vector(C_PTR_W - 1 downto 0);
+    signal pretrig_valid_jclk : std_logic_vector(C_PTR_W downto 0);
+    signal pretrig_valid_reg  : std_logic_vector(31 downto 0);
 
     -- ── DPRAM read-port (jtag_clk_i domain) ────────────────────────
     signal dpram_addr_b : std_logic_vector(C_PTR_W - 1 downto 0);
@@ -335,6 +340,7 @@ begin
             done_i      => done_jclk(0),
             overflow_i  => overflow_jclk(0),
             start_ptr_i => start_ptr_jclk,
+            pretrig_valid_i => pretrig_valid_reg,
             -- v0.8 readback integrity (REA-P2.2). CRC values + crc_valid arrive
             -- with the sweep (P2.2p2-sweep); selftest bits with fill (P2.3).
             -- Wired to their inert defaults until then; the epoch counter is live.
@@ -687,7 +693,8 @@ begin
             dpram_din_o   => dpram_din_sclk,
             wr_ptr_o    => wr_ptr_sclk,
             trig_ptr_o  => trig_ptr_sclk,
-            start_ptr_o => start_ptr_sclk
+            start_ptr_o => start_ptr_sclk,
+            pretrig_valid_o => pretrig_valid_sclk
         );
 
     -- ── CDC: sample_clk_i status → jtag_clk_i ────────────────────────
@@ -720,6 +727,17 @@ begin
         port map (dst_clk_i => reg_clk_o,
                   din_i => start_ptr_sclk,
                   dout_o => start_ptr_jclk);
+
+    -- RTL-T1.16: same double-flop word crossing as start_ptr — the value is
+    -- static once the trigger has fired, so a word sync is sound here.
+    u_cdc_pretrig_valid : rr_rea_sync_word
+        generic map (G_WIDTH => C_PTR_W + 1)
+        port map (dst_clk_i => reg_clk_o,
+                  din_i => pretrig_valid_sclk,
+                  dout_o => pretrig_valid_jclk);
+
+    pretrig_valid_reg <= std_logic_vector(
+        resize(unsigned(pretrig_valid_jclk), 32));
 
     -- ── trigger_o: pulse the external port + maintain a sticky
     --    flag flipped on each trigger so an LED can dance and the
