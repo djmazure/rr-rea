@@ -248,6 +248,22 @@ functional_contract:
       greater than or equal to DEPTH (the requested window cannot fit), and
       SHALL clear for a subsequent legal arm or reset_pulse. STATUS[3] mirrors
       this generated FSM flag through the sample-to-JTAG CDC.
+  - id: REA-REQ-108
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
+    desc: >-
+      While armed and not yet triggered, the trigger condition SHALL be
+      evaluated on EVERY stored sample, not only at or near arm_pulse. A
+      condition that is FALSE at arm and becomes true later — the whole reason
+      a pre-trigger window exists — SHALL fire the capture, including when the
+      condition is a probe bit driven by a host SOURCE write during the armed
+      window, and regardless of whether any JTAG traffic occurs while armed.
+      Until the capture fires it SHALL remain untriggered for the entire
+      interval the condition is false. RTL-T2.220: REA-REQ-100..107 pin the
+      sliding window and the pointer arithmetic — the output mapping — so a
+      core that only sampled the condition at arm satisfied every one of them,
+      and the shipped rea_source_demo documented a pre-trigger scenario that
+      nothing had ever shown the hardware perform.
 
   # ── rr_rea_capture_fsm (cross-domain trigger, v0.2) ───────────────
   - id: REA-REQ-400
