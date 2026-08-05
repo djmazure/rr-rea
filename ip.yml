@@ -1,16 +1,36 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.7 (VERSION magic 0x52454107) as of RTL-T2.123:
-# aligned per-sample timestamp plane selected through DATA_PLANE_SEL.
+# On-chip protocol tier v0.9 (VERSION magic 0x52454109): aligned per-sample
+# timestamp plane (DATA_PLANE_SEL, RTL-T2.123) + the v0.8 readback-integrity
+# trust tier + PRETRIG_VALID.
 #
 # First-party on-chip logic analyzer IP. THIS repo (github.com/djmazure/rr-rea)
 # is the PUBLIC home of the routertl/rea package: `rr pkg publish` runs from
 # here, the registry pins this repo's commits, and `rr pkg add routertl/rea`
-# clones it anonymously. The routertl SDK carries a synced builtin copy at
-# ip/routertl/rea (offline convenience for repo-checkout benches).
+# clones it anonymously.
+#
+# THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
+# agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
+#
+#   version: below        the PACKAGE version the registry pins   -> 1.0.0
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.9.0
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454109
+#
+# 1.0.0 is a MAJOR bump because the ESA _i/_o rename changed rr_rea_top's
+# public entity ports (sample_clk->sample_clk_i, probe_in->probe_i,
+# source_out->source_o) — a breaking interface change for every consumer.
+# It also ends RTL-T2.228, where this tree and the routertl vendored builtin
+# both claimed 0.9.0 with incompatible ports, making an ip.lock pin of
+# "0.9.0" meaningless.
+#
+# The other two surfaces deliberately do NOT move with it: the register map
+# is unchanged by a port rename, and the feature tier is unchanged because no
+# runtime feature was added. NB the tier byte must stay ODD — the
+# readback-trust acceptance probe keys on bit0=1 — so it can never simply
+# track a decimal package version.
 
 name: rea
 namespace: routertl
-version: 0.9.0
+version: 1.0.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
