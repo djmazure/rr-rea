@@ -92,6 +92,26 @@ build:
     sources: []
     test_dir: sim/cocotb/tests
     simulator: nvc
+    # RTL-T3.98 unit source closure. `rr sim` standalone against a single unit
+    # must elaborate ONLY that unit's source closure, not the whole IP — a
+    # capture-FSM test that drags in the top, the regbank and the JTAG iface
+    # is slower and stops being a unit test.
+    #
+    # RTL-P2.989: this block lived ONLY in the routertl vendored builtin and
+    # was never mirrored here, so evicting the builtin would have deleted the
+    # capability outright. It is restored to the canonical tree with the
+    # in-repo test_dir above (the builtin's escaped the IP root as
+    # ../../../sim/cocotb/tests/rea — the non-self-contained shape RTL-P4.239
+    # was filed for).
+    tests:
+      test_rea_capture_fsm:
+        top: rr_rea_capture_fsm
+        sources:
+          - rtl/rr_rea_pkg.vhd
+          - rtl/rr_rea_capture_fsm.vhd
+        generics:
+          G_SAMPLE_W: 12
+          G_DEPTH: 4096
     waves:
       formats: [fst]
 

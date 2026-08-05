@@ -552,7 +552,11 @@ functional_contract:
       decomposition, not a decision-only shift: a stage compares or carries
       forward at most C_SLICE_W (=8) masked probe bits per field and registers
       its partial result; each condition aggregation level is a registered
-      binary reduction. Post-synthesis netlist plus STA review
+      binary reduction. When the width tree is shallower than C_WIDTH_STAGES,
+      only the narrow root token, edge result, sample tag, and validity state
+      SHALL be aligned through the remaining stages; full-width
+      current/previous operands SHALL NOT be retained per width stage.
+      Post-synthesis netlist plus STA review
       SHALL demonstrate that every register-to-register trigger-decision-cone
       path crosses no more than one C_SLICE_W-wide field comparison and one
       binary reduction level. Arbitrary output-only delay stages fail this
@@ -614,15 +618,17 @@ functional_contract:
       reduction tree, not just equality. Each C_SLICE_W-wide masked field-slice
       emits a lexicographic 3-state token {eq, gt, lt}; two nodes combine
       ASSOCIATIVELY as eq = eq_hi and eq_lo; gt = gt_hi or (eq_hi and gt_lo);
-      lt = lt_hi or (eq_hi and lt_lo) — a monoid, hence a registered
-      C_WIDTH_STAGES slice chain. At the root EQ=eq, NE=not eq, GT=gt, LT=lt
+      lt = lt_hi or (eq_hi and lt_lo) — a monoid, hence a registered radix-4
+      width tree (two balanced binary levels per stage) followed by narrow
+      result alignment to exactly C_WIDTH_STAGES. At the root EQ=eq, NE=not eq,
+      GT=gt, LT=lt
       (masked-unsigned, matching REA-REQ-610/611/620/621/630). RISE/FALL ride
       alongside as a per-slice edge bit (masked cur and not prev for RISE; masked
       prev and not cur for FALL, from a registered previous sample) reduced by
-      OR. Each accumulator stage crosses at most one C_SLICE_W-wide slice
-      comparison/combine; the separate condition tree crosses one binary
-      reduction level per stage (REA-REQ-321), with `triggered` exposing the
-      final token decision.
+      OR. Each registered tree stage crosses at most one C_SLICE_W-wide slice
+      comparison and two combine levels; the separate condition tree crosses one
+      binary reduction level per stage (REA-REQ-321), with `triggered` exposing
+      the final token decision.
   - id: REA-REQ-327
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
@@ -670,7 +676,7 @@ functional_contract:
   # to kill.
   - id: REA-REQ-800
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine (new logic, `sample_clk` domain)" }]
     desc: >-
       The CRC sweep auto-runs on the rising edge of done (and on selftest
       fill completion) with no host action; crc_valid asserts only after
@@ -701,7 +707,7 @@ functional_contract:
       ROUTERTL-002 (host reference = zlib.crc32 over the raw '<u4' pages).
   - id: REA-REQ-802
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine (new logic, `sample_clk` domain)" }]
     desc: >-
       A sweep in progress MUST NOT perturb concurrent port-B JTAG readback:
       interleaving DATA_BASE reads with an active sweep returns exactly the
@@ -709,7 +715,7 @@ functional_contract:
       never touches port B).
   - id: REA-REQ-803
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine (new logic, `sample_clk` domain)" }]
     desc: >-
       arm_pulse or soft reset during a sweep or a fill ABORTS it, clears
       crc_valid, and increments CAPTURE_EPOCH — before any subsequent
@@ -733,7 +739,7 @@ functional_contract:
                  -> next(invalidate_toggle_r) = '0' )
   - id: REA-REQ-804
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine (new logic, `sample_clk` domain)" }]
     desc: >-
       When G_TIMESTAMP_W > 0, CRC_TS (0xE8) equals the golden CRC-32 of the
       plane-1 page stream with an INDEPENDENT init (never continuing plane
@@ -749,7 +755,7 @@ functional_contract:
       G_SAMPLE_W = 33, 64, and 704 (the field's real operating point).
   - id: REA-REQ-806
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions (v0.8)" }]
     desc: >-
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
@@ -759,7 +765,7 @@ functional_contract:
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions (v0.8)" }]
     desc: >-
       CAPTURE_EPOCH (0xEC) increments on every accepted arm, accepted
       selftest fill, soft reset, and sweep/fill abort — and on NOTHING else
@@ -782,7 +788,7 @@ functional_contract:
                   or fill_accept = '1') ) )
   - id: REA-REQ-808
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.5 CDC — snapshot-and-toggle publication" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.5 CDC — snapshot-and-toggle publication (one new, small structure)" }]
     desc: >-
       Torn publication is impossible: crc_valid is NEVER observable on the
       JTAG side while any CRC register bit still carries a pre-latch value.
@@ -792,7 +798,7 @@ functional_contract:
       suppressed, crc_valid stays low).
   - id: REA-REQ-810
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.1 Sweep engine (new logic, `sample_clk` domain)" }]
     desc: >-
       Port-A single-owner arbiter: at most one of {capture write (dpram_we),
       selftest fill write (fill_we), sweep read (sweep_rd_en)} is active on
@@ -817,7 +823,7 @@ functional_contract:
                  and (sweep_owns_a = '1' -> dpram_we_a = '0') )
   - id: REA-REQ-811
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.3 Register map additions (v0.8)" }]
     desc: >-
       Any port-A write outside the sweep engine's own sweep (a capture write
       or a fill write) implies crc_valid is already clear on that cycle — a
@@ -836,7 +842,7 @@ functional_contract:
         always ( (dpram_we_a = '1' and fill_busy = '0') -> pub_done_r = '0' )
   - id: REA-REQ-850
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode (BIST)" }]
     desc: >-
       An accepted fill writes the exact specified LFSR sequence: 32-bit
       maximal Fibonacci LFSR, taps 32,22,2,1 (b = x[31] xor x[21] xor x[1]
@@ -846,14 +852,14 @@ functional_contract:
       Hard-coded golden prefix per ROUTERTL-002.
   - id: REA-REQ-851
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode (BIST)" }]
     desc: >-
       SELFTEST_SEED is sampled ATOMICALLY at fill acceptance (a seed write
       after acceptance has no effect on the in-flight fill); seed 0 is
       substituted with 0x52454108 (LFSR lockup guard).
   - id: REA-REQ-852
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode (BIST)" }]
     desc: >-
       A fill toggle while armed, while a fill is active, mid-capture, OR while a
       CRC sweep is active (REA-T1.2) is REFUSED (not queued): no port-A write
@@ -864,7 +870,7 @@ functional_contract:
       arbiter and hijacks the sweep's read address, corrupting the CRC.
   - id: REA-REQ-853
     kind: behavioral
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode (BIST)" }]
     desc: >-
       An accepted fill sets selftest_mode BEFORE its first pattern write and
       bumps CAPTURE_EPOCH; selftest_mode clears on arm or reset. Reading the
@@ -873,7 +879,7 @@ functional_contract:
       sweep publishes the pattern's CRC_SAMPLE.
   - id: REA-REQ-854
     kind: negative
-    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode" }]
+    spec: [{ doc: docs/FDD_REA_TRUST_TIER_V08.md, clause: "2.2 Selftest pattern mode (BIST)" }]
     desc: >-
       The timestamp plane is NEVER written by a fill — its din remains the
       free-running counter and its write enable stays low for the entire
