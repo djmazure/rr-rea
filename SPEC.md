@@ -428,6 +428,67 @@ The on-chip RTL is unchanged from v0.1. v0.2 ships:
 
 ---
 
+## External register-bus port (lean profile)
+
+`rr_rea_jtag_iface` is not the analyzer — it is one **bridge** that converts the
+JTAG TAP into the plain register bus `rr_rea_regbank` speaks. `G_REG_IFACE`
+selects which bridge drives that bus (RTL-P3.931):
+
+| value | bus driven by | TAP ports |
+|---|---|---|
+| `"jtag"` (default) | `rr_rea_jtag_iface` | live |
+| `"external"` | the `reg_*_i` slave ports | **inert**, `tdo_o` tied low |
+
+Exactly ONE bridge exists in a given elaboration. Under `"external"` the TAP
+decoder is **not instantiated** — two live masters on one register bus is
+silent corruption, so it is not merely idled (REA-REQ-901). Under `"jtag"` the
+`reg_*_i` ports have no effect and may be left dangling (REA-REQ-902).
+
+Everything downstream of the bridge — regbank, CDC, capture FSM, comparator
+array and the whole v0.8 trust tier — is identical silicon either way
+(REA-REQ-900).
+
+**The register bus is a REGISTERED-read bus.** Present the address with
+`reg_rd_en_i`; read `reg_rdata_o` on the **next** cycle. `rd_data_o` is
+registered (the RTL-P1.96 read-path pipelining), so a master that samples in
+the same cycle it presents the address reads the PREVIOUS register.
+
+## AXI4-Lite bridge
+
+`rr_rea_axi4lite` is the ready-made AXI4-Lite slave for the external port. It
+presents a compliant AXI4-Lite interface and drives the register bus:
+
+- One AXI transaction produces exactly ONE register-bus operation. A write
+  asserts `reg_wr_en_o` for a single cycle with address and data stable across
+  it (REA-REQ-903/907). A double pulse on a TOGGLE register such as `CTRL`
+  `arm_toggle` is a silent no-op — it arms and immediately re-arms.
+- `aw` and `w` are accepted in **either order or simultaneously**
+  (REA-REQ-905); several interconnects present `w` first under backpressure.
+- Reads wait the regbank's registered-read cycle before asserting `rvalid`, so
+  `rdata` is the addressed register and never its predecessor (REA-REQ-904).
+- `bvalid`/`rvalid` are held until their ready is seen and are never asserted
+  before the transaction has been applied (REA-REQ-906).
+- Responses are always `OKAY`. There is deliberately no decode error: the
+  regbank reads unmapped addresses as zero and drops unmapped writes, and a
+  debug bus that `SLVERR`s on an unknown offset turns a harmless probe into a
+  bus fault.
+- `wstrb` is honoured only as all-or-nothing: every rr_rea register is a whole
+  32-bit word, several with side effects, so a sub-word write would be a silent
+  half-action and is dropped instead.
+
+## Lean profile
+
+A **configuration**, not a variant core: `G_SAMPLE_W = 8`, `G_DEPTH = 512`,
+`G_TRIG_CONDS = 1`, `G_NUM_CHAN = 1`, `G_NUM_SOURCE = 1`, `G_TIMESTAMP_W = 0`
+(REA-REQ-908). No logic is conditionally deleted to make it fit — the sample
+buffer is already BRAM-inferred and costs no fabric, so the size lever is the
+generic set, dominated by the comparator array.
+
+Measured on `xc7z010clg400-1` (Vivado 2024.1): 890 LUT / 1497 FF / 0.5 BRAM,
+against 1497 / 2350 / 5.5 for the default configuration. See
+[`docs/LEAN_PROFILE.md`](docs/LEAN_PROFILE.md) for the full table, the
+first-AW-beat trigger recipe and an instantiation template.
+
 ## Out of scope (parked)
 
 | Version | Feature | Backlog | Status |
