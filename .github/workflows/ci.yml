@@ -1,0 +1,91 @@
+# REA-T2.3 — rr-rea's own verification gate.
+#
+# WHY. RTL-P2.989 made this repo the SOLE source of shipped REA RTL: the
+# routertl vendored builtin, rea_sync.py and the byte-for-byte drift gate that
+# transitively gated this tree are all gone. From that commit until this
+# workflow, nothing ran the 37-file cocotb suite automatically, ever — a change
+# could be committed here, published, resolved by an unpinned ^1.0.0 in every
+# example, and reach silicon without a single sim having run. It showed:
+# C_REA_VERSION was bumped 0x52454107 -> 0x52454109 and three tests kept the old
+# literal, so the suite sat RED for weeks with nobody looking.
+#
+# The tag path is the one that matters most — publish is the moment the blast
+# radius becomes every consumer.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+env:
+  # RTL-T1.25: keep the sim queue OFF in CI. There is no dispatcher on a
+  # runner, so a queue-routed sim would sit queued forever; and a bare
+  # `rr sim run` under the knob SUBMITS and exits 0, which is exactly how a
+  # gate reports a pass for tests that never ran. Belt AND braces: the knob is
+  # pinned off here and every invocation below also passes --wait.
+  RR_QUEUE_SIMS: "0"
+  # Pinned to the version the suite is developed against on the bench.
+  NVC_VERSION: "1.19.3-1"
+  NVC_RELEASE: "r1.19.3"
+
+jobs:
+  structural:
+    name: Structural guards (no simulator)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test deps
+        run: python -m pip install --upgrade pip pytest pyyaml
+      - name: Run structural guards
+        run: python -m pytest tests/ -q
+
+  sims:
+    name: cocotb suite (nvc)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install nvc
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          deb="nvc_${NVC_VERSION}_amd64_ubuntu-24.04.deb"
+          gh release download "$NVC_RELEASE" --repo nickg/nvc --pattern "$deb"
+          sudo apt-get update
+          sudo apt-get install -y "./$deb"
+          nvc --version
+
+      - name: Install routertl SDK + cocotb
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install routertl cocotb
+          rr --version
+
+      - name: Run the full cocotb suite
+        run: |
+          set -euo pipefail
+          # No `| tee` here on purpose: a pipeline reports the PIPE's exit
+          # status, not the gate's, which silently green-bars a red suite
+          # (H.183). If output capture is ever wanted, use PIPESTATUS[0].
+          rr sim run --all --wait
+
+      - name: Upload sim logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rea-sim-logs
+          path: |
+            sim/cocotb/logs/
+          retention-days: 14

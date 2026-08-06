@@ -114,9 +114,11 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
-      VERSION (0x00, RO) SHALL read the exact v0.7 feature-tier magic
-      0x52454107. The value is a protocol discriminator, not an inferred
-      string or a mutable register.
+      VERSION (0x00, RO) SHALL read the exact current feature-tier magic
+      0x52454109 (v0.9). The value is a protocol discriminator, not an
+      inferred string or a mutable register. The tier byte is ODD by
+      permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
+      is how a wide-readback miscompile is detected (RTL-P1.96).
   - id: REA-REQ-022
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]

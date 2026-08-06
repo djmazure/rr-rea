@@ -15,6 +15,7 @@ ip.lock
 routertl.lock
 formal/
 sim/results/
+sim/logs/
 sim/work.lock
 .rr_pending_job
 sim/waves/

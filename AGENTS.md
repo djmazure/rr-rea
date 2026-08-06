@@ -4,9 +4,13 @@ Repo-specific conventions for `rr-rea`, the first-party embedded logic-analyzer
 IP. REA **graduated** from a routertl-vendored IP to a standalone registry IP
 (`rr pkg add routertl/rea`) — this repo is its canonical home. It is developed
 and **tested standalone**: tests resolve this repo's own `rtl/` (never a
-vendored `ip/routertl/rea/` path — that fossil was removed 2026-07-23). The SDK
-carries a byte-identical builtin copy under `routertl/ip/routertl/rea/`; RTL
-changes here must be synced there.
+vendored `ip/routertl/rea/` path — that fossil was removed 2026-07-23).
+
+**There is no second tree to sync to any more (RTL-P2.989, 2026-08-05.)** The
+SDK's byte-identical builtin under `routertl/ip/routertl/rea/`, `rea_sync.py`
+and the byte-for-byte drift gate are all GONE — this repo is the sole source of
+shipped REA RTL and the registry is the only distribution path. Anything that
+still tells you to mirror a change into routertl is stale.
 
 ## RTL / VHDL style
 
@@ -57,10 +61,37 @@ pre-existing findings on the shipped v0.7 RTL are a tracked triage backlog, not 
 land-blocker — do not mass-rewrite field-proven RTL to satisfy the linter without
 a ticket.
 
+## The verification gate (REA-T2.3) — ARM IT ON EVERY CLONE
+
+Because the drift gate is gone, nothing outside this repo verifies its RTL. The
+gate is therefore ours, and it has three layers:
+
+| Layer | What runs | Armed by |
+|---|---|---|
+| pre-push | `pytest tests/` + the full cocotb suite | `git config core.hooksPath .githooks` |
+| CI | same, on every push to main, every PR, every `v*` tag | `.github/workflows/ci.yml` (automatic) |
+| publish | `rr pkg publish` refuses a red suite for `routertl/*` | routertl's `_prepublish_sim_gate` |
+
+**`core.hooksPath` is LOCAL git config — it is not cloned.** A fresh clone has
+NO pre-push gate until you run the command above, and the repo will look gated
+when it isn't. Check with `git config core.hooksPath` before trusting it.
+
+Why the whole suite and not a fast subset: it takes ~50 s, and a curated subset
+silently stops covering every test file added after it was written.
+
+**Scar (2026-08-06).** `C_REA_VERSION` was bumped `0x52454107` → `0x52454109`
+and three test files kept the old literal. The suite sat RED for weeks because
+nothing ran it. `tests/test_version_magic_single_source.py` is the cheap
+structural backstop for that specific class; the gate above is the real fix.
+
 ## Simulation
 
 - `rr sim run <test>` (ROUTERTL-001 sanctioned engine); every test ends with
   `engine.simulation.run_simulation(...)`. `rr sim run --all` for the suite.
+- **Pass `--wait` from any script, hook or CI job** (RTL-T1.25). Under
+  `RR_QUEUE_SIMS=1` a bare `rr sim run` SUBMITS to the queue and exits 0, so
+  `if ! rr sim run X` reports a pass for a test that never ran. Measured: an
+  `assert False` test exited 0 with the knob on and 1 with it off.
 - Hard-coded expected values only (ROUTERTL-002) — never derive expectations
   from the DUT's own inputs at runtime.
 - `rr sim coverage-map` enforces every `@requires(REA-REQ-N)` maps to a test.

@@ -9,7 +9,8 @@
 -- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x52454107 ('REA' + v0.7 feature tier, RTL-T2.123)
+--   0x00 RO  VERSION       0x52454109 ('REA' + v0.9 feature tier; single-sourced
+--                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
 --   0x0C RO  SAMPLE_W      synth-time generic

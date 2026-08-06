@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# REA-T2.3 — rr-rea's own pre-push gate.
+#
+# WHY IT IS HERE AND NOT INSTALLED BY A TOOL. core.hooksPath is LOCAL git
+# config: it is not cloned, so a hook that only exists under .git/hooks or
+# .routertl/hooks silently does not exist for the next person, and the repo
+# looks gated when it isn't. This file is TRACKED. Arm it once per clone:
+#
+#     git config core.hooksPath .githooks
+#
+# and verify with `git config core.hooksPath` before trusting the gate.
+#
+# WHAT IT RUNS. Everything — the structural guards (no simulator, <1 s) and
+# the full cocotb suite (37 files, ~50 s on the bench). No curated subset: a
+# subset drifts the moment someone adds a test file, and at 50 s there is
+# nothing to buy by curating. If it ever gets slow, move the slow half to CI
+# rather than quietly shrinking what a push is checked against.
+set -uo pipefail
+
+echo "🔒 rr-rea pre-push gate (REA-T2.3)"
+
+fail() { echo ""; echo "❌ $1" >&2
+         echo "   To bypass (records that you did): git push --no-verify" >&2
+         exit 1; }
+
+# ── 1. Structural guards — cheap, no toolchain ──────────────────────────────
+if command -v pytest >/dev/null 2>&1 || python3 -c 'import pytest' 2>/dev/null; then
+    echo "   ▶ pytest tests/"
+    # Unpiped on purpose: `cmd | tee` reports the PIPE's exit status, which
+    # green-bars a red gate (H.183).
+    python3 -m pytest tests/ -q || fail "structural guards failed."
+else
+    fail "pytest not available — the structural guards could NOT run. A gate
+   that cannot run has not cleared your code. pip install pytest."
+fi
+
+# ── 2. Full cocotb suite ────────────────────────────────────────────────────
+if ! command -v rr >/dev/null 2>&1; then
+    fail "rr not on PATH — the cocotb suite could NOT run, which is not the
+   same as it passing. pip install routertl."
+fi
+
+# RTL-T1.25: --wait is LOAD-BEARING, and the knob is pinned off besides.
+# Under RR_QUEUE_SIMS=1 a bare \`rr sim run\` SUBMITS and exits 0, so this
+# gate would announce a pass for tests that never ran. Measured: an
+# \`assert False\` cocotb test exited 0 with the knob on, 1 with it off.
+echo "   ▶ rr sim run --all --wait"
+RR_QUEUE_SIMS=0 RR_QUEUE_BUILDS=0 rr sim run --all --wait \
+    || fail "cocotb suite failed. Diagnose it — do not weaken a test to get
+   past this gate (test-diagnosis-first). Logs: sim/cocotb/logs/"
+
+echo "✅ rr-rea pre-push gate passed."
+exit 0

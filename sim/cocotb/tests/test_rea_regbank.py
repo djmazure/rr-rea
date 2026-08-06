@@ -53,7 +53,7 @@ ADDR_FEATURES    = 0xD0
 ADDR_BUILD_ID    = 0xD4
 ADDR_DATA_PLANE_SEL = 0xD8
 
-EXPECTED_VERSION = 0x52454107
+EXPECTED_VERSION = 0x52454109  # v0.9 feature tier (rr_rea_pkg C_REA_VERSION)
 
 # FEATURES (0xD0) is derived from the synth-time generics. This elaboration
 # uses the regbank entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 (GENERICS
@@ -165,8 +165,9 @@ async def test_rea_req_019_version_magic(dut):
     await _reset(dut)
 
     observed = await _read(dut, ADDR_VERSION)
-    assert observed == 0x52454107, (
-        f"VERSION = 0x{observed:08X}, expected v0.7 magic 0x52454107"
+    assert observed == EXPECTED_VERSION, (
+        f"VERSION = 0x{observed:08X}, expected v0.9 magic "
+        f"0x{EXPECTED_VERSION:08X}"
     )
 
 

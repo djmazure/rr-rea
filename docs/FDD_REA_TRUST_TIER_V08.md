@@ -25,7 +25,8 @@ missed:
   class, currently undiagnosed.
 
 Today's only acceptance gate is the **odd-VERSION probe**: read `VERSION`
-(0x00) once and require the deliberately-odd magic `0x52454107`. That
+(0x00) once and require the deliberately-odd magic (`0x52454109` at the
+current tier; the tier byte is odd by permanent contract). That
 validates exactly **one word** of the readback path. The capture window —
 thousands of words, paged through `DATA_WORD_SEL` banking and burst reads —
 is unprotected: a shifted or aliased buffer read produces *plausible-looking

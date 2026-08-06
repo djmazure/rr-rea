@@ -66,8 +66,8 @@ ADDR_PRETRIG = 0x14
 ADDR_POSTTRIG = 0x18
 ADDR_DATA_WORD_SEL = 0xCC
 
-C_REA_VERSION = 0x52454107  # v0.7 tier. bit0=1: the
-                            # field's most visible victim (odd magic read FF)
+C_REA_VERSION = 0x52454109  # v0.9 tier (rr_rea_pkg C_REA_VERSION). bit0=1:
+                            # the field's most visible victim (odd magic read FF)
 
 SAMPLE_PERIOD_NS = 8.0
 TCK_PERIOD_NS = 25.0
