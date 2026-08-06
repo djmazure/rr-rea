@@ -15,7 +15,14 @@
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.9.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454109
 #
-# 1.0.0 is a MAJOR bump because the ESA _i/_o rename changed rr_rea_top's
+# 1.1.0 (RTL-P3.931) is a MINOR bump: rr_rea_top gains an OPTIONAL external
+# register-bus interface (G_REG_IFACE, defaulting to "jtag") plus the
+# rr_rea_axi4lite bridge, so a design with a control bus and no spare BSCAN
+# user chain can use REA instead of hand-rolling a capture block. Every
+# existing instantiation is untouched — new generic has a default, new ports
+# have defaults, and the "jtag" path is the same silicon it was.
+#
+# 1.0.0 was a MAJOR bump because the ESA _i/_o rename changed rr_rea_top's
 # public entity ports (sample_clk->sample_clk_i, probe_in->probe_i,
 # source_out->source_o) — a breaking interface change for every consumer.
 # It also ends RTL-T2.228, where this tree and the routertl vendored builtin
@@ -30,7 +37,7 @@
 
 name: rea
 namespace: routertl
-version: 1.0.0
+version: 1.1.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
@@ -56,6 +63,7 @@ hdl:
     - rtl/rr_rea_fill_fsm.vhd
     - rtl/rr_rea_crc_sweep.vhd
     - rtl/rr_rea_trust_core.vhd
+    - rtl/rr_rea_axi4lite.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
 
@@ -79,6 +87,7 @@ synthesis:
     - rtl/rr_rea_fill_fsm.vhd
     - rtl/rr_rea_crc_sweep.vhd
     - rtl/rr_rea_trust_core.vhd
+    - rtl/rr_rea_axi4lite.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
   sources_per_vendor:

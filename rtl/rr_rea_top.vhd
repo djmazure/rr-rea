@@ -32,7 +32,18 @@ entity rr_rea_top is
         G_TIMESTAMP_W : natural  := 32;
         G_NUM_CHAN    : positive := 1;
         G_TRIG_CONDS  : positive := 4;  -- v0.5 comparator-array slots (P3.647)
-        G_NUM_SOURCE  : positive := 1   -- v0.5 write-side source bits (P2.837)
+        G_NUM_SOURCE  : positive := 1;  -- v0.5 write-side source bits (P2.837)
+
+        -- RTL-P3.931: which bridge drives the internal register bus.
+        --   "jtag"     — rr_rea_jtag_iface off the TAP ports (the default;
+        --                behaviour is byte-identical to the pre-P3.931 core).
+        --   "external" — the reg_*_i slave ports below, for a design that
+        --                already has a control bus (AXI4-Lite via
+        --                rr_rea_axi4lite, a soft-core, a debug bridge) or has
+        --                no spare BSCAN user chain.
+        -- The choice changes only the BRIDGE: regbank, CDC, capture FSM and
+        -- the v0.8 trust core are the same silicon either way (REA-REQ-900).
+        G_REG_IFACE   : string   := "jtag"
         -- RTL-T2.119: G_BUILD_ID generic removed; rr_rea_regbank reads the
         -- BUILD_ID (0xD4) source hash from rr_rea_build_id_pkg directly.
     );
@@ -86,7 +97,25 @@ entity rr_rea_top is
         capture_i    : in  std_logic;
         shift_en_i   : in  std_logic;
         update_i     : in  std_logic;
-        sel_i        : in  std_logic
+        sel_i        : in  std_logic;
+
+        -- ── External register bus (RTL-P3.931) ───────────────────
+        -- Live ONLY when G_REG_IFACE = "external"; ignored otherwise
+        -- (REA-REQ-902), so an integrator who leaves them dangling or drives
+        -- them by accident cannot disturb a JTAG-controlled core. All default
+        -- so existing instantiations need no edit.
+        --
+        -- Same shape rr_rea_jtag_iface produces, because it IS the same bus:
+        -- present the address with reg_rd_en_i, read reg_rdata_o on the NEXT
+        -- cycle — the regbank's read data is REGISTERED (RTL-P1.96), and a
+        -- master that samples in the same cycle gets the PREVIOUS register.
+        reg_clk_i    : in  std_logic := '0';
+        reg_rst_i    : in  std_logic := '0';
+        reg_wr_en_i  : in  std_logic := '0';
+        reg_rd_en_i  : in  std_logic := '0';
+        reg_addr_i   : in  std_logic_vector(15 downto 0) := (others => '0');
+        reg_wdata_i  : in  std_logic_vector(31 downto 0) := (others => '0');
+        reg_rdata_o  : out std_logic_vector(31 downto 0)
     );
 end entity;
 
@@ -297,25 +326,46 @@ begin
         port map (clk_i => sample_clk_i, arst_i => sample_rst_i,
                   srst_o => sample_rst_sync);
 
-    -- ── JTAG protocol decoder ────────────────────────────────────
-    u_jtag : entity work.rr_rea_jtag_iface
-        port map (
-            arst_i      => arst_i,
-            tck_i       => tck_i,
-            tdi_i       => tdi_i,
-            tdo_o       => tdo_o,
-            capture_i   => capture_i,
-            shift_en_i  => shift_en_i,
-            update_i    => update_i,
-            sel_i       => sel_i,
-            reg_clk_o   => reg_clk_o,
-            reg_rst_o   => reg_rst_o,
-            reg_wr_en_o => reg_wr_en_o,
-            reg_rd_en_o => reg_rd_en_o,
-            reg_addr_o  => reg_addr_o,
-            reg_wdata_o => reg_wdata_o,
-            reg_rdata_i => reg_rdata_i
-        );
+    -- ── Register-bus bridge (RTL-P3.931) ─────────────────────────
+    -- Exactly ONE of these drives the bus. Two live masters on one register
+    -- bus is silent corruption, so the TAP decoder is not merely idled when
+    -- G_REG_IFACE = "external" — it is not instantiated at all, and tdo_o is
+    -- tied low (REA-REQ-901).
+    g_jtag_iface : if G_REG_IFACE = "jtag" generate
+        u_jtag : entity work.rr_rea_jtag_iface
+            port map (
+                arst_i      => arst_i,
+                tck_i       => tck_i,
+                tdi_i       => tdi_i,
+                tdo_o       => tdo_o,
+                capture_i   => capture_i,
+                shift_en_i  => shift_en_i,
+                update_i    => update_i,
+                sel_i       => sel_i,
+                reg_clk_o   => reg_clk_o,
+                reg_rst_o   => reg_rst_o,
+                reg_wr_en_o => reg_wr_en_o,
+                reg_rd_en_o => reg_rd_en_o,
+                reg_addr_o  => reg_addr_o,
+                reg_wdata_o => reg_wdata_o,
+                reg_rdata_i => reg_rdata_i
+            );
+    end generate;
+
+    g_external_iface : if G_REG_IFACE /= "jtag" generate
+        reg_clk_o   <= reg_clk_i;
+        reg_rst_o   <= reg_rst_i;
+        reg_wr_en_o <= reg_wr_en_i;
+        reg_rd_en_o <= reg_rd_en_i;
+        reg_addr_o  <= reg_addr_i;
+        reg_wdata_o <= reg_wdata_i;
+        tdo_o       <= '0';
+    end generate;
+
+    -- The external read port always mirrors the internal bus, in both
+    -- configurations. Under "jtag" nothing is listening, and exposing the
+    -- value costs a wire, not a flop.
+    reg_rdata_o <= reg_rdata_i;
 
     -- ── Register file ────────────────────────────────────────────
     u_regbank : entity work.rr_rea_regbank
