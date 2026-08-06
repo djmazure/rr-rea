@@ -76,10 +76,24 @@ jobs:
       - name: Run the full cocotb suite
         run: |
           set -euo pipefail
+          # RTL-T1.25 has two halves and CI only needs one of them. The
+          # LOAD-BEARING half is `RR_QUEUE_SIMS: "0"` in env: above — with the
+          # knob off the run is inline and its exit code is the suite's real
+          # verdict (measured: exit 1 on a failing test). `--wait` is the belt
+          # to that braces, and it only exists in an SDK newer than the wheel
+          # on PyPI, so probe for it instead of hard-failing on `No such
+          # option '--wait'` (which is how this workflow failed its first run).
+          WAIT=""
+          if rr sim run --help 2>&1 | grep -q -- '--wait'; then
+            WAIT="--wait"
+            echo "SDK supports --wait; using it."
+          else
+            echo "SDK predates --wait ($(rr --version)); relying on RR_QUEUE_SIMS=0."
+          fi
           # No `| tee` here on purpose: a pipeline reports the PIPE's exit
           # status, not the gate's, which silently green-bars a red suite
           # (H.183). If output capture is ever wanted, use PIPESTATUS[0].
-          rr sim run --all --wait
+          rr sim run --all $WAIT
 
       - name: Upload sim logs on failure
         if: failure()
@@ -88,4 +102,6 @@ jobs:
           name: rea-sim-logs
           path: |
             sim/cocotb/logs/
+            sim/logs/
+          if-no-files-found: ignore
           retention-days: 14
