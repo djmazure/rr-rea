@@ -73,6 +73,30 @@ jobs:
           python -m pip install routertl cocotb
           rr --version
 
+      - name: Preflight — can this SDK dispatch engine scripts?
+        run: |
+          set -euo pipefail
+          # RTL-T1.26. A PUBLISHED routertl wheel is Cython-compiled, and
+          # engine-script dispatch used to resolve scripts by literal .py
+          # filename — so on a runner (no source tree on the walk-up path)
+          # EVERY dispatch missed: hooks skipped, EMPTY compile order,
+          # "make: Nothing to be done for 'sim'", all 39 tests red. Fixed in
+          # routertl main; until a release carries it, this job CANNOT pass.
+          #
+          # Fail here, with the reason, instead of leaving a wall of
+          # unexplained test failures below. Self-heals the moment a release
+          # ships the fix — no version pin to bump.
+          if rr sim run test_rea_dpram 2>&1 | tee /tmp/preflight.log \
+             | grep -q "SDK engine script .* not found"; then
+            echo "::error title=SDK too old (RTL-T1.26)::The installed routertl \
+          ($(rr --version)) cannot dispatch engine scripts from a compiled \
+          wheel, so this suite cannot run. Fixed in routertl main; waiting on \
+          a release. The pre-push hook (.githooks/pre-push) is the live \
+          behavioural gate meanwhile."
+            exit 1
+          fi
+          echo "SDK dispatches engine scripts — proceeding to the full suite."
+
       - name: Run the full cocotb suite
         run: |
           set -euo pipefail

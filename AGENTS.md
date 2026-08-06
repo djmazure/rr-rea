@@ -70,11 +70,23 @@ gate is therefore ours, and it has three layers:
 |---|---|---|
 | pre-push | `pytest tests/` + the full cocotb suite | `git config core.hooksPath .githooks` |
 | CI | same, on every push to main, every PR, every `v*` tag | `.github/workflows/ci.yml` (automatic) |
+| | ⚠ the CI **sim** job is BLOCKED on RTL-T1.26 — see below | |
 | publish | `rr pkg publish` refuses a red suite for `routertl/*` | routertl's `_prepublish_sim_gate` |
 
 **`core.hooksPath` is LOCAL git config — it is not cloned.** A fresh clone has
 NO pre-push gate until you run the command above, and the repo will look gated
 when it isn't. Check with `git config core.hooksPath` before trusting it.
+
+**CI's sim job is red until a routertl release ships RTL-T1.26**, and that is
+deliberate rather than hidden. A published routertl wheel is Cython-compiled,
+and engine-script dispatch resolved scripts by literal `.py` filename — so on a
+runner (no source tree on the walk-up path) every dispatch missed: hooks
+skipped, EMPTY compile order, `make: Nothing to be done for 'sim'`, all 39
+tests red. It cannot reproduce on a dev bench, which is why it went unseen.
+Fixed in routertl main; the job preflights for it and fails with that reason
+instead of a wall of unexplained failures, and goes green on its own once a
+release lands. **The pre-push hook is the live behavioural gate meanwhile** —
+and it is a real one: it ran during the actual pushes that landed this work.
 
 Why the whole suite and not a fast subset: it takes ~50 s, and a curated subset
 silently stops covering every test file added after it was written.
