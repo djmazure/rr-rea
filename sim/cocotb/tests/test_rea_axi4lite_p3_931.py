@@ -48,6 +48,8 @@ ADDR_SAMPLE_W = 0x0C
 ADDR_DEPTH    = 0x10
 ADDR_PRETRIG  = 0x14
 ADDR_POSTTRIG = 0x18
+ADDR_START_PTR = 0xC8
+ADDR_DATA_BASE = 0x100
 
 EXPECTED_VERSION = 0x52454109  # v0.9 feature tier (rr_rea_pkg C_REA_VERSION)
 
@@ -397,7 +399,7 @@ async def test_rea_req_901_tap_is_inert_in_external_mode(dut):
 
 
 @cocotb.test()
-@requires("REA-REQ-908")
+@requires("REA-REQ-908", "REA-REQ-904")
 async def test_rea_req_908_lean_profile_captures(dut):
     """The lean profile is a CONFIGURATION — it must still capture.
 
@@ -435,6 +437,26 @@ async def test_rea_req_908_lean_profile_captures(dut):
         "STATUS.done stayed low (REA-REQ-908)"
     )
     dut._log.info("REA-REQ-908 PASS — lean profile captured to done")
+
+    # REA-REQ-904 on the DATA window (REA-P2.4). The regbank registers above
+    # are ONE edge behind the address; a capture cell is TWO (BRAM read, then
+    # the registered paging mux). The 1.1.0 bridge waited one and returned the
+    # cell addressed BEFORE each read — every DATA_BASE address read as the
+    # same stale cell, so a bridge suite that never read the window was green
+    # on a door that could not dump a capture. Consecutive cells of a counter
+    # capture must be distinct and step by exactly one.
+    start_ptr = await _axi_read(dut, ADDR_START_PTR) % GENERICS["G_DEPTH"]
+    cells = []
+    for i in range(6):
+        phys = (start_ptr + i) % GENERICS["G_DEPTH"]
+        cells.append(await _axi_read(dut, ADDR_DATA_BASE + 4 * phys) & 0xFF)
+    for i in range(1, len(cells)):
+        assert (cells[i] - cells[i - 1]) & 0xFF == 1, (
+            f"DATA_BASE cells from START_PTR={start_ptr} read {cells} over AXI — "
+            "consecutive capture cells must step by one; identical/stale cells "
+            "are the DATA-window read-latency lag (REA-REQ-904)"
+        )
+    dut._log.info(f"REA-REQ-904 PASS — DATA window cells {cells} distinct over AXI")
 
 
 if __name__ == "__main__":

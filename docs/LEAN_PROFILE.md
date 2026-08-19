@@ -88,8 +88,16 @@ pipelining). Present the address, read on the **next** cycle. A master that
 samples in the same cycle it presents the address gets the **previous**
 register — and a single read still looks fine, so only reading two registers
 in a row exposes it. This is the "every cell lags by one" signature that has
-cost real bring-up time on two vendors. `rr_rea_axi4lite` handles it; a
-hand-written bridge must too, and REA-REQ-904 is the test that proves it.
+cost real bring-up time on two vendors. **The `DATA_BASE` capture window is
+one edge deeper still**: the BRAM's synchronous read plus the registered
+paging mux put a capture cell **two** edges behind the address, so a bridge
+that waits only the regbank's one edge reads every cell as the cell addressed
+*before* the read began (1.1.0 did exactly that over AXI — the whole window
+came back as physical cell 0 — found and fixed under REA-P2.4). Present the
+address, hold it, sample **two** cycles later; that is correct for both.
+`rr_rea_axi4lite` handles it; a hand-written bridge must too, and REA-REQ-904
+is the requirement — proven on the regbank by `test_rea_axi4lite_p3_931` and
+on the DATA window by `test_rea_dump_path_contract_p2_4`.
 
 ## Triggering on the first AW beat
 

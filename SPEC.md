@@ -49,7 +49,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xC4` | RO  | TIMESTAMP_W | Exact `G_TIMESTAMP_W`; zero means no timestamp plane |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity, `[20]`=`axi_stream_window` dump engine elaborated (reserved 0 until REA-P2.5), `[21]`=`udp_window` (Icebox, reserved 0); `[31:22]` reserved 0 |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
 | `0xD8` | RW  | DATA_PLANE_SEL | Capture read plane: 0=sample, 1=timestamp; resets to 0 |
 | `0xDC` | RW  | SELFTEST_CTRL | bit[0]=fill_toggle; inverse writes request a readback selftest fill |
@@ -449,9 +449,15 @@ array and the whole v0.8 trust tier — is identical silicon either way
 (REA-REQ-900).
 
 **The register bus is a REGISTERED-read bus.** Present the address with
-`reg_rd_en_i`; read `reg_rdata_o` on the **next** cycle. `rd_data_o` is
-registered (the RTL-P1.96 read-path pipelining), so a master that samples in
-the same cycle it presents the address reads the PREVIOUS register.
+`reg_rd_en_i` and hold it; a regbank register is on `reg_rdata_o` on the
+**next** cycle, a `DATA_BASE` capture cell **two** cycles later (BRAM
+synchronous read, then the RTL-P1.96 registered paging mux). A master that
+samples in the same cycle it presents the address reads the PREVIOUS register;
+one that waits a single cycle reads capture cells correctly for a regbank
+register and reads the cell addressed *before* the read for the window
+(REA-P2.4 found 1.1.0's bridge doing exactly that: the whole window came back
+as physical cell 0 over AXI). Wait two cycles for every read — the safe rule
+for both — as `rr_rea_axi4lite` now does (REA-REQ-904).
 
 ## AXI4-Lite bridge
 
@@ -464,8 +470,12 @@ presents a compliant AXI4-Lite interface and drives the register bus:
   `arm_toggle` is a silent no-op — it arms and immediately re-arms.
 - `aw` and `w` are accepted in **either order or simultaneously**
   (REA-REQ-905); several interconnects present `w` first under backpressure.
-- Reads wait the regbank's registered-read cycle before asserting `rvalid`, so
-  `rdata` is the addressed register and never its predecessor (REA-REQ-904).
+- Reads present the address, then wait **two** cycles before asserting
+  `rvalid` — the regbank's registered-read cycle plus the `DATA_BASE` window's
+  BRAM + paging-mux edge — so `rdata` is the addressed register or capture
+  cell and never its predecessor (REA-REQ-904). `rvalid` therefore asserts
+  three `aclk` edges after `arvalid` is accepted (was two in 1.1.0, which
+  read the DATA window one cell stale — fixed in 1.1.1).
 - `bvalid`/`rvalid` are held until their ready is seen and are never asserted
   before the transaction has been applied (REA-REQ-906).
 - Responses are always `OKAY`. There is deliberately no decode error: the
@@ -475,6 +485,87 @@ presents a compliant AXI4-Lite interface and drives the register bus:
 - `wstrb` is honoured only as all-or-nothing: every rr_rea register is a whole
   32-bit word, several with side effects, so a sub-word write would be a silent
   half-action and is dropped instead.
+
+## Dump-path transports (REA-P2.4)
+
+[`docs/DUMP_PATH_STRATEGY.md`](docs/DUMP_PATH_STRATEGY.md) is the plan; this
+section is the contract it cites (REA-REQ-909..913). **JTAG stays the default
+door.** Everything else is a *truck for the window after `STATUS.done`* — not
+a second analyser, not a second register map, and never a MAC inside
+`rr_rea`. Capture rate is `sample_clk` into BRAM and no transport changes it;
+a transport changes only how fast the window leaves the chip.
+
+**The 32-bit register map above is the protocol.** A transport moves either
+`addr`/`data` words against that map, or the *window blob* defined below.
+It adds no register, no version word and no re-mapping of its own — every
+named register (`VERSION`, `STATUS`, `DATA_WORD_SEL`, `DATA_BASE`, …) sits at
+the same offset and reads the same value through every door (REA-REQ-909;
+`test_rea_dump_path_contract_p2_4` reads both doors on two real cores).
+`wave_stream_v1` remains the host → RouteWave seam and is untouched by any of
+this.
+
+### Transport names
+
+| Name | Moves | Status | Notes |
+|---|---|---|---|
+| `jtag` | register map via the TAP (`rr_rea_jtag_iface`) | **shipped** | Default; always sufficient for arm / status / small dump. |
+| `axi_lite` | the same register map via `G_REG_IFACE = "external"` + `rr_rea_axi4lite` (mmap / UIO on a PS) | **RTL shipped (1.1.x); host = RTL-P2.1134** | Zynq/HPS: the CPU's existing Ethernet is the "Ethernet flavour". No FPGA MAC. |
+| `axi_stream_window` | the window blob as one AXI-Stream burst after `done`; control stays on the register map | **v1-adjacent RTL — REA-P2.5** | Advertised by `FEATURES[20]`. |
+| `udp_window` | the same blob over a proven external MAC, packetiser outside `rr_rea` | **Icebox — REA-ICE.1** | Bare FPGA, no PS. `FEATURES[21]` reserved. |
+
+**v1 = `jtag` + `axi_lite`** (REA-REQ-910). `axi_stream_window` is the
+first burst truck and is RTL-adjacent to v1, not in it; `udp_window` is
+owner-gated. Two live masters on one register bus remain forbidden — a core
+has exactly one door (`G_REG_IFACE`), the TAP is not instantiated under
+`"external"` (REA-REQ-901) and `reg_*_i` are inert under `"jtag"`
+(REA-REQ-902) — until the dual-door arbiter ticket (REA-P3.4) says otherwise.
+
+### Window blob
+
+The payload every window transport carries, and the reference the burst /
+UDP tests must compare against (`sim/cocotb/tests/rea_window_blob.py` is the
+executable definition; a green AXIS dump that never compared against
+`DATA_BASE` is not done). Frozen by REA-REQ-911/912:
+
+- **Headerless.** All metadata — `SAMPLE_W`, `TIMESTAMP_W`, `DEPTH`,
+  `CAPTURE_LEN`, `START_PTR`, `FEATURES` — comes from the register map first;
+  the blob is only the cells. Framing (`tlast`, end-of-datagram) is the
+  transport's: `tlast` on the last beat of the last plane.
+- **`CAPTURE_LEN` cells** per plane, not `DEPTH`.
+- **Plane-major:** the whole sample plane, then the whole timestamp plane iff
+  `FEATURES[18]` (i.e. `TIMESTAMP_W > 0`).
+- **Cell = `ceil(plane_w/32)` little-endian 32-bit words**, word *k* = plane
+  bits `[32k+31:32k]`, final partial word zero-padded — byte-for-byte the value
+  `DATA_BASE` returns with `DATA_WORD_SEL = k` and `DATA_PLANE_SEL` = plane. One
+  paging rule serves both paths.
+- **Rotation is engine-side for window transports (decided, REA-REQ-912):**
+  blob cell *i* is physical `DATA_BASE` cell `(START_PTR + i) mod DEPTH`, so
+  index `PRETRIG` is the trigger sample and a window consumer does **no**
+  host-side rotation. Register-map transports (`jtag`, `axi_lite`) are
+  unchanged: they walk `DATA_BASE` by physical address and `REAClient` keeps
+  rotating on the host from `START_PTR` (the v0.2 contract). The choice is
+  tested on both doors: the reference walker builds the engine-ordered blob
+  from each and proves the trigger lands at `PRETRIG`, the planes are
+  time-monotonic, and the two blobs are byte-identical.
+
+### Advertising a window transport (REA-REQ-913)
+
+A **`FEATURES` bit, not a `VERSION` bump**, advertises a burst engine:
+`FEATURES[20] = 1` iff the `axi_stream_window` dump engine is elaborated
+(a synth-time generic in REA-P2.5, derived like every other `FEATURES`
+field — never hand-set); `FEATURES[21]` is reserved for `udp_window`. A host
+selects a window transport only when its bit reads 1; a core without the
+engine reads 0 there today, through both doors. `VERSION` moves only if the
+register map itself gains a register or changes a semantic — a transport that
+only moves the existing map or the blob does not bump it (the tier byte stays
+odd, REA-REQ-806).
+
+### Hard rules (carried from the strategy)
+
+- No MAC, ARP or TCP stack inside `rr_rea`.
+- Do not instantiate JTAG and `external` masters together before REA-P3.4.
+- Do not change the frozen map "to make Ethernet easier".
+- JTAG `rr ila capture` on the existing demos keeps working.
 
 ## Lean profile
 

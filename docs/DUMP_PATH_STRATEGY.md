@@ -41,15 +41,20 @@ are **trucks for the window after `STATUS.done`**, not a second REA.
 
 The register map in SPEC.md is the protocol. A transport only moves
 addr/data or a window blob. `wave_stream_v1` remains the host → RouteWave
-seam.
+seam. Contract: SPEC.md "Dump-path transports" + REA-REQ-909..913
+(REA-P2.4). `FEATURES[20]` advertises `axi_stream_window`, `[21]` is
+reserved for `udp_window`; no VERSION bump for a transport.
 
 ### Window blob (burst / UDP)
 
 After `STATUS.done`:
 
-- `CAPTURE_LEN` cells, `START_PTR` rotation **on the host** (existing
-  REAClient contract) unless the burst engine already emits
-  trigger-at-pretrig order — the contract ticket must pick one and test it.
+- `CAPTURE_LEN` cells. **Decided (REA-P2.4, REA-REQ-912): the burst engine
+  emits trigger-at-pretrig order** — blob cell *i* is physical
+  `(START_PTR + i) mod DEPTH`, no host rotation for a window transport.
+  Register-map transports keep host-side rotation (existing REAClient
+  contract). Tested on both doors in `test_rea_dump_path_contract_p2_4`;
+  `sim/cocotb/tests/rea_window_blob.py` is the executable reference.
 - Plane-major: sample plane, then timestamp plane if `FEATURES[18]`.
 - Each cell is `ceil(SAMPLE_W/32)` little-endian 32-bit words, same paging
   as `DATA_WORD_SEL`.

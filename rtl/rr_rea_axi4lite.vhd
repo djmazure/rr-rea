@@ -20,9 +20,14 @@
 -- and returns rdata in the SAME cycle therefore returns the PREVIOUS register's
 -- value. That is the "every cell lags by one" class which has burned real
 -- bring-up time on two vendors, and it looks like working silicon until you
--- read two registers in a row. This bridge presents the address for one cycle
--- and samples on the NEXT, which is why the read path is a state machine and
--- not a wire.
+-- read two registers in a row. And the DATA_BASE window is DEEPER still: the
+-- capture BRAM's synchronous port-B read plus the RTL-P1.96 registered paging
+-- mux put dpram_rdata TWO edges behind the address, so a bridge that waits
+-- only the regbank's one edge reads every capture cell as the cell addressed
+-- BEFORE the read began (REA-P2.4 found 1.1.0 returning physical cell 0 for
+-- the whole window over AXI while the JTAG door read it correctly). This
+-- bridge therefore presents the address and samples TWO edges later, which
+-- is why the read path is a state machine and not a wire.
 --
 -- Addressing: AXI byte address, word-aligned. The low 2 bits are ignored (a
 -- 32-bit register file); the rr_rea register map is byte-addressed on 4-byte
@@ -95,8 +100,10 @@ architecture rtl of rr_rea_axi4lite is
     signal w_data_r   : std_logic_vector(31 downto 0) := (others => '0');
 
     -- Read channel. R_ADDR presents the address; R_WAIT burns the regbank's
-    -- registered-read cycle; R_RESP holds rvalid until rready (REA-REQ-904/906).
-    type t_rd_state is (R_IDLE, R_ADDR, R_WAIT, R_RESP);
+    -- registered-read cycle; R_WAIT2 burns the DATA window's second one
+    -- (BRAM read + registered paging mux, REA-P2.4); R_RESP holds rvalid
+    -- until rready (REA-REQ-904/906).
+    type t_rd_state is (R_IDLE, R_ADDR, R_WAIT, R_WAIT2, R_RESP);
     signal rd_state_r   : t_rd_state := R_IDLE;
     signal ar_addr_r  : std_logic_vector(G_ADDR_W - 1 downto 0) := (others => '0');
     signal rdata_r    : std_logic_vector(31 downto 0) := (others => '0');
@@ -142,7 +149,8 @@ begin
     -- gives the read priority so a concurrent write waits one extra cycle
     -- rather than corrupting the read's address.
     reg_addr_o <= to_reg_addr(ar_addr_r)
-                  when (rd_state_r = R_ADDR or rd_state_r = R_WAIT)
+                  when (rd_state_r = R_ADDR or rd_state_r = R_WAIT
+                        or rd_state_r = R_WAIT2)
                   else to_reg_addr(aw_addr_r);
     reg_wdata_o <= w_data_r;
     reg_wr_en_o <= reg_wr_en_r;
@@ -193,7 +201,8 @@ begin
                     -- is dropped rather than half-applied.
                     -- Hold off while the read channel owns the address bus,
                     -- so the write strobe never lands against a read address.
-                    if rd_state_r = R_ADDR or rd_state_r = R_WAIT then
+                    if rd_state_r = R_ADDR or rd_state_r = R_WAIT
+                       or rd_state_r = R_WAIT2 then
                         null;  -- retry next cycle; stays in W_APPLY
                     else
                         if wstrb_i = "1111" then
@@ -244,6 +253,15 @@ begin
                         -- presented. Sampling in R_ADDR would return the
                         -- previous register — the one-cell-lag defect.
                         reg_rd_en_r <= '0';
+                        rd_state_r    <= R_WAIT2;
+
+                    when R_WAIT2 =>
+                        -- REA-P2.4: the DATA_BASE window is one edge deeper
+                        -- than the regbank (BRAM sync read, then the
+                        -- RTL-P1.96 registered paging mux). Sampling in
+                        -- R_WAIT read every capture cell as the cell
+                        -- addressed BEFORE this read. Waiting one more edge
+                        -- costs one aclk per read and is correct for both.
                         rdata_r     <= reg_rdata_i;
                         rd_state_r    <= R_RESP;
 

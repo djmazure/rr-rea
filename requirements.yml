@@ -961,13 +961,19 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "AXI4-Lite bridge" }]
     desc: >-
-      The read response waits for the regbank's REGISTERED read latency before
-      asserting rvalid, so rdata is the addressed register's value and never
-      the previous register's. The regbank's rd_data_o is registered (the
-      RTL-P1.96 read-path pipelining), so a bridge that returns data in the
-      same cycle it presents the address returns STALE data — the exact
-      one-register-lag class of defect that has cost real bring-up time on two
-      vendors.
+      The read response waits for the FULL registered read latency of the
+      addressed location before asserting rvalid, so rdata is the addressed
+      register's or capture cell's value and never its predecessor's. The
+      regbank's rd_data_o is registered (the RTL-P1.96 read-path pipelining)
+      — one edge — and the DATA_BASE window is one edge deeper (BRAM
+      synchronous read, then the registered paging mux) — two edges. A bridge
+      that returns data in the same cycle it presents the address returns
+      STALE data, and one that waits only the regbank's edge returns every
+      capture cell as the cell addressed BEFORE the read (REA-P2.4 found the
+      1.1.0 bridge doing exactly that: the whole window read as physical cell
+      0 over AXI). Both are the one-cell-lag class of defect that has cost
+      real bring-up time on two vendors; consecutive DATA_BASE reads over the
+      bridge must return distinct, correct cells.
 
   - id: REA-REQ-905
     kind: behavioral
@@ -1010,3 +1016,86 @@ functional_contract:
       captures correctly. It is a CONFIGURATION, not a variant core: the size
       lever is the generic set — the sample buffer is already BRAM-inferred and
       costs no fabric — so no logic may be conditionally deleted to make it fit.
+
+  # ── Dump-path transport contract (REA-P2.4, docs/DUMP_PATH_STRATEGY.md) ──
+  #
+  # WHY THIS FAMILY EXISTS. JTAG limits dump LATENCY, not capture rate, and
+  # the answer to "Ethernet REA?" is trucks for the window after STATUS.done
+  # — not a second analyser, a second register map, or a MAC in rr_rea. The
+  # whole epic (REA-P2.5 burst RTL, RTL-P2.1133/1134/1135 host transports,
+  # REA-ICE.1 UDP) rests on one claim: the SPEC.md 32-bit register map is the
+  # protocol and a transport only moves addr/data or a window blob. These
+  # requirements pin that claim, name the transports, fix the blob layout and
+  # the rotation choice, and say how a burst engine is advertised — BEFORE
+  # any host or burst RTL exists, so the seams cannot drift while they are
+  # being built. Each is falsifiable at the surface a host reaches: two real
+  # cores, one behind the TAP and one behind rr_rea_axi4lite, read the same
+  # map (test_rea_dump_path_contract_p2_4).
+
+  - id: REA-REQ-909
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      The transports are named jtag, axi_lite, axi_stream_window and
+      udp_window, and the SPEC.md 32-bit register map is the protocol they
+      all speak. A register-map transport moves only addr/data words against
+      that map: through the "jtag" door and the "external" (axi_lite) door
+      VERSION (0x00), STATUS (0x08), DATA_WORD_SEL (0xCC) and the DATA_BASE
+      window (0x100 + 4*cell, DEPTH cells) SHALL sit at identical offsets and
+      yield identical values, and the metadata registers (SAMPLE_W, DEPTH,
+      TIMESTAMP_W, FEATURES) SHALL agree. No transport adds a register, a
+      version word, an address offset or a byte/word remap of its own.
+
+  - id: REA-REQ-910
+    kind: negative
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      v1 ships jtag (existing) and axi_lite; axi_stream_window is v1-adjacent
+      RTL (REA-P2.5) and udp_window is Icebox (REA-ICE.1). A core has exactly
+      ONE register-bus master, selected by G_REG_IFACE: two live masters on
+      one register bus remain forbidden (REA-REQ-901 stands) until the
+      dual-door arbiter (REA-P3.4). In particular a "jtag" core's reg_*_i
+      ports SHALL NOT act as a second door — a well-formed write on them
+      SHALL leave every register unchanged (REA-REQ-902) — and no transport
+      may add a MAC, ARP or TCP stack inside rr_rea.
+
+  - id: REA-REQ-911
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      The window blob every window transport carries is headerless and
+      plane-major — the whole sample plane, then the whole timestamp plane
+      iff FEATURES[18] — with CAPTURE_LEN cells per plane. Each cell is
+      ceil(plane_w/32) little-endian 32-bit words, word k = plane bits
+      [32k+31:32k], the final partial word zero-padded: byte-for-byte the
+      value DATA_BASE returns with DATA_WORD_SEL = k and DATA_PLANE_SEL =
+      plane, so one paging rule serves the register-map path and the blob.
+      Blob length is CAPTURE_LEN * (ceil(SAMPLE_W/32) + [FEATURES[18]] *
+      ceil(TIMESTAMP_W/32)) * 4 bytes. The blob built through the jtag door
+      and through the axi_lite door from the same capture SHALL be
+      byte-identical (REA-REQ-900: one datapath behind either bridge).
+
+  - id: REA-REQ-912
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      Rotation is ENGINE-SIDE for window transports: blob cell i is physical
+      DATA_BASE cell (START_PTR + i) mod DEPTH, so blob index PRETRIG is the
+      trigger sample, both planes are time-monotonic across ring wrap, and a
+      window consumer performs no host-side rotation. Register-map transports
+      (jtag, axi_lite) are unchanged: DATA_BASE is walked by physical address
+      and the host rotates from START_PTR (the v0.2 REAClient contract).
+
+  - id: REA-REQ-913
+    kind: negative
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      A window transport is advertised by a FEATURES bit, never by a VERSION
+      bump: FEATURES[20] SHALL read 1 iff an axi_stream_window dump engine is
+      elaborated (generic-derived, never hand-set), FEATURES[21] is reserved
+      for udp_window, and a core that elaborates no window engine SHALL read
+      0 in both bits through every door. A host SHALL NOT select a window
+      transport whose bit reads 0. VERSION moves only when the register map
+      gains a register or changes a semantic; moving the existing map or the
+      blob over a new truck does not bump it (tier byte stays odd,
+      REA-REQ-806).
