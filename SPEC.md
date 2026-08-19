@@ -510,7 +510,7 @@ this.
 |---|---|---|---|
 | `jtag` | register map via the TAP (`rr_rea_jtag_iface`) | **shipped** | Default; always sufficient for arm / status / small dump. |
 | `axi_lite` | the same register map via `G_REG_IFACE = "external"` + `rr_rea_axi4lite` (mmap / UIO on a PS) | **RTL shipped (1.1.x); host = RTL-P2.1134** | Zynq/HPS: the CPU's existing Ethernet is the "Ethernet flavour". No FPGA MAC. |
-| `axi_stream_window` | the window blob as one AXI-Stream burst after `done`; control stays on the register map | **v1-adjacent RTL — REA-P2.5** | Advertised by `FEATURES[20]`. |
+| `axi_stream_window` | the window blob as one AXI-Stream burst after `done`; control stays on the register map | **RTL shipped (REA-P2.5)** | `rr_rea_axis_window`, elaborated by `G_AXIS_WINDOW`; advertised by `FEATURES[20]`. Read-only window mover on `m_axis_*`, NOT a second register master. Host = RTL-P2.1135. |
 | `udp_window` | the same blob over a proven external MAC, packetiser outside `rr_rea` | **Icebox — REA-ICE.1** | Bare FPGA, no PS. `FEATURES[21]` reserved. |
 
 **v1 = `jtag` + `axi_lite`** (REA-REQ-910). `axi_stream_window` is the
@@ -547,6 +547,23 @@ executable definition; a green AXIS dump that never compared against
   tested on both doors: the reference walker builds the engine-ordered blob
   from each and proves the trigger lands at `PRETRIG`, the planes are
   time-monotonic, and the two blobs are byte-identical.
+
+### The AXI-Stream burst engine (REA-REQ-914, REA-P2.5)
+
+`rr_rea_axis_window` is the first window "truck". Elaborated iff
+`G_AXIS_WINDOW` (off by default, so a JTAG-only bring-up build carries no burst
+engine and `FEATURES[20]` reads 0). It runs in the register-bus clock domain —
+`reg_clk_o`, i.e. the PS AXI clock under `G_REG_IFACE = "external"` — and taps
+`DATA_BASE` (DPRAM port B) through a **local read-port arbiter**, not the
+register bus: it is a read-only window mover, so it is **not** a second
+register-bus master and `REA-REQ-901` still stands (the dual-*control*-door
+arbiter remains REA-P3.4). After a capture reaches `STATUS.done` the engine
+bursts the exact window blob above on `m_axis_*` (one DPRAM read per cell, the
+`ceil(plane_w/32)` beats of that cell paged out of a latched cell register),
+`tlast` on the last beat of the last plane, full AXI-Stream back-pressure
+(`tdata`/`tlast` held while `tvalid` and not `tready`). The burst is
+byte-identical to a `DATA_BASE` walk of the same capture, proven in
+`test_rea_axis_window_dump_p2_5` against `rea_window_blob.py`.
 
 ### Advertising a window transport (REA-REQ-913)
 

@@ -48,6 +48,7 @@ def main() -> None:
                 str(_RTL_DIR / "rr_rea_crc_sweep.vhd"),
                 str(_RTL_DIR / "rr_rea_fill_fsm.vhd"),
                 str(_RTL_DIR / "rr_rea_trust_core.vhd"),
+                str(_RTL_DIR / "rr_rea_axis_window.vhd"),
                 str(_RTL_DIR / "rr_rea_top.vhd"),
             ],
         },

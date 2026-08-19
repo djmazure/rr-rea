@@ -116,6 +116,7 @@ def main() -> None:
                 f"{_RTL_DIR}/rr_rea_fill_fsm.vhd",
                 f"{_RTL_DIR}/rr_rea_trust_core.vhd",
                 f"{_RTL_DIR}/rr_rea_axi4lite.vhd",
+                f"{_RTL_DIR}/rr_rea_axis_window.vhd",
                 f"{_RTL_DIR}/rr_rea_top.vhd",
                 f"{_FIX}/rr_rea_dual_door_harness.vhd",
             ],

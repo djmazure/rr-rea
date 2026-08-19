@@ -187,13 +187,23 @@ package rr_rea_pkg is
     --   [18]   TIMESTAMP = '1' when G_TIMESTAMP_W > 0; DATA_PLANE_SEL=1
     --                    exposes a timestamp cell aligned with each sample.
     --   [19]   READBACK_INTEGRITY = '1' only when the sweep/selftest logic exists.
-    --   [31:20] reserved (0)
+    --   [20]   AXIS_WINDOW = '1' iff the axi_stream_window dump engine is
+    --          elaborated (G_AXIS_WINDOW, generic-derived, never hand-set —
+    --          REA-REQ-913, REA-P2.5). A host may select the axi_stream_window
+    --          burst transport only when this bit reads 1.
+    --   [21]   UDP_WINDOW reserved 0 (Icebox, REA-ICE.1) — never set today.
+    --   [31:22] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
     constant C_FEAT_WIDE_COND_BIT   : natural := 17;
     constant C_FEAT_TIMESTAMP_BIT   : natural := 18;
     constant C_FEAT_READBACK_INTEGRITY_BIT : natural := 19;
+    -- REA-REQ-913: window-transport advertisement bits. [20] is derived from the
+    -- G_AXIS_WINDOW elaboration generic (see rr_rea_regbank build_features); [21]
+    -- is reserved for udp_window and stays 0.
+    constant C_FEAT_AXIS_WINDOW_BIT : natural := 20;
+    constant C_FEAT_UDP_WINDOW_BIT  : natural := 21;
     -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
     -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
     -- REA-P2.3: the tier is complete (sweep + publication + selftest fill), so

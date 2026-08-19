@@ -11,9 +11,20 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.1.1
+#   version: below        the PACKAGE version the registry pins   -> 1.2.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.9.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454109
+#
+# 1.2.0 (REA-P2.5) is a MINOR bump: rr_rea_top gains an OPTIONAL AXI-Stream
+# window-dump engine (rr_rea_axis_window, generic G_AXIS_WINDOW defaulting to
+# false) plus the m_axis_* master ports. After STATUS.done it bursts the frozen
+# window blob (plane-major, engine-rotated, tlast on the last beat) that a host
+# otherwise walks from DATA_BASE — proven byte-identical in
+# test_rea_axis_window_dump_p2_5. Advertised by FEATURES[20]. Existing builds
+# are untouched: the generic defaults off (no engine, inert master), the new
+# ports have defaults, and neither the register map nor the VERSION magic moves
+# (a transport does not bump VERSION — REA-REQ-913). Control stays on the
+# register door; the engine is a read-only window mover, never a second master.
 #
 # 1.1.1 (REA-P2.4) is a PATCH: rr_rea_axi4lite waited only the regbank's one
 # registered-read edge, but a DATA_BASE capture cell is two edges behind the
@@ -45,7 +56,7 @@
 
 name: rea
 namespace: routertl
-version: 1.1.1
+version: 1.2.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
@@ -72,6 +83,7 @@ hdl:
     - rtl/rr_rea_crc_sweep.vhd
     - rtl/rr_rea_trust_core.vhd
     - rtl/rr_rea_axi4lite.vhd
+    - rtl/rr_rea_axis_window.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
 
@@ -96,6 +108,7 @@ synthesis:
     - rtl/rr_rea_crc_sweep.vhd
     - rtl/rr_rea_trust_core.vhd
     - rtl/rr_rea_axi4lite.vhd
+    - rtl/rr_rea_axis_window.vhd
     - rtl/rr_rea_top.vhd
     - rtl/rr_rea_trig_xbar.vhd
   sources_per_vendor:

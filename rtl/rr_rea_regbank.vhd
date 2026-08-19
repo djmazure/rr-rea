@@ -55,7 +55,11 @@ entity rr_rea_regbank is
         G_TIMESTAMP_W : natural  := 32;
         G_NUM_CHAN    : positive := 1;
         G_TRIG_CONDS  : positive := 4;  -- v0.5 comparator-array slots (P3.647)
-        G_NUM_SOURCE  : positive := 1   -- v0.5 write-side source bits (P2.837)
+        G_NUM_SOURCE  : positive := 1;  -- v0.5 write-side source bits (P2.837)
+        -- REA-P2.5: iff true, an axi_stream_window dump engine is elaborated in
+        -- rr_rea_top; FEATURES[20] advertises it. Generic-derived, never hand-set
+        -- (REA-REQ-913).
+        G_AXIS_WINDOW : boolean  := false
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
         -- generic didn't survive Vivado synthesis).
@@ -243,6 +247,11 @@ architecture rtl of rr_rea_regbank is
         -- true when P2.3 completes the tier (REQ-806).
         if C_HAS_READBACK_INTEGRITY then
             v(C_FEAT_READBACK_INTEGRITY_BIT) := '1';
+        end if;
+        -- REA-P2.5/REQ-913: [20] tracks the elaborated axi_stream_window dump
+        -- engine (G_AXIS_WINDOW). [21] (udp_window) stays reserved 0.
+        if G_AXIS_WINDOW then
+            v(C_FEAT_AXIS_WINDOW_BIT) := '1';
         end if;
         return v;
     end function;

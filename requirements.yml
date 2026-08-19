@@ -1099,3 +1099,23 @@ functional_contract:
       gains a register or changes a semantic; moving the existing map or the
       blob over a new truck does not bump it (tier byte stays odd,
       REA-REQ-806).
+
+  - id: REA-REQ-914
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      When the axi_stream_window dump engine is elaborated (G_AXIS_WINDOW,
+      FEATURES[20]=1), after a capture reaches STATUS.done the engine SHALL
+      emit the window blob as one AXI-Stream burst on its m_axis_* master, in
+      the frozen layout of REA-REQ-911/912: plane-major (the whole sample
+      plane, then the timestamp plane iff FEATURES[18]), CAPTURE_LEN cells per
+      plane, cell i = physical DATA_BASE cell (START_PTR + i) mod DEPTH, each
+      cell ceil(plane_w/32) little-endian 32-bit beats. The burst SHALL be
+      exactly CAPTURE_LEN * (ceil(SAMPLE_W/32) + [FEATURES[18]] *
+      ceil(TIMESTAMP_W/32)) beats, carry tlast on and only on the last beat,
+      and be BYTE-IDENTICAL to a DATA_BASE walk of the same capture over the
+      register door (REA-REQ-911) — so a window consumer performs no host-side
+      rotation. tdata and tlast SHALL be held stable while tvalid is asserted
+      and tready is low (AXI-Stream back-pressure). Control stays on the
+      register map: the engine is a read-only window mover, never a second
+      register-bus master (REA-REQ-901 stands).

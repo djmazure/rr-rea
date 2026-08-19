@@ -43,9 +43,17 @@ entity rr_rea_top is
         --                no spare BSCAN user chain.
         -- The choice changes only the BRIDGE: regbank, CDC, capture FSM and
         -- the v0.8 trust core are the same silicon either way (REA-REQ-900).
-        G_REG_IFACE   : string   := "jtag"
+        G_REG_IFACE   : string   := "jtag";
         -- RTL-T2.119: G_BUILD_ID generic removed; rr_rea_regbank reads the
         -- BUILD_ID (0xD4) source hash from rr_rea_build_id_pkg directly.
+
+        -- REA-P2.5: elaborate the axi_stream_window dump engine. OFF by default
+        -- so a JTAG-only (or any) bring-up build instantiates no burst engine and
+        -- the m_axis_* master below stays inert and unadvertised — FEATURES[20]
+        -- reads 0 (REA-REQ-913). A consumer selects the burst transport only when
+        -- FEATURES[20] reads 1, which happens iff this generic is true. Control
+        -- always stays on the register door (G_REG_IFACE); this engine only reads.
+        G_AXIS_WINDOW : boolean  := false
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
@@ -115,7 +123,20 @@ entity rr_rea_top is
         reg_rd_en_i  : in  std_logic := '0';
         reg_addr_i   : in  std_logic_vector(15 downto 0) := (others => '0');
         reg_wdata_i  : in  std_logic_vector(31 downto 0) := (others => '0');
-        reg_rdata_o  : out std_logic_vector(31 downto 0)
+        reg_rdata_o  : out std_logic_vector(31 downto 0);
+
+        -- ── AXI-Stream window dump master (REA-P2.5) ─────────────────
+        -- LIVE only when G_AXIS_WINDOW = true; otherwise tied inert
+        -- (tvalid = '0'). Runs in the register-bus clock domain (reg_clk_o —
+        -- the PS AXI clock under G_REG_IFACE = "external"). After STATUS.done
+        -- the engine bursts the packed window blob (SPEC.md "Window blob"),
+        -- tlast on the last beat. m_axis_tready_i defaults '1' so a build that
+        -- leaves it unconnected still streams (and existing instantiations that
+        -- omit these ports are unaffected).
+        m_axis_tdata_o  : out std_logic_vector(31 downto 0);
+        m_axis_tvalid_o : out std_logic;
+        m_axis_tready_i : in  std_logic := '1';
+        m_axis_tlast_o  : out std_logic
     );
 end entity;
 
@@ -273,6 +294,21 @@ architecture rtl of rr_rea_top is
     signal dpram_rdata   : std_logic_vector(31 downto 0);
     signal in_dpram_window : std_logic;
 
+    -- ── REA-P2.5 AXI-Stream window dump engine ─────────────────────
+    -- The engine (elaborated iff G_AXIS_WINDOW) time-shares DPRAM port B with
+    -- the register read decode: while dumping it OWNS the read address
+    -- (axis_mem_rd = '1'). This is a local read-port arbiter, NOT a second
+    -- register-bus master — the host still controls the core through its one
+    -- register door (REA-REQ-901 stands). reg_dpram_addr_b is the address the
+    -- register window decode would drive; dpram_addr_b is the arbitrated result.
+    signal reg_dpram_addr_b : std_logic_vector(C_PTR_W - 1 downto 0);
+    signal axis_mem_addr    : std_logic_vector(C_PTR_W - 1 downto 0)
+        := (others => '0');
+    signal axis_mem_rd      : std_logic := '0';
+    -- capture_len = pretrig + posttrig + 1 (register-bus domain), the same
+    -- computation the regbank exposes at CAPTURE_LEN (0x1C).
+    signal capture_len_jclk : std_logic_vector(C_PTR_W downto 0);
+
     function is_01(v : std_logic_vector) return boolean is
     begin
         for i in v'range loop
@@ -375,7 +411,8 @@ begin
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
             G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_NUM_SOURCE  => G_NUM_SOURCE
+            G_NUM_SOURCE  => G_NUM_SOURCE,
+            G_AXIS_WINDOW => G_AXIS_WINDOW
         )
         port map (
             jtag_clk_i => reg_clk_o,
@@ -428,7 +465,7 @@ begin
         variable in_window_v : boolean;
     begin
         in_dpram_window <= '0';
-        dpram_addr_b <= (others => '0');
+        reg_dpram_addr_b <= (others => '0');
 
         if is_01(reg_addr_o) then
             in_window_v :=
@@ -437,15 +474,20 @@ begin
                                       to_unsigned(G_DEPTH * 4, 16));
             if in_window_v then
                 in_dpram_window <= '1';
-                dpram_addr_b <= std_logic_vector(resize(
+                reg_dpram_addr_b <= std_logic_vector(resize(
                     shift_right(unsigned(reg_addr_o) - unsigned(C_ADDR_DATA_BASE), 2),
                     C_PTR_W));
             end if;
         else
             in_dpram_window <= 'X';
-            dpram_addr_b <= (others => 'X');
+            reg_dpram_addr_b <= (others => 'X');
         end if;
     end process;
+
+    -- Local read-port arbiter: the dump engine owns port B while bursting, the
+    -- register window decode owns it otherwise. The engine only runs after
+    -- STATUS.done, when a host is not mid-DATA_BASE-walk on the same door.
+    dpram_addr_b <= axis_mem_addr when axis_mem_rd = '1' else reg_dpram_addr_b;
 
     -- RTL-P1.91: DATA_WORD_SEL pages a full-width cell through the frozen
     -- one-address-per-cell DATA_BASE window. shift_right + resize naturally
@@ -900,6 +942,46 @@ begin
         timestamp_dout_b <= (others => '0');
         crc_ts_r  <= (others => '0');  -- no plane → CRC_TS reads 0 (REQ-804)
         ts_done_r <= '1';              -- publication gates on the sample plane only
+    end generate;
+
+    -- ── REA-P2.5 AXI-Stream window dump engine ─────────────────────
+    -- capture_len = pretrig + posttrig + 1, in the register-bus domain (both
+    -- config words are regbank outputs on reg_clk_o). Matches CAPTURE_LEN (0x1C).
+    capture_len_jclk <= std_logic_vector(
+        resize(unsigned(pretrig_jclk), C_PTR_W + 1) +
+        resize(unsigned(posttrig_jclk), C_PTR_W + 1) + 1);
+
+    g_axis_dump : if G_AXIS_WINDOW generate
+        u_axis : entity work.rr_rea_axis_window
+            generic map (
+                G_SAMPLE_W    => G_SAMPLE_W,
+                G_DEPTH       => G_DEPTH,
+                G_TIMESTAMP_W => G_TIMESTAMP_W
+            )
+            port map (
+                clk_i         => reg_clk_o,
+                rst_i         => reg_rst_o,
+                done_i        => done_jclk(0),
+                start_ptr_i   => start_ptr_jclk,
+                capture_len_i => capture_len_jclk,
+                mem_addr_o    => axis_mem_addr,
+                mem_rd_o      => axis_mem_rd,
+                sample_dout_i => dpram_dout_b,
+                ts_dout_i     => timestamp_dout_b,
+                m_tdata_o     => m_axis_tdata_o,
+                m_tvalid_o    => m_axis_tvalid_o,
+                m_tready_i    => m_axis_tready_i,
+                m_tlast_o     => m_axis_tlast_o
+            );
+    end generate;
+
+    g_no_axis_dump : if not G_AXIS_WINDOW generate
+        -- No burst engine: the master is inert and port B is never contended.
+        axis_mem_addr   <= (others => '0');
+        axis_mem_rd     <= '0';
+        m_axis_tdata_o  <= (others => '0');
+        m_axis_tvalid_o <= '0';
+        m_axis_tlast_o  <= '0';
     end generate;
 
 end architecture;
