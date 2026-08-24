@@ -1119,3 +1119,43 @@ functional_contract:
       and tready is low (AXI-Stream back-pressure). Control stays on the
       register map: the engine is a read-only window mover, never a second
       register-bus master (REA-REQ-901 stands).
+
+  - id: REA-REQ-915
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      START_PTR and STATUS.done leave the capture FSM on the SAME sample-clock
+      edge (REA-REQ-104) and reach the dump engine's register-bus domain over
+      SEPARATE rr_rea_sync_word crossings (1-bit done, multi-bit start_ptr) —
+      whose contract (REA-REQ-020/021) requires the source stable for ≥2 dest
+      clocks around any sample. The engine SHALL NOT snapshot start_ptr on the
+      dest edge done first resolves high: it SHALL wait until start_ptr has
+      settled (multiple dest cycles after the done edge) before latching the
+      window pointer, so a torn or one-cycle-late start_ptr can NEVER rotate
+      the emitted burst to the wrong window. Equivalently: for any bounded
+      skew between the two crossings, the burst SHALL rotate on the SETTLED
+      START_PTR, byte-identical to the DATA_BASE walk that reads the settled
+      register (REA-REQ-911/914). A dump that rotated on a stale start_ptr
+      while the register walk read the settled one is a defect, not a race the
+      host can tolerate.
+
+  - id: REA-REQ-916
+    kind: negative
+    spec: [{ doc: SPEC.md, clause: "Dump-path transports (REA-P2.4)" }]
+    desc: >-
+      The dump engine and the register-map DATA_BASE decode share the one DPRAM
+      read port (port B) through a local arbiter, and while bursting the engine
+      owns it. A DATA_BASE read issued between STATUS.done and the burst's tlast
+      therefore returns the cell the engine is walking, not the addressed cell —
+      silently, with no wait or error. DATA_BASE is UNDEFINED while a dump is in
+      progress: the host SHALL NOT walk DATA_BASE while a window dump is in
+      flight — it either consumes the window over the m_axis_* transport it
+      selected, or waits for tlast (one-shot per STATUS.done) before reading
+      DATA_BASE over the register door. This binds most in the jtag door, where
+      reg_clk_o is TCK and m_axis_tready_i defaults 1, so a G_AXIS_WINDOW build
+      begins dumping at TCK on done and can overlap an rr ila DATA_BASE walk.
+      Giving the register decode arbiter priority is NOT a substitute — it would
+      steal the engine's own mid-cell read and corrupt the burst; the contract
+      is one consumer of the window at a time. A busy/dump-in-progress status
+      bit would be a register-map semantic addition (a VERSION bump, REA-REQ-806/
+      913) and is deferred with the dual-door arbiter (REA-P3.4).

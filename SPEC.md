@@ -565,6 +565,25 @@ bursts the exact window blob above on `m_axis_*` (one DPRAM read per cell, the
 byte-identical to a `DATA_BASE` walk of the same capture, proven in
 `test_rea_axis_window_dump_p2_5` against `rea_window_blob.py`.
 
+**`DATA_BASE` is undefined while a dump is in progress (REA-REQ-916).** The
+engine and the register-map `DATA_BASE` decode share the *one* DPRAM read port
+(port B) through the local arbiter, and while bursting the engine owns it. A
+`DATA_BASE` read issued between `STATUS.done` and the burst's `tlast` therefore
+returns **whatever cell the engine is walking, not the addressed cell** — no
+wait state, no error, silently. This is not a defect the host can walk into
+blind: the host **SHALL NOT** walk `DATA_BASE` while a dump is in flight — it
+either consumes the window over the `m_axis_*` transport it selected, or waits
+for `tlast` (the burst is one-shot per `STATUS.done`) before reading `DATA_BASE`
+over the register door. This matters most in the `jtag` door, where `reg_clk_o`
+is `TCK` and `m_axis_tready_i` defaults `'1'`: a `G_AXIS_WINDOW` build there
+begins dumping at `TCK` as soon as `done` rises and can overlap an `rr ila`
+`DATA_BASE` walk. Giving the register decode priority is **not** the fix — it
+would steal the engine's own read mid-cell and corrupt the burst instead; the
+contract is "one consumer of the window at a time", stated here rather than left
+to a code comment. (A `busy`/`dump-in-progress` status bit is a register-map
+*semantic* addition and so would force a `VERSION` bump, REA-REQ-806/913;
+deferred with the dual-door arbiter, REA-P3.4.)
+
 ### Advertising a window transport (REA-REQ-913)
 
 A **`FEATURES` bit, not a `VERSION` bump**, advertises a burst engine:

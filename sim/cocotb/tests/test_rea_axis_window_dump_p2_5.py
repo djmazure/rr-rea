@@ -73,6 +73,7 @@ ADDR_TRIG_MODE      = 0x20
 ADDR_TRIG_VALUE     = 0x24
 ADDR_TRIG_MASK      = 0x28
 ADDR_FEATURES       = 0xD0
+ADDR_DATA_BASE      = 0x100
 
 CTRL_BIT_ARM = 0x01
 STATUS_BIT_DONE = 0x04
@@ -349,6 +350,68 @@ async def test_axis_burst_is_byte_identical_to_data_base_walk(dut):
         f"REA-P2.5 PASS — {len(sink.beats)}-beat AXIS burst byte-identical to the "
         f"DATA_BASE walk; START_PTR={oracle['start_ptr']} (window wraps the ring); "
         f"tlast on beat {sink.last_index}; trigger at index {PRETRIG}"
+    )
+
+
+@cocotb.test()
+@requires("REA-REQ-916")
+async def test_concurrent_data_base_reads_do_not_corrupt_burst(dut):
+    # REA-REQ-916: the dump engine and the DATA_BASE decode share DPRAM port B
+    # through a local arbiter, and the engine keeps port B for the whole burst.
+    # A host DATA_BASE read during the dump gets an UNDEFINED value (the cell the
+    # engine is mid-walk on) — DATA_BASE is undefined until tlast — but it must
+    # NOT steal the port and corrupt the engine's own read. This test hammers
+    # DATA_BASE over the AXI4-Lite door THROUGHOUT the burst and asserts the
+    # collected burst is still byte-identical to a post-dump DATA_BASE walk.
+    #
+    # FALSIFIABILITY: if the arbiter were "fixed" the wrong way — giving the
+    # register decode priority so an overlapping read wins port B — the engine's
+    # mid-cell read would be stolen and the burst would tear, turning this red.
+    await _start(dut)
+    cocotb.start_soon(_drive_probe_counter(dut))
+    await ClockCycles(dut.sample_clk_i, 2 * DEPTH)
+
+    sink = _AxisSink(dut)
+    cocotb.start_soon(sink.run())
+
+    await _configure_and_arm(dut)
+    await _wait_done(dut)
+
+    # Hammer DATA_BASE over the control door for the whole burst. Reads return an
+    # undefined (engine-owned) value with an OKAY response; we only care that the
+    # concurrent traffic does not disturb the stream. Walk several ring cells so
+    # the read address genuinely moves under the engine.
+    async def _hammer():
+        i = 0
+        while not sink.done:
+            await _axi_read(dut, ADDR_DATA_BASE + 4 * (i % DEPTH))
+            i += 1
+
+    cocotb.start_soon(_hammer())
+
+    for _ in range(40000):
+        if sink.done:
+            break
+        await ClockCycles(dut.aclk_i, 1)
+    assert sink.done, "AXIS burst never asserted tlast under concurrent DATA_BASE reads"
+
+    axis_bytes = b"".join(w.to_bytes(4, "little") for w in sink.beats)
+
+    # Engine idle now — walk DATA_BASE for the oracle (reads are defined again).
+    oracle = await blob.read_window_blob(
+        lambda a: _axi_read(dut, a), lambda a, d: _axi_write(dut, a, d))
+
+    assert oracle["start_ptr"] != 0 and oracle["start_ptr"] + CAPTURE_LEN > DEPTH, (
+        f"START_PTR={oracle['start_ptr']}: window does not wrap — adjust TRIG_COUNT"
+    )
+    assert axis_bytes == oracle["blob"], (
+        "concurrent DATA_BASE reads corrupted the AXIS burst — the arbiter let a "
+        "register read steal port B mid-cell (REA-REQ-916):\n"
+        f"  axis  ={axis_bytes.hex()}\n  oracle={oracle['blob'].hex()}"
+    )
+    dut._log.info(
+        f"REA-P2.5 REQ-916 PASS — {len(sink.beats)}-beat burst byte-identical to "
+        "the post-dump DATA_BASE walk despite DATA_BASE hammered throughout the dump"
     )
 
 

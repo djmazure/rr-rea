@@ -58,8 +58,13 @@ def test_master_is_inert_when_engine_absent():
     )
 
 
-def test_features20_is_generic_derived_not_hardcoded():
-    # FEATURES[20] must come from the G_AXIS_WINDOW generic, never a bare set.
+def test_features20_axis_derived_and_udp_reserved():
+    # FEATURES[20] must come from the G_AXIS_WINDOW generic, never a bare set;
+    # FEATURES[21] (udp_window) is Icebox and must never be asserted. Both halves
+    # of the REA-REQ-913 FEATURES contract in one test — and because the first
+    # assertion is baseline-red (the pre-REA-P2.5 regbank has no axis bit block
+    # at all), the reserved-udp guard folded in here rides a test that actually
+    # goes red if the change regresses, instead of sitting green on every tree.
     assert re.search(
         r"if\s+G_AXIS_WINDOW\s+then\s*\n\s*v\(C_FEAT_AXIS_WINDOW_BIT\)\s*:=\s*'1'",
         REGBANK), (
@@ -68,10 +73,8 @@ def test_features20_is_generic_derived_not_hardcoded():
     )
     assert "C_FEAT_AXIS_WINDOW_BIT : natural := 20" in PKG
     assert "C_FEAT_UDP_WINDOW_BIT  : natural := 21" in PKG
-
-
-def test_regbank_never_sets_udp_bit():
-    # [21] (udp_window) is Icebox and must never be asserted.
+    # [21] (udp_window) is reserved 0 — never referenced (let alone set) in the
+    # regbank, which the FEATURES[20] block above proves is live.
     assert "C_FEAT_UDP_WINDOW_BIT" not in REGBANK, (
         "FEATURES[21] (udp_window) is reserved and must not be set anywhere in "
         "the regbank (REA-REQ-913)"

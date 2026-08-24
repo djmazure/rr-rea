@@ -45,8 +45,11 @@ entity rr_rea_axis_window is
         -- ── Capture snapshot (register-bus domain) ───────────────────
         -- done_i is the STATUS.done level; a rising edge (a fresh capture
         -- completing) launches exactly one burst. start_ptr_i / capture_len_i
-        -- are the ring pointers, stable once done — latched at burst start so a
-        -- later re-arm cannot tear the in-flight blob.
+        -- are the ring pointers, stable once done — but done and start_ptr cross
+        -- from the sample domain on SEPARATE synchronizers, so start_ptr_i is
+        -- latched only AFTER a settle wait past the done edge (REA-REQ-915), not
+        -- on the edge itself; once latched a later re-arm cannot tear the
+        -- in-flight blob.
         done_i        : in std_logic;
         start_ptr_i   : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         capture_len_i : in std_logic_vector(clog2(G_DEPTH) downto 0);
@@ -85,8 +88,28 @@ architecture rtl of rr_rea_axis_window is
     -- A cell register wide enough for either plane's cell.
     constant C_CELL_W       : positive := max_nat(G_SAMPLE_W, C_TS_W);
 
-    type state_t is (S_IDLE, S_SETUP, S_FETCH, S_STREAM);
+    -- ── CDC snapshot settle (REA-REQ-915) ────────────────────────────────
+    -- done_i and start_ptr_i leave the capture FSM on the SAME sample-clock
+    -- edge (REA-REQ-104) but reach this domain over SEPARATE rr_rea_sync_word
+    -- crossings — a 1-bit done and a multi-bit start_ptr, no gray code. Two
+    -- independent 2-flop synchronizers observing the same source transition can
+    -- present their new outputs up to one dest cycle apart, so at the edge
+    -- done first resolves high start_ptr_i may still be the stale pre-capture
+    -- value (or, mid-flight, torn). rr_rea_sync_word's contract (REA-REQ-020/
+    -- 021) requires the source stable for >=2 dest clocks around any sample; we
+    -- honour it by waiting C_SNAP_SETTLE dest cycles AFTER the done edge before
+    -- latching start_ptr — by then start_ptr has fully flushed both flops and
+    -- is the settled window pointer (it does not change again until the next
+    -- capture). This makes the burst rotate on the SETTLED start_ptr, byte-
+    -- identical to the DATA_BASE walk that reads the settled register.
+    -- Invisible in nvc (identical crossing delays); pinned by the skew model in
+    -- test_rea_axis_window_cdc_snapshot_p2_5. The extra latency is a handful of
+    -- reg-clk cycles, dwarfed by the multi-beat burst that follows.
+    constant C_SNAP_SETTLE  : natural := 3;
+
+    type state_t is (S_IDLE, S_SETTLE, S_SETUP, S_FETCH, S_STREAM);
     signal state_r : state_t := S_IDLE;
+    signal settle_r : integer range 0 to C_SNAP_SETTLE := 0;
 
     -- 0 = sample plane, 1 = timestamp plane.
     signal plane_r : std_logic := '0';
@@ -152,21 +175,39 @@ begin
                 word_r      <= 0;
                 cell_sr     <= (others => '0');
                 done_prev_r <= '0';
+                settle_r    <= 0;
             else
                 done_prev_r <= done_i;
 
                 case state_r is
                     when S_IDLE =>
                         -- Launch one burst on the rising edge of done, provided
-                        -- the window is non-empty.
+                        -- the window is non-empty. Do NOT snapshot start_ptr
+                        -- here: it crosses on a different synchronizer than done
+                        -- and may still be stale/torn at this edge (REA-REQ-915).
+                        -- Hand off to S_SETTLE, which waits for it to settle.
                         if done_i = '1' and done_prev_r = '0'
                            and unsigned(capture_len_i) /= 0 then
+                            settle_r <= C_SNAP_SETTLE;
+                            state_r  <= S_SETTLE;
+                        end if;
+
+                    when S_SETTLE =>
+                        -- Wait C_SNAP_SETTLE dest cycles after the done edge so
+                        -- start_ptr_i (multi-bit CDC) is fully settled, THEN
+                        -- snapshot the window pointers. capture_len_i is quasi-
+                        -- static (regbank output, written long before arm), but
+                        -- latching both here keeps the snapshot from one settled
+                        -- instant. REA-REQ-915 CDC-race fix.
+                        if settle_r = 0 then
                             start_ptr_r   <= unsigned(start_ptr_i);
                             capture_len_r <= unsigned(capture_len_i);
                             plane_r       <= '0';
                             idx_r         <= (others => '0');
                             word_r        <= 0;
                             state_r       <= S_SETUP;
+                        else
+                            settle_r <= settle_r - 1;
                         end if;
 
                     when S_SETUP =>

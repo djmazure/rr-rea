@@ -485,8 +485,14 @@ begin
     end process;
 
     -- Local read-port arbiter: the dump engine owns port B while bursting, the
-    -- register window decode owns it otherwise. The engine only runs after
-    -- STATUS.done, when a host is not mid-DATA_BASE-walk on the same door.
+    -- register window decode owns it otherwise. The engine (highest priority)
+    -- must NOT be pre-empted mid-burst: handing port B to a register DATA_BASE
+    -- read would steal the engine's own mid-cell read and corrupt the blob. So
+    -- DATA_BASE is UNDEFINED between STATUS.done and tlast — a DATA_BASE read
+    -- during a dump returns the cell the engine is walking, silently. The host
+    -- contract (one window consumer at a time: consume m_axis_*, or wait for
+    -- tlast before walking DATA_BASE) is SPEC "Dump-path transports" /
+    -- REA-REQ-916, not just this comment.
     dpram_addr_b <= axis_mem_addr when axis_mem_rd = '1' else reg_dpram_addr_b;
 
     -- RTL-P1.91: DATA_WORD_SEL pages a full-width cell through the frozen
