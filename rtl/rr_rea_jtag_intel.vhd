@@ -43,8 +43,10 @@ entity rr_rea_intel is
         -- into the design (sample_clk_i domain, crossed via rr_rea_sync_word).
         -- Wire so bit=0 holds the gated DUT signal safe; the host raises it
         -- over JTAG (System Console) to release. Reset default = 0. Leave
-        -- `open` if unused. Needs `set_clock_groups -asynchronous` between the
-        -- sld_virtual_jtag tck_i and the sample clock — see SPEC.md.
+        -- `open` if unused. The sld_virtual_jtag tck_i <-> sample-clock
+        -- crossings are bounded with a datapath-only max delay (half the
+        -- faster period), never an async clock group — SPEC.md
+        -- "Clock-domain crossings".
         source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
         trigger_o : out std_logic
     );

@@ -79,10 +79,10 @@ entity rr_rea_top is
         -- gated signal starts SAFE/inactive until explicitly written.
         --
         -- SDC: the jtag_clk_i → sample_clk_i crossing this port rides on is
-        -- asynchronous and MUST get the same `set_clock_groups -asynchronous`
-        -- treatment as the existing REA config crossings wherever this core
-        -- is integrated into a board/example design (see SPEC.md
-        -- "Write-side source"). Wire source_o so that a bit = 0 holds the
+        -- asynchronous; constrain it like every REA crossing, with
+        -- set_max_delay -datapath_only at half the faster period (SPEC.md
+        -- "Clock-domain crossings", REA-P2.10), never an async clock group.
+        -- Wire source_o so that a bit = 0 holds the
         -- DUT signal in its safe state (e.g. bist_start <= bist_start_i and
         -- source_o(0)); the reset default then gates by construction.
         source_o : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);

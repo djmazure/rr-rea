@@ -40,8 +40,9 @@ entity rr_rea_xilinx7 is
         -- into the design (sample_clk_i domain, crossed via rr_rea_sync_word).
         -- Wire so bit=0 holds the gated DUT signal safe; the host raises it
         -- over JTAG to release (e.g. a BIST arm gate). Reset default = 0.
-        -- Leave `open` if unused. Needs `set_clock_groups -asynchronous`
-        -- between the JTAG (tck_i) and sample clocks — see SPEC.md.
+        -- Leave `open` if unused. The tck_i <-> sample-clock crossings are
+        -- bounded with set_max_delay -datapath_only (half the faster period),
+        -- never an async clock group — SPEC.md "Clock-domain crossings".
         source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
         trigger_o : out std_logic
     );

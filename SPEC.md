@@ -362,15 +362,14 @@ then assert the source bit to release.
   REA-REQ-702 (upper-bit isolation).
 
 - **SDC (integrator MUST apply).** The `source_out` crossing is asynchronous
-  and needs the **same `set_clock_groups -asynchronous`** between the JTAG
-  (`tck`) and sample clocks as REA's existing config crossings, wherever the
-  core is integrated into a board/example design. On Xilinx the BSCANE2 `TCK`
-  and on Altera the `sld_virtual_jtag` `tck` are vendor-managed clocks — group
-  them asynchronous to the sample clock so the double-flop path is not
-  timed/over-constrained. Leaving it implicit is an **unconstrained-but-reported-
-  met STA trap**; declare it. `rr_rea_top.vhd`'s `source_out` port comment and
-  the debug-core-yml `sources:` schema doc both restate this so a downstream
-  integrator can't miss it.
+  and is constrained like every other REA crossing: `set_max_delay
+  -datapath_only` at half the faster clock's period into the synchronizer's
+  first stage (see "Clock-domain crossings", REA-P2.10). On Xilinx the
+  BSCANE2 `TCK` and on Altera the `sld_virtual_jtag` `tck` must also be
+  declared as clocks, or the whole JTAG domain is untimed (REA-P2.8). Leaving
+  it implicit is an **unconstrained-but-reported-met STA trap**. Do not reach
+  for `set_clock_groups -asynchronous`: it waives the crossing instead of
+  bounding it. `rr_rea_top.vhd`'s `source_out` port comment restates this.
 
 ---
 

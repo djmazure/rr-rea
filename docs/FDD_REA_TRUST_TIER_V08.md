@@ -252,8 +252,10 @@ Invalidation (`crc_valid` clear on arm/fill/reset) crosses the same way in
 the opposite sense and always wins races against publication (an epoch
 bump after latch but before toggle-observation suppresses the publish).
 Config-direction crossings (`SELFTEST_CTRL`/`SEED`) reuse the existing
-`rr_rea_sync_word` path unchanged. The integrator
-`set_clock_groups -asynchronous` SDC obligation is unchanged.
+`rr_rea_sync_word` path unchanged. The integrator CDC constraint obligation
+is unchanged. (Superseded 2026-09-25, REA-P2.10: that obligation is now a
+per-crossing `set_max_delay -datapath_only` at half the faster period, not
+`set_clock_groups -asynchronous` — see SPEC.md "Clock-domain crossings".)
 
 ### 2.6 Resource estimate
 
