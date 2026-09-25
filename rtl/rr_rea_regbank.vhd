@@ -199,6 +199,15 @@ architecture rtl of rr_rea_regbank is
                                := (others => '0');
     signal qual_val_flat : std_logic_vector(C_QUAL_SLOTS * 32 - 1 downto 0)
                                := (others => '0');
+    -- REA-P2.10: combinational expansion, registered by p_expand_reg.
+    signal cond_masks_c  : std_logic_vector(G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
+    signal cond_values_c : std_logic_vector(G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
+    signal cond_ops_c    : std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0);
+    signal cond_valid_c  : std_logic_vector(G_TRIG_CONDS - 1 downto 0);
+    signal qual_masks_c  : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_values_c : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_ops_c    : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0);
+    signal qual_valid_c  : std_logic_vector(C_QUAL_SLOTS - 1 downto 0);
     signal qual_sel_r    : unsigned(7 downto 0) := (others => '0');
 
     -- field_low_mask(w): w low bits set, in a G_SAMPLE_W vector (clamped).
@@ -317,6 +326,12 @@ begin
     reset_toggle_o <= reset_toggle_r;
 
     -- ── Per-condition expansion (RTL-P3.647) ─────────────────────
+    -- REA-P2.10: the expansion below is COMBINATIONAL; it drives the *_c
+    -- signals and p_expand_reg registers them onto the ports. The ports feed
+    -- rr_rea_sync_word synchronizers into sample_clk_i, and a synchronizer's
+    -- first flop must be driven straight from a flop in the source domain:
+    -- combinational logic in front of it (Vivado CDC-10) can glitch a
+    -- transient value into the capture domain and is not a timeable path.
     -- Decode each compact slot {valid,op,width,lsb}+val32 into a shifted
     -- full-width field value + field mask (op/valid passed through). The
     -- dynamic shift_left positions the field at its lsb; the FSM then does
@@ -334,12 +349,12 @@ begin
             variable lsb_v  : natural range 0 to 2047;
             variable lowm_v : unsigned(G_SAMPLE_W - 1 downto 0);
         begin
-            cond_valid_o(k) <= cfg_k(C_COND_VALID_BIT);
-            cond_ops_o(k * 4 + 3 downto k * 4) <=
+            cond_valid_c(k) <= cfg_k(C_COND_VALID_BIT);
+            cond_ops_c(k * 4 + 3 downto k * 4) <=
                 cfg_k(C_COND_OP_LSB + 3 downto C_COND_OP_LSB);
-            cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            cond_masks_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
-            cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            cond_values_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
 
             if cfg_k(C_COND_VALID_BIT) = '1' then
@@ -356,15 +371,15 @@ begin
                         cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
                     lowm_v := field_low_mask(wid_v);
 
-                    cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_masks_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         std_logic_vector(shift_left(lowm_v, lsb_v));
-                    cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_values_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         std_logic_vector(shift_left(
                             resize(unsigned(val_k), G_SAMPLE_W) and lowm_v, lsb_v));
                 else
-                    cond_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_masks_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         (others => 'X');
-                    cond_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    cond_values_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                         (others => 'X');
                 end if;
             end if;
@@ -389,12 +404,12 @@ begin
             variable lsb_v  : natural range 0 to 2047;
             variable lowm_v : unsigned(G_SAMPLE_W - 1 downto 0);
         begin
-            qual_valid_o(k) <= cfg_k(C_COND_VALID_BIT);
-            qual_ops_o(k * 4 + 3 downto k * 4) <=
+            qual_valid_c(k) <= cfg_k(C_COND_VALID_BIT);
+            qual_ops_c(k * 4 + 3 downto k * 4) <=
                 cfg_k(C_COND_OP_LSB + 3 downto C_COND_OP_LSB);
-            qual_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            qual_masks_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
-            qual_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            qual_values_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                 (others => '0');
             if is_01(cfg_k(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)) and
                is_01(cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB)) and
@@ -406,14 +421,41 @@ begin
                     cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB) &
                     cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
                 lowm_v := field_low_mask(wid_v);
-                qual_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                qual_masks_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                     std_logic_vector(shift_left(lowm_v, lsb_v));
-                qual_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                qual_values_c(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
                     std_logic_vector(shift_left(
                         resize(unsigned(val_k), G_SAMPLE_W) and lowm_v, lsb_v));
             end if;
         end process;
     end generate;
+
+    -- REA-P2.10: register the expanded comparator/qualifier words in
+    -- jtag_clk_i so each synchronizer's first stage sees a flop output, not
+    -- the barrel shift. One TCK of latency on a quasi-static value that the
+    -- FSM only latches on the next arm (itself a later JTAG transaction).
+    p_expand_reg : process (jtag_clk_i, jtag_rst_i)
+    begin
+        if jtag_rst_i = '1' then
+            cond_masks_o  <= (others => '0');
+            cond_values_o <= (others => '0');
+            cond_ops_o    <= (others => '0');
+            cond_valid_o  <= (others => '0');
+            qual_masks_o  <= (others => '0');
+            qual_values_o <= (others => '0');
+            qual_ops_o    <= (others => '0');
+            qual_valid_o  <= (others => '0');
+        elsif rising_edge(jtag_clk_i) then
+            cond_masks_o  <= cond_masks_c;
+            cond_values_o <= cond_values_c;
+            cond_ops_o    <= cond_ops_c;
+            cond_valid_o  <= cond_valid_c;
+            qual_masks_o  <= qual_masks_c;
+            qual_values_o <= qual_values_c;
+            qual_ops_o    <= qual_ops_c;
+            qual_valid_o  <= qual_valid_c;
+        end if;
+    end process;
 
     -- ── Write port (jtag_clk_i-synchronous) ────────────────────────
     process (jtag_clk_i, jtag_rst_i)
