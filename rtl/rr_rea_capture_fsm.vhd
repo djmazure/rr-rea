@@ -420,6 +420,11 @@ architecture rtl of rr_rea_capture_fsm is
         of std_logic_vector(G_TRIG_STAGES - 1 downto 0);
     type t_ptr_reduce_pipe is array (0 to C_REDUCE_STORAGE - 1)
         of unsigned(C_PTR_W - 1 downto 0);
+    -- REA-T2.5: min(since_arm, PRETRIG) as of each sample, carried down the
+    -- trigger pipeline beside that sample's pointer.
+    subtype t_pv is unsigned(clog2(G_DEPTH) downto 0);
+    type t_pv_pipe is array (0 to C_WIDTH_STAGES - 1) of t_pv;
+    type t_pv_reduce_pipe is array (0 to C_REDUCE_STORAGE - 1) of t_pv;
 
     signal pointer_width_r : t_ptr_pipe := (others => (others => '0'));
     signal token_tree_r : t_token_tree :=
@@ -460,6 +465,14 @@ architecture rtl of rr_rea_capture_fsm is
     signal pipeline_final_valid : std_logic;
     signal pipeline_final_ext : std_logic;
     signal pipeline_final_ptr : unsigned(C_PTR_W - 1 downto 0);
+    signal pv_in              : t_pv;
+    -- PRETRIG > DEPTH - 1 - C_PIPE_STAGES, registered (pretrig_len_r only
+    -- changes on arm; no pipeline sample can fire in the arm cycle).
+    signal pv_over_r          : std_logic := '0';
+    signal pv_sat             : t_pv;
+    signal pv_width_r         : t_pv_pipe := (others => (others => '0'));
+    signal pv_reduce_r        : t_pv_reduce_pipe := (others => (others => '0'));
+    signal pipeline_final_pv  : t_pv;
 
     signal armed_r       : std_logic := '0';
     signal triggered_r   : std_logic := '0';
@@ -643,6 +656,7 @@ begin
     begin
         if sample_rst_i = '1' then
             pointer_width_r <= (others => (others => '0'));
+            pv_width_r <= (others => (others => '0'));
             valid_width_r <= (others => '0');
             ext_width_r <= (others => '0');
         elsif rising_edge(sample_clk_i) then
@@ -651,11 +665,13 @@ begin
                 ext_width_r <= (others => '0');
             else
                 pointer_width_r(0) <= wr_ptr_r;
+                pv_width_r(0) <= pv_in;
                 valid_width_r(0) <= armed_r and not triggered_r and not done_r;
                 ext_width_r(0) <= ext_trig_r;
                 for width_stage in 1 to C_WIDTH_STAGES - 1 loop
                     pointer_width_r(width_stage) <=
                         pointer_width_r(width_stage - 1);
+                    pv_width_r(width_stage) <= pv_width_r(width_stage - 1);
                     valid_width_r(width_stage) <= valid_width_r(width_stage - 1);
                     ext_width_r(width_stage) <= ext_width_r(width_stage - 1);
                 end loop;
@@ -863,6 +879,7 @@ begin
         pipeline_final_valid <= valid_width_r(C_WIDTH_STAGES - 1);
         pipeline_final_ext <= ext_width_r(C_WIDTH_STAGES - 1);
         pipeline_final_ptr <= pointer_width_r(C_WIDTH_STAGES - 1);
+        pipeline_final_pv <= pv_width_r(C_WIDTH_STAGES - 1);
     end generate;
 
     g_condition_reduction : if C_REDUCE_STAGES > 0 generate
@@ -878,6 +895,7 @@ begin
                 valid_reduce_r <= (others => '0');
                 ext_reduce_r <= (others => '0');
                 pointer_reduce_r <= (others => (others => '0'));
+                pv_reduce_r <= (others => (others => '0'));
             elsif rising_edge(sample_clk_i) then
                 if reset_pulse_i = '1' or arm_pulse_i = '1' then
                     condition_reduce_r <= (others => (others => '1'));
@@ -886,6 +904,7 @@ begin
                     valid_reduce_r <= (others => '0');
                     ext_reduce_r <= (others => '0');
                     pointer_reduce_r <= (others => (others => '0'));
+                    pv_reduce_r <= (others => (others => '0'));
                 else
                     condition_leaves := (others => '1');
                     for condition_index in 0 to G_TRIG_CONDS - 1 loop
@@ -915,6 +934,7 @@ begin
                     valid_reduce_r(0) <= valid_width_r(C_WIDTH_STAGES - 1);
                     ext_reduce_r(0) <= ext_width_r(C_WIDTH_STAGES - 1);
                     pointer_reduce_r(0) <= pointer_width_r(C_WIDTH_STAGES - 1);
+                    pv_reduce_r(0) <= pv_width_r(C_WIDTH_STAGES - 1);
                     for reduce_stage in 1 to C_REDUCE_STAGES - 1 loop
                         legacy_reduce_r(reduce_stage) <=
                             legacy_reduce_r(reduce_stage - 1);
@@ -926,6 +946,8 @@ begin
                             ext_reduce_r(reduce_stage - 1);
                         pointer_reduce_r(reduce_stage) <=
                             pointer_reduce_r(reduce_stage - 1);
+                        pv_reduce_r(reduce_stage) <=
+                            pv_reduce_r(reduce_stage - 1);
                     end loop;
                 end if;
             end if;
@@ -939,6 +961,7 @@ begin
         pipeline_final_valid <= valid_reduce_r(C_REDUCE_STAGES - 1);
         pipeline_final_ext <= ext_reduce_r(C_REDUCE_STAGES - 1);
         pipeline_final_ptr <= pointer_reduce_r(C_REDUCE_STAGES - 1);
+        pipeline_final_pv <= pv_reduce_r(C_REDUCE_STAGES - 1);
     end generate;
 
     trigger_hit <= seq_final_fire when seq_enable_r = '1'
@@ -1052,6 +1075,47 @@ begin
 
     fire_lag <= wr_ptr_r - local_fire_ptr when local_fire_pipe = '1'
                 else (others => '0');
+
+    -- REA-T2.5: PRETRIG_VALID of a pipeline-detected trigger is the number of
+    -- samples stored after the arm and before the TRIGGERING sample, capped at
+    -- PRETRIG. That is since_arm as it stood when the sample entered the
+    -- trigger pipeline: every store between entry and fire bumps since_arm and
+    -- wr_ptr alike, so it equals the old since_arm - fire_lag, except that
+    -- since_arm saturates at DEPTH, where the subtraction undercounted (DEPTH
+    -- - lag < PRETRIG). Capping here and copying the carried value at the fire
+    -- edge also takes the subtract/compare carry chains out of the fire path.
+    -- Only post-arm samples can fire (valid_width_r), and pretrig_len_r is
+    -- latched with the arm, so the carried value is always this capture's.
+    --
+    pv_in <= since_arm_r
+             when since_arm_r < resize(pretrig_len_r, since_arm_r'length)
+             else resize(pretrig_len_r, since_arm_r'length);
+
+    -- Ring overshoot (REA-T2.6): the samples stored while the trigger
+    -- pipeline catches up (at most C_PIPE_STAGES) land past the trigger cell.
+    -- With PRETRIG near DEPTH they overwrite the OLDEST pre-trigger cells. That
+    -- can only hit a counted cell when since_arm is saturated at the fire edge
+    -- (unsaturated means since_arm(s) + lag = since_arm(f) < DEPTH), and then
+    -- PRETRIG_VALID takes the conservative cap DEPTH - 1 - C_PIPE_STAGES: it
+    -- never vouches for an overwritten cell (it may under-count by the lag the
+    -- decimation/qualification saved). The compare is registered; the fire
+    -- edge only selects.
+    pv_sat <= to_unsigned(G_DEPTH - 1 - C_PIPE_STAGES, pv_sat'length)
+              when pv_over_r = '1'
+              else resize(pretrig_len_r, pv_sat'length);
+
+    p_pv_over : process (sample_clk_i, sample_rst_i)
+    begin
+        if sample_rst_i = '1' then
+            pv_over_r <= '0';
+        elsif rising_edge(sample_clk_i) then
+            if to_integer(pretrig_len_r) > G_DEPTH - 1 - C_PIPE_STAGES then
+                pv_over_r <= '1';
+            else
+                pv_over_r <= '0';
+            end if;
+        end if;
+    end process;
 
     seq_final_fire <= '1' when (
         seq_enable_r = '1' and
@@ -1324,16 +1388,21 @@ begin
                     -- them overstated the valid window by exactly the pipeline
                     -- depth, which the sim caught as a constant +4 at
                     -- G_SAMPLE_W=12 / G_TRIG_CONDS=4.
-                    if exact_count = '1' then
-                        -- REA-REQ-955/960: with qualification or decimation
-                        -- the samples stored during the trigger pipeline are
-                        -- not C_PIPE_STAGES — count them exactly (fire_lag,
-                        -- from the pointer). since_arm_r counts STORES.
-                        if since_arm_r <= resize(fire_lag, since_arm_r'length) then
-                            pretrig_valid_r <= (others => '0');
-                        elsif (since_arm_r - fire_lag)
-                              < resize(pretrig_len_r, since_arm_r'length) then
-                            pretrig_valid_r <= since_arm_r - fire_lag;
+                    if local_fire_pipe = '1' then
+                        -- REA-T2.5: exact in every mode (see pv_in / pv_sat).
+                        if since_arm_r = to_unsigned(G_DEPTH,
+                                                     since_arm_r'length) then
+                            pretrig_valid_r <= pv_sat;
+                        else
+                            pretrig_valid_r <= pipeline_final_pv;
+                        end if;
+                    elsif exact_count = '1' then
+                        -- External trigger_i with qualification/decimation:
+                        -- no pipeline lag (fire_lag = 0), since_arm counts
+                        -- STORES (REA-REQ-955/960).
+                        if since_arm_r < resize(pretrig_len_r,
+                                                since_arm_r'length) then
+                            pretrig_valid_r <= since_arm_r;
                         else
                             pretrig_valid_r <= resize(pretrig_len_r,
                                                       pretrig_valid_r'length);

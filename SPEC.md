@@ -504,7 +504,13 @@ window lengths count **stored** cells, never cycles:
   of them is written, so every cell a host reads from `START_PTR` belongs to
   this capture (REA-REQ-960).
 - `PRETRIG_VALID` counts the samples stored after the arm and before the
-  trigger cell, capped at PRETRIG.
+  trigger cell, capped at PRETRIG, and never covers a cell the ring has
+  overwritten (REA-REQ-963). The samples stored while the trigger pipeline
+  catches up (at most `C_PIPE_STAGES`) land past the trigger cell, so with
+  PRETRIG > DEPTH - 1 - C_PIPE_STAGES they can overwrite the oldest
+  pre-trigger cells (REA-T2.6). Below that bound the count is exact; above it
+  the core reports at most DEPTH - 1 - C_PIPE_STAGES, which may under-count
+  when decimation or qualification skipped some of those stores.
 
 Before REA-T2.4 (fixed in ip 1.3.1), a decimated capture stopped one stored
 cell short whenever the trigger fired between ticks. `done` rose before the

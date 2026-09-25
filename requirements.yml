@@ -1332,3 +1332,15 @@ functional_contract:
       contain set_clock_groups or set_false_path between the domains. Every
       synchronizer instance in rr_rea_top SHALL be labelled `u_cdc_*` with its
       first stage named `s1`, so the selector reaches it.
+  - id: REA-REQ-963
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
+    desc: >-
+      PRETRIG_VALID SHALL never vouch for a cell the ring has overwritten: the
+      last PRETRIG_VALID pre-trigger cells read from START_PTR SHALL all be
+      samples of this capture. When PRETRIG <= DEPTH - 1 - C_PIPE_STAGES (the
+      trigger-pipeline latency) it SHALL equal the number of samples stored
+      after the arm and before the trigger cell, capped at PRETRIG, exactly,
+      with or without decimation or qualification. Above that bound it MAY
+      under-count by at most C_PIPE_STAGES. The value SHALL be final in the
+      cycle `done` rises (no added latency).

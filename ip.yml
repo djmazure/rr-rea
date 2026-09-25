@@ -11,9 +11,15 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.4.0
+#   version: below        the PACKAGE version the registry pins   -> 1.4.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.4.1 (REA-T2.5) is a PATCH: PRETRIG_VALID is carried down the trigger
+# pipeline instead of recomputed as since_arm - fire_lag at the fire edge.
+# That chain survived in every build after REA-T2.4 and capped Fmax at
+# 136-156 MHz (xc7z020-1). Near DEPTH the value now never covers a cell the
+# ring overwrote (REA-REQ-963); the old FSM trusted one or two of them.
 #
 # 1.4.0 (REA-P2.8) is a MINOR bump: the package now SHIPS timing constraints
 # (build.sources.xdc -> constraints/rr_rea_scoped.xdc, applied read_xdc -ref
@@ -90,7 +96,7 @@
 
 name: rea
 namespace: routertl
-version: 1.4.0
+version: 1.4.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
