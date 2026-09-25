@@ -60,12 +60,13 @@ yourself the same way. Never waive the crossings with
 `set_clock_groups -asynchronous`. Write all configuration while disarmed, then
 arm.
 
-**Cost and speed (Vivado 2024.1, xc7z020-1, routed OOC, REA-P2.9, 2026-09-25):**
-8×1024 with no timestamps and 1 condition, 1027 LUT / 1520 FF / 0.5 BRAM
-tile; the defaults (12×4096, ts32, 4 conditions), 1609 / 2465 / 5.5; 80×4096
-with ts32, 5358 / 5461 / 13. The sample-clock Fmax of those builds is
-136 / 145 / 156 MHz, capped by REA-T2.5 (229 / 214 / 151 MHz before REA-T2.4);
-REA-P2.11 is the next limiter.
+**Cost and speed (Vivado 2024.1, xc7z020-1, routed OOC, REA-P2.9/P2.11, 2026-09-26):**
+8×1024 with no timestamps and 1 condition, 1038 LUT / 1553 FF / 0.5 BRAM
+tile, 241 MHz; the defaults (12×4096, ts32, 4 conditions), 1586 / 2538 / 5.5,
+214 MHz; 80×4096 with ts32, 5396 / 5561 / 13, 219 MHz, and 201 MHz with one
+qualifier condition; 256×8192 with 8 trigger and 4 qualifier conditions,
+36310 / 32033 / 72, 130 MHz. The full table and what limits each row are in
+SPEC "Resources and Fmax per configuration".
 
 **Open defects to design around** (check `tlog list --repo rr-rea` for their
 current state):

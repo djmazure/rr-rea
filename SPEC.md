@@ -444,7 +444,7 @@ a defect like the pre-P2.10 CDC-10 passes unseen.
 
 Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 `sample_clk_i` constrained at 2.5 ns so the reported slack gives Fmax
-(1000 / (2.5 - WNS)), rr-rea 1.4.2 (util_big: 1.4.1). Targets live in `targets/util_*.yml`
+(1000 / (2.5 - WNS)), rr-rea 1.4.2 (util_field, util_big: 1.5.1). Targets live in `targets/util_*.yml`
 (`rr queue submit synth --ooc --target targets/<name>.yml`, then `impl`);
 `constraints/rea_fmax_ooc.xdc` adds only the sample clock, the shipped
 `rr_rea_scoped.xdc` supplies TCK and every crossing bound.
@@ -454,8 +454,8 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 | util_min | SAMPLE_W 8, DEPTH 1024, TIMESTAMP_W 0, TRIG_CONDS 1 | 1038 | 1553 | 0 | 0.5 | 0 | 241 MHz |
 | util_default | defaults (SAMPLE_W 12, DEPTH 4096, TIMESTAMP_W 32, TRIG_CONDS 4) | 1586 | 2538 | 0 | 5.5 | 0 | 214 MHz |
 | util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5396 | 5561 | 49 | 13 | 0 | 219 MHz |
-| util_field | util_field_noqual + QUAL_CONDS 1 | 6221 | 6413 | 50 | 13 | 0 | 142 MHz |
-| util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 35949 | 31483 | 72 | 72 | 0 | 87 MHz |
+| util_field | util_field_noqual + QUAL_CONDS 1 | 6197 | 6485 | 50 | 13 | 0 | 201 MHz |
+| util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 36310 | 32033 | 72 | 72 | 0 | 130 MHz |
 
 - **BRAM follows the block's aspect ratios, not the bit count.** Each capture
   plane (samples, and timestamps when `G_TIMESTAMP_W > 0`) is one
@@ -481,7 +481,10 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   now is the decimation tick or trigger-config fan-in into the store and
   `post_count` logic. With `G_QUAL_CONDS > 0` the full-width qualifier
   compare sat in front of the store until 1.5.1, which registers it one
-  cycle ahead (REA-P2.11 part 2, see "One cycle of store latency"). Before REA-T2.5 (1.4.1) the
+  cycle ahead (REA-P2.11 part 2, see "One cycle of store latency"):
+  util_field 142 -> 201 MHz, util_big 87 -> 130 MHz. Those two rows are now
+  limited by the qualifier compare itself (value/mask registers into the
+  `qual_ok` flop), which grows with `G_SAMPLE_W x G_QUAL_CONDS`. Before REA-T2.5 (1.4.1) the
   PRETRIG_VALID chain capped util_min at 136 MHz and util_default at 145 MHz.
 
 ## Module hierarchy
