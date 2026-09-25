@@ -1283,3 +1283,18 @@ functional_contract:
       static values and take effect on `arm_pulse_i`. Rewriting them while a
       capture is armed SHALL NOT change which samples that capture stores
       (`dpram_we_o` follows the configuration latched at arm).
+
+  # ── rr_rea_capture_fsm (decimated window completeness, REA-T2.4) ──
+  - id: REA-REQ-960
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Decimation (DECIM)" }]
+    desc: >-
+      With DECIM=N>0, in every trigger phase, the capture window read back
+      from `start_ptr_o` for PRETRIG+POSTTRIG+1 cells SHALL be the samples
+      this capture stored: the trigger cell (the first sample stored at or
+      after the trigger sample), the PRETRIG samples stored before it and the
+      POSTTRIG samples stored after it. `done_o` SHALL NOT rise before the
+      last post-trigger cell is written, so no cell holds a value from an
+      earlier capture. `pretrig_valid_o` SHALL count the samples STORED after
+      the arm and before the trigger cell (capped at PRETRIG), not that
+      count minus the trigger pipeline's cycle latency.

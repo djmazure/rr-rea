@@ -434,6 +434,30 @@ hard-pinned to USER1, so a second core on USER2+ was uncapturable.
 
 This is where we explicitly diverge from the reference ELA design.
 
+### Decimation (DECIM)
+
+`DECIM` (0xB0) = N stores every (N+1)-th sample: `dpram_we` asserts on one
+cycle in N+1 and `wr_ptr` advances only on those cycles (REA-REQ-500/501). All
+window lengths count **stored** cells, never cycles:
+
+- The trigger cell is the first sample stored at or after the triggering
+  sample (the pointer pipeline carries the write position, so a trigger that
+  lands between decimation ticks takes the next stored sample).
+- The window is PRETRIG stored cells before the trigger cell, the trigger cell,
+  and POSTTRIG stored cells after it. `done` rises on the cycle after the last
+  of them is written, so every cell a host reads from `START_PTR` belongs to
+  this capture (REA-REQ-960).
+- `PRETRIG_VALID` counts the samples stored after the arm and before the
+  trigger cell, capped at PRETRIG.
+
+Before REA-T2.4 (fixed in ip 1.3.1), a decimated capture stopped one stored
+cell short whenever the trigger fired between ticks. `done` rose before the
+last post-trigger cell was written, so the host read a stale cell from an
+earlier capture as the final sample. The same subtraction of pipeline cycles
+from a count of stores understated `PRETRIG_VALID` for an early trigger. Both
+now use the exact stored-cell arithmetic that storage qualification already
+used. `DECIM = 0` captures are unchanged.
+
 ---
 
 ## Test infrastructure
