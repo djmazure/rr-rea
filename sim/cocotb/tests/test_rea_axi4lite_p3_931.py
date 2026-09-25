@@ -116,9 +116,10 @@ async def _start(dut):
     await ClockCycles(dut.aclk_i, 3)
 
 
-async def _axi_write(dut, addr, data, *, w_first=False, both=False):
+async def _axi_write(dut, addr, data, *, w_first=False, both=False, wstrb=0xF):
     """One AXI4-Lite write. Channel order is a parameter, because it is a
     parameter for a real master too (REA-REQ-905)."""
+    dut.wstrb_i.value = wstrb
     if both:
         dut.awaddr_i.value = addr
         dut.awvalid_i.value = 1
@@ -147,6 +148,10 @@ async def _axi_write(dut, addr, data, *, w_first=False, both=False):
             if first_r.value == 1:
                 break
         first_v.value = 0
+        # If w was first, restore wstrb_i to 0xF during the gap to verify
+        # that the bridge latched wstrb during the handshake (REA-P2.6).
+        if w_first:
+            dut.wstrb_i.value = 0xF
         await ClockCycles(dut.aclk_i, 2)  # a deliberate gap between halves
         second_v.value = 1
         while True:
@@ -161,6 +166,7 @@ async def _axi_write(dut, addr, data, *, w_first=False, both=False):
         if dut.bvalid_o.value == 1 and dut.bready_i.value == 1:
             break
     assert int(dut.bresp_o.value) == 0, "write response must be OKAY"
+    dut.wstrb_i.value = 0xF
 
 
 async def _axi_read(dut, addr):
@@ -458,6 +464,146 @@ async def test_rea_req_908_lean_profile_captures(dut):
             "are the DATA-window read-latency lag (REA-REQ-904)"
         )
     dut._log.info(f"REA-REQ-904 PASS — DATA window cells {cells} distinct over AXI")
+
+
+@cocotb.test()
+@requires("REA-REQ-903")
+async def test_rea_req_903_narrow_reads_mask_low_bits_p2_6(dut):
+    """REA-P2.6 regression guard: narrow AXI reads mask low 2 address bits.
+
+    An AXI read at byte offsets +0, +1, +2, +3 of a 32-bit register file must
+    return the full 32-bit register on rdata_o with araddr[1:0] ignored (masked
+    to "00"). The master/interconnect extracts the requested byte or halfword
+    from its respective lane:
+      - byte read at VERSION+0 returns 0x09 on lane 0 (bits 7..0)
+      - byte read at VERSION+1 returns 0x41 ('A') on lane 1 (bits 15..8)
+      - byte read at VERSION+2 returns 0x45 ('E') on lane 2 (bits 23..16)
+      - byte read at VERSION+3 returns 0x52 ('R') on lane 3 (bits 31..24)
+      - 16-bit halfword read at VERSION+2 returns 0x5245 on lanes 2..3
+    On unpatched RTL, reg_addr_o was passed unmodified, so reads at +1..+3 hit
+    unmapped addresses in rr_rea_regbank and returned 0x00000000.
+    """
+    await _start(dut)
+
+    raw_0 = await _axi_read(dut, ADDR_VERSION + 0)
+    raw_1 = await _axi_read(dut, ADDR_VERSION + 1)
+    raw_2 = await _axi_read(dut, ADDR_VERSION + 2)
+    raw_3 = await _axi_read(dut, ADDR_VERSION + 3)
+
+    assert raw_0 == EXPECTED_VERSION, (
+        f"VERSION read at +0 = 0x{raw_0:08X}, expected 0x{EXPECTED_VERSION:08X}"
+    )
+    assert raw_1 == EXPECTED_VERSION, (
+        f"VERSION read at +1 = 0x{raw_1:08X}, expected 0x{EXPECTED_VERSION:08X}. "
+        "The bridge must mask araddr[1:0] to 00 so unaligned narrow reads "
+        "decode the containing 32-bit register (REA-P2.6)."
+    )
+    assert raw_2 == EXPECTED_VERSION, (
+        f"VERSION read at +2 = 0x{raw_2:08X}, expected 0x{EXPECTED_VERSION:08X}"
+    )
+    assert raw_3 == EXPECTED_VERSION, (
+        f"VERSION read at +3 = 0x{raw_3:08X}, expected 0x{EXPECTED_VERSION:08X}"
+    )
+
+    lane_0 = raw_0 & 0xFF
+    lane_1 = (raw_1 >> 8) & 0xFF
+    lane_2 = (raw_2 >> 16) & 0xFF
+    lane_3 = (raw_3 >> 24) & 0xFF
+    halfword_2 = (raw_2 >> 16) & 0xFFFF
+
+    assert lane_0 == 0x09, f"lane 0 = 0x{lane_0:02X}, expected 0x09"
+    assert lane_1 == 0x41, (
+        f"byte read at VERSION+1 returned lane 1 = 0x{lane_1:02X}, expected 0x41"
+    )
+    assert lane_2 == 0x45, f"lane 2 = 0x{lane_2:02X}, expected 0x45"
+    assert lane_3 == 0x52, f"lane 3 = 0x{lane_3:02X}, expected 0x52"
+    assert halfword_2 == 0x5245, (
+        f"halfword read at VERSION+2 returned 0x{halfword_2:04X}, expected 0x5245"
+    )
+
+    dut._log.info("REA-REQ-903 PASS — narrow reads return register word in correct lanes")
+
+
+@cocotb.test()
+@requires("REA-REQ-903")
+async def test_rea_req_903_subword_write_does_not_arm_ctrl_p2_6(dut):
+    """REA-P2.6 regression guard: WSTRB=0001 write does not arm CTRL.
+
+    All rr_rea registers are 32-bit words; sub-word writes (wstrb /= "1111")
+    are dropped rather than half-applied to side-effect or toggle registers.
+    wstrb_i must be latched when wvalid is accepted, so backpressure or
+    channel reordering does not evaluate subsequent idle bus state.
+    """
+    await _start(dut)
+
+    status_before = await _axi_read(dut, ADDR_STATUS)
+    assert (status_before & 0x01) == 0, "core was unexpectedly armed initially"
+
+    pulses = 0
+
+    async def _count():
+        nonlocal pulses
+        while True:
+            await RisingEdge(dut.aclk_i)
+            if dut.reg_wr_en_probe_o.value == 1:
+                pulses += 1
+
+    counter = cocotb.start_soon(_count())
+
+    # Write CTRL (0x04) with wdata=1 (arm toggle bit), but sub-word wstrb=0x1 (0001).
+    # Test across simultaneous, w-first, and aw-first channel orders.
+    for order, kwargs in (
+        ("simultaneous", {"both": True}),
+        ("w-first", {"w_first": True}),
+        ("aw-first", {}),
+    ):
+        await _axi_write(dut, ADDR_CTRL, 0x00000001, wstrb=0x1, **kwargs)
+        await ClockCycles(dut.aclk_i, 5)
+
+        status = await _axi_read(dut, ADDR_STATUS)
+        assert (status & 0x01) == 0, (
+            f"CTRL was armed after {order} sub-word write (WSTRB=0001)! "
+            "Sub-word writes must be dropped rather than half-applied (REA-P2.6)."
+        )
+
+    # Sub-word write at unaligned byte address (0x05) with lane-1 wstrb (0010)
+    # must also be dropped.
+    await _axi_write(dut, ADDR_CTRL + 1, 0x00000100, wstrb=0x2)
+    await ClockCycles(dut.aclk_i, 5)
+    status = await _axi_read(dut, ADDR_STATUS)
+    assert (status & 0x05) == 0, "CTRL was armed after unaligned sub-word write"
+
+    # Sub-word write on a configuration register must also be dropped.
+    pretrig_orig = await _axi_read(dut, ADDR_PRETRIG)
+    await _axi_write(dut, ADDR_PRETRIG, 0x42, wstrb=0x1)
+    await ClockCycles(dut.aclk_i, 5)
+    assert await _axi_read(dut, ADDR_PRETRIG) == pretrig_orig, (
+        "PRETRIG was modified by a sub-word write (WSTRB=0001)"
+    )
+
+    counter.kill()
+    assert pulses == 0, (
+        f"sub-word writes produced {pulses} register-bus write strobes (expected 0)"
+    )
+
+    # A full 32-bit write with WSTRB=1111 (0xF) DOES write PRETRIG and arm CTRL.
+    await _axi_write(dut, ADDR_PRETRIG, 0x42, wstrb=0xF)
+    assert await _axi_read(dut, ADDR_PRETRIG) == 0x42, (
+        "full 32-bit write with WSTRB=1111 failed to update PRETRIG"
+    )
+
+    await _axi_write(dut, ADDR_CTRL, 0x00000001, wstrb=0xF)
+    # The arm toggle triggers a capture; wait for it to arm/complete.
+    done = False
+    for _ in range(50):
+        status_after = await _axi_read(dut, ADDR_STATUS)
+        if (status_after & 0x05) != 0:  # armed (bit 0) or done (bit 2)
+            done = True
+            break
+        await ClockCycles(dut.aclk_i, 2)
+    assert done, "full 32-bit write with WSTRB=1111 failed to arm CTRL"
+
+    dut._log.info("REA-REQ-903 PASS — sub-word writes dropped, CTRL not armed")
 
 
 if __name__ == "__main__":
