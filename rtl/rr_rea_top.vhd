@@ -785,7 +785,20 @@ begin
 
     -- selftest_busy = filling, or the sweep that a fill triggered (a normal
     -- capture's sweep does not set it — selftest_mode gates that).
-    selftest_busy_sclk <= fill_busy or (sweep_busy and selftest_mode_r);
+    -- REA-P2.10 / REA-REQ-961: REGISTERED in sample_clk_i before it crosses to
+    -- the register clock. As a combinational OR of FSM state decodes it put
+    -- logic in front of u_cdc_st_busy's first stage (Vivado CDC-10), so a
+    -- glitch could be captured as a transient "not busy" mid-selftest.
+    p_st_busy_reg : process (sample_clk_i)
+    begin
+        if rising_edge(sample_clk_i) then
+            if sample_rst_sync = '1' then
+                selftest_busy_sclk <= '0';
+            else
+                selftest_busy_sclk <= fill_busy or (sweep_busy and selftest_mode_r);
+            end if;
+        end if;
+    end process;
     u_cdc_st_busy : rr_rea_sync_word
         generic map (G_WIDTH => 1)
         port map (dst_clk_i => reg_clk_o, din_i(0) => selftest_busy_sclk,

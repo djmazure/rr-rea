@@ -1303,10 +1303,13 @@ functional_contract:
     kind: structural
     spec: [{ doc: SPEC.md, clause: "Clock-domain crossings (REA-P2.10)" }]
     desc: >-
-      Every rr_rea_regbank output that rr_rea_top crosses into sample_clk_i
-      SHALL be driven directly by a jtag_clk_i register, with no
-      combinational logic between that register and the synchronizer's first
-      stage (Vivado CDC-10). In particular the expanded comparator and
+      Every signal rr_rea_top crosses between the register clock and
+      sample_clk_i, in either direction, SHALL be driven directly by a
+      register in its source domain, with no combinational logic between that
+      register and the synchronizer's first stage (Vivado CDC-10). In the
+      sample -> register direction `selftest_busy_sclk` SHALL equal
+      `fill_busy or (sweep_busy and selftest_mode_r)` delayed by one
+      `sample_clk_i` edge. In the register -> sample direction the expanded comparator and
       qualifier words `cond_masks_o`, `cond_values_o`, `cond_ops_o`,
       `cond_valid_o`, `qual_masks_o`, `qual_values_o`, `qual_ops_o` and
       `qual_valid_o` SHALL change only on a rising `jtag_clk_i` edge, one edge
