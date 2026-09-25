@@ -1,0 +1,25 @@
+# Utilization measurement point — The OPN-T2.1 field shape: 80-bit AXI-lite probe, 4K, 32-bit timestamps, one qualifier slot.
+# Out-of-context synth of rr_rea_top through the queue:
+#   rr queue submit synth --ooc --target targets/util_field.yml
+# Results + the BRAM aspect-ratio rule: SPEC "Resources and Fmax per configuration".
+extends: ../project.yml
+
+project:
+  output_dir: build/util_field
+
+paths:
+  sources: [rtl]
+  constraints: constraints
+
+# rr_rea_build_id_pkg is build-GENERATED for consumers (ip.yml hook); a
+# standalone measurement build pins the verif stub (BUILD_ID reads 0).
+sources:
+  libraries:
+    rr_rea: [verif/rr_rea_build_id_stub.vhd]
+
+build_options:
+  generics:
+    G_SAMPLE_W: "80"
+    G_DEPTH: "4096"
+    G_TIMESTAMP_W: "32"
+    G_QUAL_CONDS: "1"

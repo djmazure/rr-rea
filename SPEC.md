@@ -430,6 +430,46 @@ Do not use `set_clock_groups -asynchronous` between the two domains. It
 removes every inter-domain path from timing, including an unsafe one, so
 a defect like the pre-P2.10 CDC-10 passes unseen.
 
+## Resources and Fmax per configuration (REA-P2.9)
+
+Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
+`sample_clk_i` constrained at 2.5 ns so the reported slack gives Fmax
+(1000 / (2.5 - WNS)), rr-rea 1.4.1. Targets live in `targets/util_*.yml`
+(`rr queue submit synth --ooc --target targets/<name>.yml`, then `impl`);
+`constraints/rea_fmax_ooc.xdc` adds only the sample clock, the shipped
+`rr_rea_scoped.xdc` supplies TCK and every crossing bound.
+
+| Config | Generics (others default) | LUT | FF | SRL | BRAM (RAMB36 tiles) | DSP | Fmax |
+|---|---|---|---|---|---|---|---|
+| util_min | SAMPLE_W 8, DEPTH 1024, TIMESTAMP_W 0, TRIG_CONDS 1 | 1025 | 1548 | 0 | 0.5 | 0 | 217 MHz |
+| util_default | defaults (SAMPLE_W 12, DEPTH 4096, TIMESTAMP_W 32, TRIG_CONDS 4) | 1600 | 2525 | 0 | 5.5 | 0 | 179 MHz |
+| util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5358 | 5519 | 50 | 13 | 0 | 182 MHz |
+| util_field | util_field_noqual + QUAL_CONDS 1 | 6164 | 6434 | 50 | 13 | 0 | 139 MHz |
+| util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 35949 | 31483 | 72 | 72 | 0 | 87 MHz |
+
+- **BRAM follows the block's aspect ratios, not the bit count.** Each capture
+  plane (samples, and timestamps when `G_TIMESTAMP_W > 0`) is one
+  `rr_rea_dpram` of `G_DEPTH x width`. A 7-series RAMB36 at depth D is
+  (36K / D) bits wide rounded down to 1/2/4/9/18/36/72 (a RAMB18 half at
+  half that), so a plane costs ceil(width / aspect-width) tiles:
+  4096 deep = 4K x 9, 8192 deep = 8K x 4. That gives every measured row:
+  12 x 4K = 1 RAMB36 + 1 RAMB18 = 1.5, + 32-bit timestamps 4 = 5.5;
+  80 x 4K = 9 + 4 = 13 (as in the rr-openpiton kv260 REA build);
+  256 x 8K = 64 + 8 = 72. Deep captures of wide words are the expensive
+  corner: at 8K depth a tile holds 4 bits of each sample. The `memories:`
+  ratchet in project.yml pins both planes to block RAM. The SRLs are the
+  capture FSM's probe delay lines, not RAM.
+- **The contract caps the default elaboration only** (`technical:` in
+  requirements.yml, ~15 % over the util_default row). rr has one static cap
+  per IP: per-configuration budgets are RTL-P2.1374, a minimum is RTL-P2.1375,
+  and synth does not check `technical:` yet (RTL-P2.1351). Size a non-default
+  build from this table.
+- **Fmax is limited by the store decision** in every row: the
+  `post_full -> store_sample -> post_count` cone, and the full-width
+  qualifier compare in front of it when `G_QUAL_CONDS > 0`. Pipelining it is
+  REA-P2.11. Before REA-T2.5 (1.4.1) the PRETRIG_VALID chain capped util_min
+  at 136 MHz and util_default at 145 MHz.
+
 ## Module hierarchy
 
 ```

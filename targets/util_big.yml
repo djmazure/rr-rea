@@ -1,0 +1,31 @@
+# Utilization measurement point — Big: 256-bit probe, 8K deep, 32-bit timestamps, 8 comparator slots, 4 qualifier slots.
+# Out-of-context synth of rr_rea_top through the queue:
+#   rr queue submit synth --ooc --target targets/util_big.yml
+# Results + the BRAM aspect-ratio rule: SPEC "Resources and Fmax per configuration".
+extends: ../project.yml
+
+project:
+  output_dir: build/util_big
+
+paths:
+  sources: [rtl]
+  constraints: constraints
+
+# rr_rea_build_id_pkg is build-GENERATED for consumers (ip.yml hook); a
+# standalone measurement build pins the verif stub (BUILD_ID reads 0).
+sources:
+  libraries:
+    rr_rea: [verif/rr_rea_build_id_stub.vhd]
+
+build_options:
+  generics:
+    G_SAMPLE_W: "256"
+    G_DEPTH: "8192"
+    G_TIMESTAMP_W: "32"
+    G_TRIG_CONDS: "8"
+    G_QUAL_CONDS: "4"
+
+# RTL-T2.295: rr queue submit --part-class never reaches the executor; this
+# key is what the executed build reads for its cgroup cap.
+eda_memory:
+  part_class: large

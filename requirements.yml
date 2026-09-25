@@ -13,6 +13,27 @@ ip: rr_rea_top
 version: 0.1
 hdl_file: rtl/rr_rea_top.vhd
 
+# REA-P2.9: resource contract for the DEFAULT elaboration (G_SAMPLE_W 12,
+# G_DEPTH 4096, G_TIMESTAMP_W 32, G_TRIG_CONDS 4, no qualifier). rr can hold one
+# static cap only (RTL-P2.1374 per-configuration budgets, RTL-P2.1375 no
+# minimum), so the other configurations are measured, not capped: see SPEC
+# "Resources and Fmax per configuration". Measured OOC routed, Vivado 2024.1,
+# xc7z020clg400-1 (targets/util_default.yml): 1600 LUT, 2525 FF, 5.5 RAMB36
+# tiles, 0 DSP, 179 MHz. Caps carry ~15 % headroom. Fmax is a declared target,
+# not yet a hard gate: rr does not check technical: at synth (RTL-P2.1351).
+technical:
+  clocks:
+    - { name: sample_clk_i, fmax_mhz: 175.0 }
+  resources:
+    lut:  { max: 1850 }
+    ff:   { max: 2900 }
+    bram: { max: 6 }
+    dsp:  { max: 0 }
+  policy:
+    hard: [resources]
+    priority: [resources, fmax]
+    on_infeasible: fail-loud
+
 functional_contract:
 
   # ── rr_rea_dpram (sample + timestamp BRAM) ────────────────────────

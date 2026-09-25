@@ -59,6 +59,11 @@ placed by timestamp. The live RouteWave view still places samples by index
 over the probe plus `G_QUAL_CONDS x (2 x G_SAMPLE_W + 5)` config flops and
 their synchronizers; no RAM, no DSP.
 
+**Cost and Fmax per configuration** (LUT, FF, BRAM tiles and routed Fmax for
+five build points from 8 x 1K to 256 x 8K, and the BRAM aspect-ratio rule
+that predicts them) are in SPEC "Resources and Fmax per configuration". The
+contract (`technical:` in requirements.yml) caps the default elaboration.
+
 ## For agents
 
 `AGENTS.md` opens with a capability summary: what REA can and cannot do,

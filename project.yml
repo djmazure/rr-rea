@@ -27,3 +27,9 @@ simulation:
   test_dir: sim/cocotb/tests
   waves_dir: sim/cocotb/waves
   logs_dir: sim/cocotb/logs
+
+# REA-P2.9: the two capture planes (sample, and timestamp when
+# G_TIMESTAMP_W > 0) are rr_rea_dpram and must infer block RAM. The capture
+# FSM's probe delay lines infer SRLs, not RAM (50 at G_SAMPLE_W 80).
+memories:
+  - { entity: rr_rea_dpram, expect: block_ram }
