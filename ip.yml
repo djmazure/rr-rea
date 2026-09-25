@@ -11,9 +11,17 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.3.2
+#   version: below        the PACKAGE version the registry pins   -> 1.4.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.4.0 (REA-P2.8) is a MINOR bump: the package now SHIPS timing constraints
+# (build.sources.xdc -> constraints/rr_rea_scoped.xdc, applied read_xdc -ref
+# rr_rea_top). They declare the BSCANE2 TCK clock, which was absent, leaving
+# the JTAG domain untimed, and bound every tck <-> sample crossing with
+# set_max_delay -datapath_only at half the faster period. A consumer's
+# build now times paths it previously ignored, so a design that "met
+# timing" may now show real JTAG-domain or crossing violations.
 #
 # 1.3.2 (REA-P2.10) is a PATCH: every signal crossed between the register
 # clock and sample_clk_i now leaves its domain from a flop (REA-REQ-961).
@@ -82,7 +90,7 @@
 
 name: rea
 namespace: routertl
-version: 1.3.2
+version: 1.4.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

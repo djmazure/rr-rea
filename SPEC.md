@@ -402,23 +402,29 @@ Rules the RTL keeps (REA-REQ-961):
   crossings as CDC-6 (multi-bit, synchronized with ASYNC_REG). They are safe
   only under that write-then-arm protocol, which every host flow uses.
 
-**Constraining an integration.** Bound each crossing's datapath instead of
-waiving it. In a RouteRTL project, declare it in the timing contract; rr
-emits `set_max_delay -datapath_only`, bounded at half the faster clock's
-period and derived from the live clocks:
+**Constraining an integration (REA-P2.8).** REA ships its own timing
+constraints in `constraints/rr_rea_scoped.xdc` (REA-REQ-962). It is
+declared in `ip.yml` `build.sources.xdc`, so a RouteRTL consumer gets it
+automatically: rr records it in `ip.lock` and applies it as
+`read_xdc -ref rr_rea_top`, scoped to each REA instance. The consumer adds no
+timing constraints. The file:
 
-```yaml
-timing_contract:
-  schema: rr.timing-contract/v1
-  budgets:
-    - id: rea_cdc_sync_first_stage
-      kind: max_delay
-      from: {cells: "*_reg*"}
-      to: {cells: "*u_cdc_*/s1_reg*"}
-      clocks: {src: "<register clock>", dst: "<sample clock>"}
-      formula: "0.5 * min(period.src, period.dst)"
-      justification: "REA synchronizer first stage, both directions"
-```
+- **Declares the JTAG clock.** `create_clock -period 33.333 [get_ports
+  tck_i]`: 30 MHz, the fastest TCK a Digilent/Platform Cable drives. Vivado
+  does not derive a clock on a user-instantiated BSCANE2 TCK. Without this,
+  every register in the JTAG domain is unclocked (993 of them on the probe
+  build) and "timing met" says nothing about them. If your cable runs TCK
+  faster, raise the period accordingly.
+- **Bounds every crossing.** `set_max_delay -datapath_only` into every
+  synchronizer first stage (`*u_cdc_*/s1_reg*`) equal to half the faster of
+  the TCK and sample periods. The bound is computed in the XDC from the live
+  clock on `sample_clk_i`, never a literal.
+
+Outside RouteRTL, add the same file with `read_xdc -ref rr_rea_top
+rr_rea_scoped.xdc` after your own clocks are defined. Under `G_REG_IFACE =
+"external"` the register clock is yours: bound those crossings the same way
+against your register clock (in RouteRTL, a `timing_contract` budget with
+`formula: "0.5 * min(period.src, period.dst)"`).
 
 Do not use `set_clock_groups -asynchronous` between the two domains. It
 removes every inter-domain path from timing, including an unsafe one, so
