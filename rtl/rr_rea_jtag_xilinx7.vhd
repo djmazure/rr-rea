@@ -22,7 +22,10 @@ entity rr_rea_xilinx7 is
         G_TIMESTAMP_W : natural  := 32;
         G_NUM_CHAN    : positive := 1;
         G_NUM_SOURCE  : positive := 1;  -- RTL-P2.837 write-side source bits
-        G_CTRL_CHAIN  : integer  := 1   -- BSCANE2 USER1
+        G_CTRL_CHAIN  : integer  := 1;  -- BSCANE2 USER1
+        -- REA-P2.7: storage-qualifier slots, passed to rr_rea_top (0 = none;
+        -- > 0 needs G_TIMESTAMP_W > 0 — REA-REQ-957).
+        G_QUAL_CONDS  : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -96,7 +99,8 @@ begin
             G_DEPTH       => G_DEPTH,
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
-            G_NUM_SOURCE  => G_NUM_SOURCE
+            G_NUM_SOURCE  => G_NUM_SOURCE,
+            G_QUAL_CONDS  => G_QUAL_CONDS
         )
         port map (
             sample_clk_i  => sample_clk_i,

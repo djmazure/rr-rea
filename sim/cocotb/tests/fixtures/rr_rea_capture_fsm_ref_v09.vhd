@@ -1,7 +1,22 @@
 -- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 -- SPDX-License-Identifier: MIT
 --
--- rr_rea_capture_fsm — sliding-window capture state machine.
+-- FROZEN ORACLE — do not edit. REA-P2.7 / REA-REQ-950.
+--
+-- A byte-for-byte copy of rtl/rr_rea_capture_fsm.vhd at rr-rea b9f79f3
+-- (the last FSM before storage qualification), with only the entity renamed
+-- to rr_rea_capture_fsm_ref_v09. The lockstep harness runs it beside the
+-- qualified FSM with qualification OFF and asserts every output identical on
+-- every cycle: "qualification off is today's analyzer, bit for bit" is checked
+-- against today's analyzer, not against a model of it.
+--
+-- If a LATER, deliberate FSM change must alter unqualified behaviour, that
+-- change re-freezes this file in the same commit and says so.
+--
+-- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
+-- SPDX-License-Identifier: MIT
+--
+-- rr_rea_capture_fsm_ref_v09 — sliding-window capture state machine.
 --
 -- THIS IS WHERE WE EXPLICITLY DIVERGE FROM the reference ELA design.
 --
@@ -18,14 +33,11 @@
 -- BRAM cells in the captured window when the trigger fires before
 -- pretrig_len cycles have elapsed since arm. We do not ship that.
 --
--- The store gate is `!done && decim_tick && qual_ok` (plus the post-trigger
--- window stop). v0.3 added the decimation tick; REA-P2.7 (v0.11) adds the
--- storage qualifier `qual_ok`, elaborated only when G_QUAL_CONDS > 0 and
--- constant '1' while QUAL_MODE[0] (latched on arm) is 0, so qualification
--- off is the v0.9 analyzer bit for bit (REA-REQ-950).
+-- v0.1 simplification: store_enable_in is unused (tied high by the
+-- top-level for now). v0.3 brings decimation and storage
+-- qualification, at which point this port carries the gate.
 --
--- See requirements.yml REA-REQ-100..106 and REA-REQ-950..959 for the test
--- contract.
+-- See requirements.yml REA-REQ-100..106 for the test contract.
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -34,13 +46,12 @@ library ieee;
 library work;
     use work.rr_rea_pkg.all;
 
-entity rr_rea_capture_fsm is
+entity rr_rea_capture_fsm_ref_v09 is
     generic (
         G_SAMPLE_W     : positive := 12;
         G_DEPTH        : positive := 4096;
         G_TRIG_STAGES  : positive := 1;  -- v0.3 sequencer depth (REA-REQ-607)
-        G_TRIG_CONDS   : positive := 4;  -- v0.5 comparator-array slots (P3.647)
-        G_QUAL_CONDS   : natural  := 0   -- REA-P2.7 storage-qualifier slots
+        G_TRIG_CONDS   : positive := 4   -- v0.5 comparator-array slots (P3.647)
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -141,28 +152,6 @@ entity rr_rea_capture_fsm is
         ext_enable_i     : in  std_logic := '0';
         ext_and_i        : in  std_logic := '0';
 
-        -- ── REA-P2.7 storage qualifier (REA-REQ-951..953, 959) ───
-        -- Latched on arm like the trigger config. qual_enable_i='0' (the
-        -- default, and QUAL_MODE's reset value) stores every sample. Slot k
-        -- is value/mask/op over the full probe, expanded by the regbank from
-        -- the compact COND_CFG encoding; ops EQ/NE/RISE/FALL, anything else
-        -- never qualifies. qual_or_i selects OR (else AND) over valid slots.
-        -- Sized for max(1, G_QUAL_CONDS) slots; ignored when it is 0.
-        qual_enable_i    : in  std_logic := '0';
-        qual_or_i        : in  std_logic := '0';
-        qual_values_i    : in  std_logic_vector(
-            max_nat(1, G_QUAL_CONDS) * G_SAMPLE_W - 1 downto 0)
-                              := (others => '0');
-        qual_masks_i     : in  std_logic_vector(
-            max_nat(1, G_QUAL_CONDS) * G_SAMPLE_W - 1 downto 0)
-                              := (others => '0');
-        qual_ops_i       : in  std_logic_vector(
-            max_nat(1, G_QUAL_CONDS) * 4 - 1 downto 0)
-                              := (others => '0');
-        qual_valid_i     : in  std_logic_vector(
-            max_nat(1, G_QUAL_CONDS) - 1 downto 0)
-                              := (others => '0');
-
         -- ── Status flags (combinational from registers) ──────────
         armed_o       : out std_logic;
         triggered_o   : out std_logic;
@@ -193,7 +182,7 @@ entity rr_rea_capture_fsm is
     );
 end entity;
 
-architecture rtl of rr_rea_capture_fsm is
+architecture rtl of rr_rea_capture_fsm_ref_v09 is
 
     constant C_PTR_W : positive := clog2(G_DEPTH);
     constant C_WIDTH_STAGES : positive :=
@@ -473,12 +462,7 @@ architecture rtl of rr_rea_capture_fsm is
     signal pretrig_valid_r : unsigned(clog2(G_DEPTH) downto 0)
         := (others => '0');
     signal start_ptr_r   : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
-    -- One bit wider than the pointer: with qualification on it counts written
-    -- post-trigger cells up to POSTTRIG+1, which is DEPTH when POSTTRIG=DEPTH-1.
-    -- Qualification off never exceeds POSTTRIG, so the extra bit stays 0.
-    signal post_count_r  : unsigned(C_PTR_W downto 0) := (others => '0');
-    -- The post-trigger window is full: stop storing, then finish (REA-REQ-954).
-    signal post_full     : std_logic;
+    signal post_count_r  : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal posttrig_len_r: unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal decim_ratio_r : unsigned(23 downto 0)         := (others => '0');
@@ -565,28 +549,6 @@ architecture rtl of rr_rea_capture_fsm is
     signal ext_enable_r      : std_logic := '0';
     signal ext_and_r         : std_logic := '0';
     signal ext_trig_r        : std_logic := '0';
-
-    -- ── REA-P2.7 storage qualifier ──────────────────────────────
-    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
-    -- Enables/ops/valid are resettable control; the wide value/mask are
-    -- validity-gated arm-time data (RTL-P2.897), like cond_values_r.
-    signal qual_enable_r  : std_logic := '0';
-    signal qual_or_r      : std_logic := '0';
-    signal qual_ops_r     : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0)
-                               := (others => '0');
-    signal qual_valid_r   : std_logic_vector(C_QUAL_SLOTS - 1 downto 0)
-                               := (others => '0');
-    signal qual_values_r  : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0)
-                               := (others => '0');
-    signal qual_masks_r   : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0)
-                               := (others => '0');
-    -- qual_ok: this cycle's sample may be stored. '1' whenever qualification
-    -- is off. store_tick = decimation tick AND qualifier: the one strobe that
-    -- writes, advances wr_ptr and counts the post-trigger window.
-    signal qual_ok        : std_logic;
-    signal store_tick     : std_logic;
-    -- Stored samples between the triggering sample and now (REA-REQ-955).
-    signal fire_lag       : unsigned(C_PTR_W - 1 downto 0);
     signal effective_internal : std_logic;
 
     -- RTL-P2.658(b): the trig value/mask are banked into ceil(W/32) 32-bit
@@ -956,94 +918,6 @@ begin
     -- cycle — matches v0.1/v0.2 behavior).
     decim_tick <= '1' when decim_count_r = 0 else '0';
 
-    -- ── REA-P2.7 storage qualifier (REA-REQ-951..953) ────────────
-    -- Combinational on purpose: it must decide in the cycle the sample is
-    -- written, so it is equality/edge only (no magnitude comparator —
-    -- REA-REQ-953) and shallow: an AND/OR reduction over the probe.
-    g_no_qual : if G_QUAL_CONDS = 0 generate
-        qual_ok <= '1';
-    end generate;
-
-    g_qual : if G_QUAL_CONDS > 0 generate
-        process (all)
-            variable v_mask    : std_logic_vector(G_SAMPLE_W - 1 downto 0);
-            variable v_value   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
-            variable v_eq      : std_logic;
-            variable v_rise    : std_logic;
-            variable v_fall    : std_logic;
-            variable v_hit     : std_logic;
-            variable v_any     : std_logic;   -- OR over valid slots
-            variable v_all     : std_logic;   -- AND over valid slots
-            variable v_some    : std_logic;   -- at least one valid slot
-        begin
-            v_any  := '0';
-            v_all  := '1';
-            v_some := '0';
-            for slot_index in 0 to G_QUAL_CONDS - 1 loop
-                v_mask := qual_masks_r(
-                    slot_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                    downto slot_index * G_SAMPLE_W);
-                v_value := qual_values_r(
-                    slot_index * G_SAMPLE_W + G_SAMPLE_W - 1
-                    downto slot_index * G_SAMPLE_W);
-                v_eq := '1';
-                if ((probe_i xor v_value) and v_mask) /= (v_mask'range => '0') then
-                    v_eq := '0';
-                end if;
-                v_rise := '0';
-                if (probe_i and not probe_prev_r and v_mask)
-                   /= (v_mask'range => '0') then
-                    v_rise := '1';
-                end if;
-                v_fall := '0';
-                if (probe_prev_r and not probe_i and v_mask)
-                   /= (v_mask'range => '0') then
-                    v_fall := '1';
-                end if;
-                case to_integer(unsigned(qual_ops_r(
-                        (slot_index + 1) * C_TRIG_OP_WIDTH - 1
-                        downto slot_index * C_TRIG_OP_WIDTH))) is
-                    when C_TRIG_OP_EQ   => v_hit := v_eq;
-                    when C_TRIG_OP_NE   => v_hit := not v_eq;
-                    when C_TRIG_OP_RISE => v_hit := v_rise;
-                    when C_TRIG_OP_FALL => v_hit := v_fall;
-                    when others         => v_hit := '0';
-                end case;
-                if qual_valid_r(slot_index) = '1' then
-                    v_some := '1';
-                    v_any  := v_any or v_hit;
-                    v_all  := v_all and v_hit;
-                end if;
-            end loop;
-            if qual_enable_r = '0' or v_some = '0' then
-                qual_ok <= '1';
-            elsif qual_or_r = '1' then
-                qual_ok <= v_any;
-            else
-                qual_ok <= v_all;
-            end if;
-        end process;
-    end generate;
-
-    store_tick <= decim_tick and qual_ok;
-
-    -- Qualification off (v0.9 arithmetic): post_count lags the written cells by
-    -- one because the fire edge always stores, so the window is full at
-    -- POSTTRIG. Qualification on: the fire edge usually falls in an idle gap,
-    -- so post_count is the exact number of cells written from the trigger
-    -- position on, and the window (trigger cell + POSTTRIG) is full at
-    -- POSTTRIG + 1 (REA-REQ-954/955).
-    post_full <= '1' when (qual_enable_r = '0'
-                           and post_count_r >= resize(posttrig_len_r,
-                                                      post_count_r'length))
-                       or (qual_enable_r = '1'
-                           and post_count_r > resize(posttrig_len_r,
-                                                     post_count_r'length))
-                 else '0';
-
-    fire_lag <= wr_ptr_r - local_fire_ptr when local_fire_pipe = '1'
-                else (others => '0');
-
     seq_final_fire <= '1' when (
         seq_enable_r = '1' and
         pipeline_final_valid = '1' and
@@ -1070,9 +944,9 @@ begin
     -- sample is stored. With decim_ratio=0 the tick is always 1 and
     -- behavior matches v0.1/v0.2 exactly. ───────────────────────
     store_sample <= '1' when (
-        done_r = '0' and store_tick = '1' and not (
+        done_r = '0' and decim_tick = '1' and not (
             armed_r = '1' and triggered_r = '1' and
-            post_full = '1'
+            post_count_r >= posttrig_len_r
         )
     ) else '0';
     dpram_we_o   <= store_sample;
@@ -1086,8 +960,6 @@ begin
         if rising_edge(sample_clk_i) then
             probe_prev_r <= probe_i;
             if arm_pulse_i = '1' then
-                qual_values_r   <= qual_values_i;
-                qual_masks_r    <= qual_masks_i;
                 trig_value_r    <= trig_value_i;
                 trig_mask_r     <= trig_mask_i;
                 seq_value_r_flat <= seq_values_i;
@@ -1128,10 +1000,6 @@ begin
             ext_and_r      <= '0';
             ext_trig_r     <= '0';
             trigger_out_r  <= '0';
-            qual_enable_r  <= '0';
-            qual_or_r      <= '0';
-            qual_ops_r     <= (others => '0');
-            qual_valid_r   <= (others => '0');
 
         elsif rising_edge(sample_clk_i) then
 
@@ -1159,10 +1027,7 @@ begin
             -- sample), then the counter reloads to decim_ratio.
             -- arm_pulse resets the counter so each capture session
             -- starts on a clean tick boundary.
-            -- REA-P2.7: with qualification on, the counter advances only on
-            -- qualifying cycles, so decimation keeps every (N+1)-th QUALIFIED
-            -- sample (REA-REQ-954). qual_ok is '1' when it is off.
-            if done_r = '0' and qual_ok = '1' then
+            if done_r = '0' then
                 if decim_count_r = 0 then
                     decim_count_r <= decim_ratio_r;
                 else
@@ -1222,13 +1087,6 @@ begin
                 -- arm (quasi-static, like the other enables).
                 ext_enable_r   <= ext_enable_i;
                 ext_and_r      <= ext_and_i;
-                -- REA-P2.7: the qualifier is arm-time config (REA-REQ-959).
-                if G_QUAL_CONDS > 0 then
-                    qual_enable_r <= qual_enable_i;
-                    qual_or_r     <= qual_or_i;
-                    qual_ops_r    <= qual_ops_i;
-                    qual_valid_r  <= qual_valid_i;
-                end if;
                 -- Load count to 0 so the FIRST cycle after arm ticks
                 -- (stores) — and subsequent ticks happen every
                 -- (decim_ratio + 1) cycles. With decim_ratio=0 the
@@ -1315,20 +1173,7 @@ begin
                     -- them overstated the valid window by exactly the pipeline
                     -- depth, which the sim caught as a constant +4 at
                     -- G_SAMPLE_W=12 / G_TRIG_CONDS=4.
-                    if qual_enable_r = '1' then
-                        -- REA-REQ-955: with qualification the samples stored
-                        -- during the trigger pipeline are not C_PIPE_STAGES —
-                        -- count them exactly (fire_lag, from the pointer).
-                        if since_arm_r <= resize(fire_lag, since_arm_r'length) then
-                            pretrig_valid_r <= (others => '0');
-                        elsif (since_arm_r - fire_lag)
-                              < resize(pretrig_len_r, since_arm_r'length) then
-                            pretrig_valid_r <= since_arm_r - fire_lag;
-                        else
-                            pretrig_valid_r <= resize(pretrig_len_r,
-                                                      pretrig_valid_r'length);
-                        end if;
-                    elsif since_arm_r <= to_unsigned(C_PIPE_STAGES,
+                    if since_arm_r <= to_unsigned(C_PIPE_STAGES,
                                                   since_arm_r'length) then
                         pretrig_valid_r <= (others => '0');
                     elsif (since_arm_r - C_PIPE_STAGES)
@@ -1340,21 +1185,10 @@ begin
                     end if;
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
-                        if qual_enable_r = '1' then
-                            -- Cells written from the trigger position on,
-                            -- including this edge's store (REA-REQ-955).
-                            post_count_r <= resize(fire_lag, post_count_r'length)
-                                            + unsigned'("" & store_sample);
-                        else
-                            post_count_r <= resize(wr_ptr_r - local_fire_ptr,
-                                                   post_count_r'length);
-                        end if;
+                        post_count_r <= wr_ptr_r - local_fire_ptr;
                     else
                         trig_ptr_r <= wr_ptr_r;
                         post_count_r <= (others => '0');
-                        if qual_enable_r = '1' then
-                            post_count_r(0) <= store_sample;
-                        end if;
                     end if;
                     if local_fire_pipe = '1' then
                         -- LOCAL fire only (drives trig_xbar). In ext-AND mode
@@ -1370,22 +1204,17 @@ begin
             -- v0.3: counts STORED samples only (decim_tick gate),
             -- so the post-trigger window is `posttrig_len` cells
             -- regardless of decimation ratio.
-            -- REA-P2.7: counts STORED samples (store_tick = decim_tick while
-            -- qualification is off). With qualification on the window closes
-            -- on the cycle after its last store, without waiting for another
-            -- qualifying cycle — a bus that falls silent must still finish the
-            -- capture (REA-REQ-954).
             if armed_r = '1' and triggered_r = '1' and done_r = '0'
-               and (store_tick = '1' or qual_enable_r = '1')
+               and decim_tick = '1'
                and arm_pulse_i = '0' and reset_pulse_i = '0' then  -- REA-T1.5
-                if post_full = '1' then
+                if post_count_r >= posttrig_len_r then
                     -- Done capturing the post-trigger window.
                     -- REA-REQ-104: start_ptr <= trig_ptr - pretrig_len
                     -- (mod DEPTH — natural wrap on PTR_W-bit subtract).
                     done_r      <= '1';
                     armed_r     <= '0';
                     start_ptr_r <= trig_ptr_r - pretrig_len_r;
-                elsif store_tick = '1' then
+                else
                     post_count_r <= post_count_r + 1;
                 end if;
             end if;

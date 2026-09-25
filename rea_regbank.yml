@@ -1,5 +1,5 @@
 name: rea_registers
-version: 0.9.0   # RTL-T1.16: PRETRIG_VALID (pre-trigger contiguity)
+version: 0.11.0  # REA-P2.7: storage qualification (QUAL_MODE/SEL/CFG/VAL)
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -34,6 +34,11 @@ registers:
   - {name: CHAN_SEL, address: 0x00A0, access: RW, description: Capture channel selector}
   - {name: NUM_CHAN, address: 0x00A4, access: RO, description: Synthesized channel count}
   - {name: DECIM, address: 0x00B0, access: RW, description: Capture decimation ratio}
+  # REA-P2.7: storage qualifier — store a sample only when it holds.
+  - {name: QUAL_MODE, address: 0x00B4, access: RW, description: Storage qualifier enable and AND/OR combine}
+  - {name: QUAL_SEL, address: 0x00B8, access: RW, description: Storage qualifier slot selector}
+  - {name: QUAL_CFG, address: 0x00BC, access: RW, description: Storage qualifier slot configuration}
+  - {name: QUAL_VAL, address: 0x00C0, access: RW, description: Storage qualifier slot value}
   - {name: TIMESTAMP_W, address: 0x00C4, access: RO, description: Synthesized timestamp width}
   - {name: START_PTR, address: 0x00C8, access: RO, description: Oldest captured sample pointer}
   - {name: DATA_WORD_SEL, address: 0x00CC, access: RW, description: Capture data word page selector}

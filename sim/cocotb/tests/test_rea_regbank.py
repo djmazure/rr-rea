@@ -53,7 +53,7 @@ ADDR_FEATURES    = 0xD0
 ADDR_BUILD_ID    = 0xD4
 ADDR_DATA_PLANE_SEL = 0xD8
 
-EXPECTED_VERSION = 0x52454109  # v0.9 feature tier (rr_rea_pkg C_REA_VERSION)
+EXPECTED_VERSION = 0x5245410B  # v0.11 feature tier (rr_rea_pkg C_REA_VERSION)
 
 # FEATURES (0xD0) is derived from the synth-time generics. This elaboration
 # uses the regbank entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 (GENERICS

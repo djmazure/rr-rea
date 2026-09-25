@@ -1,7 +1,7 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.9 (VERSION magic 0x52454109): aligned per-sample
-# timestamp plane (DATA_PLANE_SEL, RTL-T2.123) + the v0.8 readback-integrity
-# trust tier + PRETRIG_VALID.
+# On-chip protocol tier v0.11 (VERSION magic 0x5245410B): storage qualification
+# (REA-P2.7) on top of the aligned per-sample timestamp plane (DATA_PLANE_SEL,
+# RTL-T2.123), the v0.8 readback-integrity trust tier and PRETRIG_VALID.
 #
 # First-party on-chip logic analyzer IP. THIS repo (github.com/djmazure/rr-rea)
 # is the PUBLIC home of the routertl/rea package: `rr pkg publish` runs from
@@ -11,9 +11,19 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.2.0
-#   rea_regbank.yml       the REGISTER MAP version                -> 0.9.0
-#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454109
+#   version: below        the PACKAGE version the registry pins   -> 1.3.0
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.3.0 (REA-P2.7) is a MINOR bump: storage qualification. rr_rea_top gains an
+# OPTIONAL generic G_QUAL_CONDS (default 0 = no qualifier, the v0.9 analyzer
+# bit for bit — REA-REQ-950) and the capture FSM stores a sample only when a
+# qualifier built from comparator-array slots holds, so a 4096-deep window
+# holds 4096 bus events over seconds instead of 82 us of idle cycles. The
+# register map GAINS QUAL_MODE/SEL/CFG/VAL (0xB4..0xC0) and FEATURES[22]/
+# [27:24], so VERSION moves to the next odd tier 0x5245410B (REA-REQ-913/806).
+# G_QUAL_CONDS > 0 requires G_TIMESTAMP_W > 0 (elaboration fails otherwise).
+# No existing port or generic changes; existing instantiations are untouched.
 #
 # 1.2.0 (REA-P2.5) is a MINOR bump: rr_rea_top gains an OPTIONAL AXI-Stream
 # window-dump engine (rr_rea_axis_window, generic G_AXIS_WINDOW defaulting to
@@ -56,7 +66,7 @@
 
 name: rea
 namespace: routertl
-version: 1.2.0
+version: 1.3.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

@@ -275,5 +275,26 @@ async def test_rea_req_300_full_stack_capture(dut):
     )
 
 
+
+# ── REA-REQ-958: a G_QUAL_CONDS=0 core has no qualifier to find ─────
+
+
+@cocotb.test()
+@requires("REA-REQ-958")
+async def test_rea_req_958_no_qualifier_core_advertises_none(dut):
+    """This build elaborates G_QUAL_CONDS=0 (the default) with G_TIMESTAMP_W=0:
+    FEATURES[22] and [27:24] read 0, and QUAL_MODE/SEL/CFG/VAL decode nowhere —
+    writes are dropped and every one reads 0 on `rd_data_o`."""
+    await _start_clocks(dut)
+    await _reset(dut)
+    features = await _jtag_read(dut, 0xD0)
+    assert (features >> 22) & 1 == 0, f"FEATURES=0x{features:08X}: [22] set"
+    assert (features >> 24) & 0xF == 0, f"FEATURES=0x{features:08X}: [27:24]"
+    for addr in (0xB4, 0xB8, 0xBC, 0xC0):
+        await _jtag_write(dut, addr, 0xFFFF_FFFF)
+    for addr in (0xB4, 0xB8, 0xBC, 0xC0):
+        got = await _jtag_read(dut, addr)
+        assert got == 0, f"0x{addr:02X} read 0x{got:08X} on a core with no qualifier"
+
 if __name__ == "__main__":
     main()

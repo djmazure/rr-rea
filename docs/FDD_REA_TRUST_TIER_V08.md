@@ -25,7 +25,7 @@ missed:
   class, currently undiagnosed.
 
 Today's only acceptance gate is the **odd-VERSION probe**: read `VERSION`
-(0x00) once and require the deliberately-odd magic (`0x52454109` at the
+(0x00) once and require the deliberately-odd magic (`0x52454109` at the <!-- rea-magic:historical: v0.8/v0.9 design record; current tier is in rr_rea_pkg -->
 current tier; the tier byte is odd by permanent contract). That
 validates exactly **one word** of the readback path. The capture window —
 thousands of words, paged through `DATA_WORD_SEL` banking and burst reads —
@@ -203,7 +203,7 @@ logic — the bit reads 1 exactly when the logic exists in the netlist.
 Hosts gate all v0.8 behaviour on this bit, never on VERSION arithmetic.
 
 **VERSION magic:** the tier byte advances to the next **odd** value —
-`0x52454109` — because the odd-VERSION acceptance probe depends on bit0=1
+`0x52454109` <!-- rea-magic:historical --> — because the odd-VERSION acceptance probe depends on bit0=1
 (the bit0→all-ones fault mode). Even tier encodings are skipped forever;
 wire minor and marketing tier are therefore no longer numerically equal
 (v0.8 ↔ `0x09`), and hosts compare **capability bits, not version

@@ -10,6 +10,13 @@ This repository is the public home of the `routertl/rea` package on
   cells), value/mask + comparator-array + multi-stage sequencer triggers,
   decimation, write-side SOURCE, and a content-fingerprint identity block
   (`VERSION` / `FEATURES` / `BUILD_ID`).
+- **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
+  when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
+  over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses
+  the comparator-array slot encoding (EQ/NE/RISE/FALL on a probe field, AND or
+  OR across slots), and the timestamp plane (mandatory with a qualifier) places
+  each stored event in time. Off by default; with `G_QUAL_CONDS = 0` the core
+  is the v0.9 analyzer bit for bit. See `SPEC.md` "Storage qualification".
 - Vendor JTAG wrappers for Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2)
   and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`), selected
   per-vendor by the package manifest. Silicon-proven on Zybo Z7-20 (Zynq-7000)
@@ -28,6 +35,24 @@ The manifest carries an `ip.yml build.hooks` contract: the consumer build
 auto-generates `rr_rea_build_id_pkg.vhd` (a hash of the declared sources) into
 your project's `generated/` dir and places it in library `rr_rea` — no manual
 wiring. See `SPEC.md` for the register map and integration contract.
+
+## Status of storage qualification (REA-P2.7)
+
+| Proven | How |
+|---|---|
+| Qualification off is the v0.9 analyzer, cycle for cycle | 30 000-cycle lockstep against a frozen copy of the v0.9 FSM (`test_rea_storage_qual_p2_7`) |
+| Qualifier ops, AND/OR, empty and unsupported slots, arm-time latching | per-cycle model check on `dpram_we_o` |
+| Sparse events fill the window; trigger position, `PRETRIG_VALID`, decimation | 1-in-~1000-cycle events, FSM and full JTAG top |
+| Timestamps carry the real gaps between stored events | JTAG top, testbench-measured cycles |
+| Illegal builds (qualifier without timestamps, > 15 slots) halt elaboration | nvc elaboration test |
+| 14 RTL mutations each turn the suite red | mutation battery (recorded in the landing notes) |
+
+Not yet proven: silicon (the rr-openpiton KV260 UART capture is the first
+field case), and host support (`rr ila capture --qualify`, `storage_qualifier:`
+in `debug/*.yml`, timestamp-axis rendering) lands in the RouteRTL SDK
+separately. Resources: the qualifier is `G_QUAL_CONDS` equality/edge reducers
+over the probe plus `G_QUAL_CONDS x (2 x G_SAMPLE_W + 5)` config flops and
+their synchronizers; no RAM, no DSP.
 
 ## Verify
 

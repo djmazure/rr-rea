@@ -9,7 +9,7 @@
 -- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x52454109 ('REA' + v0.9 feature tier; single-sourced
+--   0x00 RO  VERSION       0x5245410B ('REA' + v0.11 feature tier; single-sourced
 --                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
@@ -59,7 +59,10 @@ entity rr_rea_regbank is
         -- REA-P2.5: iff true, an axi_stream_window dump engine is elaborated in
         -- rr_rea_top; FEATURES[20] advertises it. Generic-derived, never hand-set
         -- (REA-REQ-913).
-        G_AXIS_WINDOW : boolean  := false
+        G_AXIS_WINDOW : boolean  := false;
+        -- REA-P2.7: storage-qualifier slots (0 = none elaborated). FEATURES[22]
+        -- and [27:24] advertise it (REQ-958).
+        G_QUAL_CONDS  : natural  := 0
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
         -- generic didn't survive Vivado synthesis).
@@ -130,6 +133,18 @@ entity rr_rea_regbank is
         -- to 0 (safe/inactive default; no auto-release).
         source_o       : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
 
+        -- ── REA-P2.7 storage qualifier (REA-REQ-952/958) ─────────
+        -- QUAL_MODE {or, enable} and the slots, expanded full-width exactly
+        -- like the comparator array. jtag_clk_i domain; rr_rea_top crosses
+        -- them as quasi-static words and the FSM latches them on arm.
+        qual_mode_o    : out std_logic_vector(1 downto 0);
+        qual_values_o  : out std_logic_vector(
+            max_nat(1, G_QUAL_CONDS) * G_SAMPLE_W - 1 downto 0);
+        qual_masks_o   : out std_logic_vector(
+            max_nat(1, G_QUAL_CONDS) * G_SAMPLE_W - 1 downto 0);
+        qual_ops_o     : out std_logic_vector(max_nat(1, G_QUAL_CONDS) * 4 - 1 downto 0);
+        qual_valid_o   : out std_logic_vector(max_nat(1, G_QUAL_CONDS) - 1 downto 0);
+
         -- ── Pulse toggles (to rr_rea_cdc → sample_clk_i pulses) ────
         arm_toggle_o   : out std_logic;
         reset_toggle_o : out std_logic
@@ -176,6 +191,15 @@ architecture rtl of rr_rea_regbank is
     signal cond_val_flat : std_logic_vector(G_TRIG_CONDS * 32 - 1 downto 0)
                                := (others => '0');
     signal cond_sel_r    : unsigned(7 downto 0) := (others => '0');
+
+    -- ── REA-P2.7 storage-qualifier storage (same compact slot encoding) ──
+    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
+    signal qual_mode_r   : std_logic_vector(31 downto 0) := (others => '0');
+    signal qual_cfg_flat : std_logic_vector(C_QUAL_SLOTS * 32 - 1 downto 0)
+                               := (others => '0');
+    signal qual_val_flat : std_logic_vector(C_QUAL_SLOTS * 32 - 1 downto 0)
+                               := (others => '0');
+    signal qual_sel_r    : unsigned(7 downto 0) := (others => '0');
 
     -- field_low_mask(w): w low bits set, in a G_SAMPLE_W vector (clamped).
     function field_low_mask(w : natural) return unsigned is
@@ -252,6 +276,12 @@ architecture rtl of rr_rea_regbank is
         -- engine (G_AXIS_WINDOW). [21] (udp_window) stays reserved 0.
         if G_AXIS_WINDOW then
             v(C_FEAT_AXIS_WINDOW_BIT) := '1';
+        end if;
+        -- REA-P2.7/REQ-958: [22] and [27:24] track G_QUAL_CONDS.
+        if G_QUAL_CONDS > 0 then
+            v(C_FEAT_STORAGE_QUAL_BIT) := '1';
+            v(C_FEAT_QUAL_CONDS_LSB + 3 downto C_FEAT_QUAL_CONDS_LSB) :=
+                std_logic_vector(to_unsigned(G_QUAL_CONDS, 4));
         end if;
         return v;
     end function;
@@ -341,6 +371,50 @@ begin
         end process;
     end generate;
 
+    -- ── REA-P2.7 storage-qualifier expansion (REA-REQ-952) ───────
+    -- Same decode as g_cond_expand: {valid, op, 11-bit lsb, width} + val32
+    -- becomes a shifted full-width value and field mask. A slot with a
+    -- metavalue in its geometry expands to an empty (zero) mask.
+    qual_mode_o <= qual_mode_r(C_QUAL_MODE_BIT_OR downto C_QUAL_MODE_BIT_ENABLE)
+                   when G_QUAL_CONDS > 0 else (others => '0');
+
+    g_qual_expand : for k in 0 to C_QUAL_SLOTS - 1 generate
+        signal cfg_k  : std_logic_vector(31 downto 0);
+        signal val_k  : std_logic_vector(31 downto 0);
+    begin
+        cfg_k <= qual_cfg_flat(k * 32 + 31 downto k * 32);
+        val_k <= qual_val_flat(k * 32 + 31 downto k * 32);
+        process (all)
+            variable wid_v  : natural range 0 to 255;
+            variable lsb_v  : natural range 0 to 2047;
+            variable lowm_v : unsigned(G_SAMPLE_W - 1 downto 0);
+        begin
+            qual_valid_o(k) <= cfg_k(C_COND_VALID_BIT);
+            qual_ops_o(k * 4 + 3 downto k * 4) <=
+                cfg_k(C_COND_OP_LSB + 3 downto C_COND_OP_LSB);
+            qual_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                (others => '0');
+            qual_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                (others => '0');
+            if is_01(cfg_k(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)) and
+               is_01(cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB)) and
+               is_01(cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)) and
+               is_01(val_k) then
+                wid_v := to_integer(unsigned(
+                    cfg_k(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)));
+                lsb_v := to_integer(unsigned(
+                    cfg_k(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB) &
+                    cfg_k(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
+                lowm_v := field_low_mask(wid_v);
+                qual_masks_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    std_logic_vector(shift_left(lowm_v, lsb_v));
+                qual_values_o(k * G_SAMPLE_W + G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+                    std_logic_vector(shift_left(
+                        resize(unsigned(val_k), G_SAMPLE_W) and lowm_v, lsb_v));
+            end if;
+        end process;
+    end generate;
+
     -- ── Write port (jtag_clk_i-synchronous) ────────────────────────
     process (jtag_clk_i, jtag_rst_i)
     begin
@@ -358,6 +432,10 @@ begin
             cond_cfg_flat  <= (others => '0');
             cond_val_flat  <= (others => '0');
             cond_sel_r     <= (others => '0');
+            qual_mode_r    <= (others => '0');
+            qual_cfg_flat  <= (others => '0');
+            qual_val_flat  <= (others => '0');
+            qual_sel_r     <= (others => '0');
             chan_sel_r     <= (others => '0');
             decim_r        <= (others => '0');
             source_r       <= (others => '0');
@@ -449,6 +527,34 @@ begin
                         chan_sel_r <= wr_data_i;
                     when C_ADDR_DECIM =>
                         decim_r <= wr_data_i;
+                    -- REA-P2.7 (REA-REQ-958): on a G_QUAL_CONDS=0 core these
+                    -- decode nowhere, exactly like any unmapped address.
+                    when C_ADDR_QUAL_MODE =>
+                        if G_QUAL_CONDS > 0 then
+                            qual_mode_r <= (others => '0');
+                            qual_mode_r(C_QUAL_MODE_BIT_OR downto
+                                        C_QUAL_MODE_BIT_ENABLE) <=
+                                wr_data_i(C_QUAL_MODE_BIT_OR downto
+                                          C_QUAL_MODE_BIT_ENABLE);
+                        end if;
+                    when C_ADDR_QUAL_SEL =>
+                        if G_QUAL_CONDS > 0 then
+                            qual_sel_r <= unsigned(wr_data_i(7 downto 0));
+                        end if;
+                    when C_ADDR_QUAL_CFG =>
+                        for i in 0 to G_QUAL_CONDS - 1 loop
+                            if to_integer(qual_sel_r) = i then
+                                qual_cfg_flat((i + 1) * 32 - 1 downto i * 32)
+                                    <= wr_data_i;
+                            end if;
+                        end loop;
+                    when C_ADDR_QUAL_VAL =>
+                        for i in 0 to G_QUAL_CONDS - 1 loop
+                            if to_integer(qual_sel_r) = i then
+                                qual_val_flat((i + 1) * 32 - 1 downto i * 32)
+                                    <= wr_data_i;
+                            end if;
+                        end loop;
 
                     when others =>
                         -- REA-REQ-012: writes to RO/unmapped addrs
@@ -542,6 +648,24 @@ begin
             when C_ADDR_CHAN_SEL    => rd_data_o <= chan_sel_r;
             when C_ADDR_NUM_CHAN    => rd_data_o <= C_REG_NUM_CHAN;
             when C_ADDR_DECIM       => rd_data_o <= decim_r;
+            when C_ADDR_QUAL_MODE   => rd_data_o <= qual_mode_r;
+            when C_ADDR_QUAL_SEL =>
+                rd_data_o <= (others => '0');
+                rd_data_o(7 downto 0) <= std_logic_vector(qual_sel_r);
+            when C_ADDR_QUAL_CFG =>
+                rd_data_o <= (others => '0');
+                for i in 0 to G_QUAL_CONDS - 1 loop
+                    if to_integer(qual_sel_r) = i then
+                        rd_data_o <= qual_cfg_flat((i + 1) * 32 - 1 downto i * 32);
+                    end if;
+                end loop;
+            when C_ADDR_QUAL_VAL =>
+                rd_data_o <= (others => '0');
+                for i in 0 to G_QUAL_CONDS - 1 loop
+                    if to_integer(qual_sel_r) = i then
+                        rd_data_o <= qual_val_flat((i + 1) * 32 - 1 downto i * 32);
+                    end if;
+                end loop;
             when C_ADDR_TIMESTAMP_W => rd_data_o <= C_REG_TIMESTAMP_W;
             when C_ADDR_START_PTR   => rd_data_o <= spr;
             when C_ADDR_DATA_WORD_SEL =>

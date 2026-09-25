@@ -53,7 +53,13 @@ entity rr_rea_top is
         -- reads 0 (REA-REQ-913). A consumer selects the burst transport only when
         -- FEATURES[20] reads 1, which happens iff this generic is true. Control
         -- always stays on the register door (G_REG_IFACE); this engine only reads.
-        G_AXIS_WINDOW : boolean  := false
+        G_AXIS_WINDOW : boolean  := false;
+
+        -- REA-P2.7: storage-qualifier slots. 0 (the default) elaborates no
+        -- qualifier — the core is the v0.9 analyzer byte for byte
+        -- (REA-REQ-950). > 0 requires G_TIMESTAMP_W > 0, because a qualified
+        -- sample's index no longer says when it was taken (REA-REQ-957).
+        G_QUAL_CONDS  : natural  := 0
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
@@ -256,6 +262,27 @@ architecture rtl of rr_rea_top is
     signal cond_ops_sclk    : std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0);
     signal cond_valid_sclk  : std_logic_vector(G_TRIG_CONDS - 1 downto 0);
 
+    -- ── REA-P2.7 storage qualifier (regbank → CDC → FSM, latched on arm) ──
+    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
+    signal qual_mode_jclk   : std_logic_vector(1 downto 0);
+    signal qual_values_jclk : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_masks_jclk  : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_ops_jclk    : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0);
+    signal qual_valid_jclk  : std_logic_vector(C_QUAL_SLOTS - 1 downto 0);
+    signal qual_mode_sclk   : std_logic_vector(1 downto 0);
+    signal qual_values_sclk : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_masks_sclk  : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0);
+    signal qual_ops_sclk    : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0);
+    signal qual_valid_sclk  : std_logic_vector(C_QUAL_SLOTS - 1 downto 0);
+
+    -- REA-REQ-957: static range violations — every tool halts elaboration; a
+    -- vendor synth cannot downgrade them to a warning like the asserts below
+    -- (the RTL-P2.895 pattern).
+    constant C_QUAL_TIMESTAMP_GUARD : natural range 0 to 0 :=
+        boolean'pos(G_QUAL_CONDS > 0 and G_TIMESTAMP_W = 0);
+    constant C_QUAL_CONDS_GUARD : natural range 0 to 0 :=
+        boolean'pos(G_QUAL_CONDS > C_MAX_QUAL_CONDS);
+
     -- ── FSM outputs (sample_clk_i domain) ──────────────────────────
     signal armed_sclk     : std_logic;
     signal triggered_sclk : std_logic;
@@ -358,6 +385,16 @@ architecture rtl of rr_rea_top is
 
 begin
 
+    assert not (G_QUAL_CONDS > 0 and G_TIMESTAMP_W = 0)
+        report "rr_rea: G_QUAL_CONDS > 0 needs G_TIMESTAMP_W > 0 - a qualified "
+             & "sample's index no longer says when it was taken, so the "
+             & "timestamp plane is mandatory (REA-P2.7, REA-REQ-957)."
+        severity failure;
+    assert G_QUAL_CONDS <= C_MAX_QUAL_CONDS
+        report "rr_rea: G_QUAL_CONDS exceeds 15 - FEATURES[27:24] carries the "
+             & "slot count (REA-P2.7, REA-REQ-957)."
+        severity failure;
+
     u_rst_sync : rr_rea_rst_sync
         port map (clk_i => sample_clk_i, arst_i => sample_rst_i,
                   srst_o => sample_rst_sync);
@@ -412,7 +449,8 @@ begin
             G_NUM_CHAN    => G_NUM_CHAN,
             G_TRIG_CONDS  => G_TRIG_CONDS,
             G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_AXIS_WINDOW => G_AXIS_WINDOW
+            G_AXIS_WINDOW => G_AXIS_WINDOW,
+            G_QUAL_CONDS  => G_QUAL_CONDS
         )
         port map (
             jtag_clk_i => reg_clk_o,
@@ -454,6 +492,11 @@ begin
             cond_ops_o     => cond_ops_jclk,
             cond_valid_o   => cond_valid_jclk,
             source_o       => source_jclk,
+            qual_mode_o    => qual_mode_jclk,
+            qual_values_o  => qual_values_jclk,
+            qual_masks_o   => qual_masks_jclk,
+            qual_ops_o     => qual_ops_jclk,
+            qual_valid_o   => qual_valid_jclk,
             arm_toggle_o   => arm_toggle_jclk,
             reset_toggle_o => reset_toggle_jclk
         );
@@ -601,6 +644,41 @@ begin
         generic map (G_WIDTH => G_TRIG_CONDS)
         port map (dst_clk_i => sample_clk_i, din_i => cond_valid_jclk,
                   dout_o => cond_valid_sclk);
+
+    -- REA-P2.7 storage-qualifier CDC (REA-REQ-959). Quasi-static arm-time
+    -- configuration like the cond_* arrays above: the host writes QUAL_* and
+    -- then pulses arm; the FSM latches on the arm pulse. Elaborated only when
+    -- a qualifier exists, so a G_QUAL_CONDS=0 core carries no extra flops.
+    g_qual_cdc : if G_QUAL_CONDS > 0 generate
+        u_cdc_qual_mode : rr_rea_sync_word
+            generic map (G_WIDTH => 2)
+            port map (dst_clk_i => sample_clk_i, din_i => qual_mode_jclk,
+                      dout_o => qual_mode_sclk);
+        u_cdc_qual_values : rr_rea_sync_word
+            generic map (G_WIDTH => C_QUAL_SLOTS * G_SAMPLE_W)
+            port map (dst_clk_i => sample_clk_i, din_i => qual_values_jclk,
+                      dout_o => qual_values_sclk);
+        u_cdc_qual_masks : rr_rea_sync_word
+            generic map (G_WIDTH => C_QUAL_SLOTS * G_SAMPLE_W)
+            port map (dst_clk_i => sample_clk_i, din_i => qual_masks_jclk,
+                      dout_o => qual_masks_sclk);
+        u_cdc_qual_ops : rr_rea_sync_word
+            generic map (G_WIDTH => C_QUAL_SLOTS * 4)
+            port map (dst_clk_i => sample_clk_i, din_i => qual_ops_jclk,
+                      dout_o => qual_ops_sclk);
+        u_cdc_qual_valid : rr_rea_sync_word
+            generic map (G_WIDTH => C_QUAL_SLOTS)
+            port map (dst_clk_i => sample_clk_i, din_i => qual_valid_jclk,
+                      dout_o => qual_valid_sclk);
+    end generate;
+
+    g_no_qual_cdc : if G_QUAL_CONDS = 0 generate
+        qual_mode_sclk   <= (others => '0');
+        qual_values_sclk <= (others => '0');
+        qual_masks_sclk  <= (others => '0');
+        qual_ops_sclk    <= (others => '0');
+        qual_valid_sclk  <= (others => '0');
+    end generate;
 
     -- RTL-P2.837 write-side source CDC. The SOURCE register is quasi-static
     -- (the host writes it, then it holds — same profile as trig_value/mask and
@@ -756,7 +834,8 @@ begin
     -- ── Capture FSM ──────────────────────────────────────────────
     u_fsm : entity work.rr_rea_capture_fsm
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
-                     G_TRIG_CONDS => G_TRIG_CONDS)
+                     G_TRIG_CONDS => G_TRIG_CONDS,
+                     G_QUAL_CONDS => G_QUAL_CONDS)
         port map (
             sample_clk_i    => sample_clk_i,
             sample_rst_i    => sample_rst_sync,
@@ -781,6 +860,13 @@ begin
             ext_trigger_i  => ext_trig_sclk(0),
             ext_enable_i   => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_EN),
             ext_and_i      => trig_mode_sclk(C_TRIG_MODE_BIT_EXT_AND),
+            -- REA-P2.7 storage qualifier (QUAL_MODE {or, enable} + slots).
+            qual_enable_i  => qual_mode_sclk(C_QUAL_MODE_BIT_ENABLE),
+            qual_or_i      => qual_mode_sclk(C_QUAL_MODE_BIT_OR),
+            qual_values_i  => qual_values_sclk,
+            qual_masks_i   => qual_masks_sclk,
+            qual_ops_i     => qual_ops_sclk,
+            qual_valid_i   => qual_valid_sclk,
             armed_o       => armed_sclk,
             triggered_o   => triggered_sclk,
             done_o        => done_sclk,

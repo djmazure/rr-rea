@@ -115,7 +115,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact current feature-tier magic
-      0x52454109 (v0.9). The value is a protocol discriminator, not an
+      0x5245410B (v0.11, REA-P2.7 storage qualification). The value is a protocol discriminator, not an
       inferred string or a mutable register. The tier byte is ODD by
       permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
       is how a wide-readback miscompile is detected (RTL-P1.96).
@@ -762,7 +762,8 @@ functional_contract:
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
       logic — never hand-set — preserving the generic-derived fingerprint
-      invariant. VERSION reads the v0.8 magic 0x52454109; the tier byte is
+      invariant. VERSION reads the current tier magic (0x5245410B since
+      REA-P2.7, REA-REQ-958); the tier byte is
       ODD (structural test: VERSION bit0 = 1, permanent contract for the
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
@@ -1181,8 +1182,8 @@ functional_contract:
       qualifier logic), `dpram_we_o`, `dpram_addr_o`, `dpram_din_o`,
       `trig_ptr_o`, `start_ptr_o`, `pretrig_valid_o`, `armed_o`,
       `triggered_o` and `done_o` SHALL be cycle-for-cycle identical to the
-      pre-REA-P2.7 capture FSM for the same probe, arm, trigger, decimation
-      and window configuration. No configuration of the QUAL_SEL/QUAL_CFG/
+      pre-REA-P2.7 capture FSM for the same `probe_i`, `arm_pulse_i`,
+      `reset_pulse_i`, `trigger_i`, `decim_ratio_i` and window configuration. No configuration of the QUAL_SEL/QUAL_CFG/
       QUAL_VAL slots SHALL change a capture while QUAL_MODE[0]=0.
   - id: REA-REQ-951
     kind: behavioral
@@ -1222,7 +1223,8 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Storage qualification (REA-P2.7)" }]
     desc: >-
-      Windows are measured in stored samples. With qualification on, the
+      Windows are measured in stored samples (`dpram_din_o` on the cycles
+      `dpram_we_o` is high). With qualification on, the
       post-trigger window SHALL close after exactly POSTTRIG further samples
       have been stored after the trigger sample (`done_o` rises on the cycle
       the unqualified FSM would raise it had those been the only cycles), and
@@ -1247,7 +1249,7 @@ functional_contract:
       Every stored sample carries the sample-clock time at which it was taken:
       the timestamp plane is written with the same `dpram_we_o` and address
       as the sample plane (RTL-T2.123), so after a qualified capture each
-      window cell's timestamp is the counter value of the cycle whose probe
+      window cell's timestamp is the counter value of the cycle whose `probe_i`
       value that cell holds, and timestamps increase across the window with
       the real gaps between events.
   - id: REA-REQ-957
@@ -1278,6 +1280,6 @@ functional_contract:
     desc: >-
       Qualifier configuration is arm-time configuration, like the trigger:
       QUAL_MODE and the slots cross into the sample-clock domain as quasi-
-      static values and take effect on the arm pulse. Rewriting them while a
+      static values and take effect on `arm_pulse_i`. Rewriting them while a
       capture is armed SHALL NOT change which samples that capture stores
       (`dpram_we_o` follows the configuration latched at arm).

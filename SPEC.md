@@ -211,7 +211,7 @@ would reintroduce the cap P2.658b removed. See the WIDTH CONTRACT note in
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x52454109` at the v0.9 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x5245410B` at the v0.11 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -276,7 +276,7 @@ The selftest contract fills the sample plane with a deterministic seeded LFSR
 pattern, then exercises the same sweep and production readback window; busy, mode,
 and refused-command state is reported in `STATUS[5..7]`. `FEATURES[19]` may assert
 only when the sweep/selftest logic is elaborated. The tier is COMPLETE: VERSION
-reads `0x52454109` — tier byte stays ODD by permanent contract (REA-REQ-806).
+read `0x52454109` at v0.9 (now `0x5245410B`, v0.11) — tier byte stays ODD by permanent contract (REA-REQ-806). <!-- rea-magic:historical -->
 [`docs/FDD_REA_TRUST_TIER_V08.md`](docs/FDD_REA_TRUST_TIER_V08.md) is the
 authoritative design document.
 

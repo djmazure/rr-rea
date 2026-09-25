@@ -36,6 +36,10 @@ package rr_rea_pkg is
     constant C_REGBANK_ADDR_CHAN_SEL           : unsigned(15 downto 0) := x"00A0";  -- RW
     constant C_REGBANK_ADDR_NUM_CHAN           : unsigned(15 downto 0) := x"00A4";  -- RO
     constant C_REGBANK_ADDR_DECIM              : unsigned(15 downto 0) := x"00B0";  -- RW
+    constant C_REGBANK_ADDR_QUAL_MODE          : unsigned(15 downto 0) := x"00B4";  -- RW
+    constant C_REGBANK_ADDR_QUAL_SEL           : unsigned(15 downto 0) := x"00B8";  -- RW
+    constant C_REGBANK_ADDR_QUAL_CFG           : unsigned(15 downto 0) := x"00BC";  -- RW
+    constant C_REGBANK_ADDR_QUAL_VAL           : unsigned(15 downto 0) := x"00C0";  -- RW
     constant C_REGBANK_ADDR_TIMESTAMP_W        : unsigned(15 downto 0) := x"00C4";  -- RO
     constant C_REGBANK_ADDR_START_PTR          : unsigned(15 downto 0) := x"00C8";  -- RO
     constant C_REGBANK_ADDR_DATA_WORD_SEL      : unsigned(15 downto 0) := x"00CC";  -- RW
@@ -72,7 +76,10 @@ package rr_rea_pkg is
     -- on; every _FEATURE_MIN_MINOR entry happens to be <= 5, so nothing
     -- had broken yet. Kept ODD on purpose: the one-read odd-VERSION probe
     -- is how a wide-readback miscompile is detected (RTL-P1.96).
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454109";
+    -- v0.11 (REA-P2.7) adds storage qualification: QUAL_MODE/SEL/CFG/VAL
+    -- (0xB4..0xC0) and FEATURES[22]/[27:24]. The register map gained registers,
+    -- so the tier moves (REA-REQ-913), to the next ODD minor (REA-REQ-806).
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410B";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -112,6 +119,16 @@ package rr_rea_pkg is
     constant C_ADDR_CHAN_SEL    : unsigned(15 downto 0) := C_REGBANK_ADDR_CHAN_SEL;
     constant C_ADDR_NUM_CHAN    : unsigned(15 downto 0) := C_REGBANK_ADDR_NUM_CHAN;
     constant C_ADDR_DECIM       : unsigned(15 downto 0) := C_REGBANK_ADDR_DECIM;
+    -- REA-P2.7 storage qualifier (REA-REQ-958).
+    constant C_ADDR_QUAL_MODE   : unsigned(15 downto 0) := C_REGBANK_ADDR_QUAL_MODE;
+    constant C_ADDR_QUAL_SEL    : unsigned(15 downto 0) := C_REGBANK_ADDR_QUAL_SEL;
+    constant C_ADDR_QUAL_CFG    : unsigned(15 downto 0) := C_REGBANK_ADDR_QUAL_CFG;
+    constant C_ADDR_QUAL_VAL    : unsigned(15 downto 0) := C_REGBANK_ADDR_QUAL_VAL;
+    -- QUAL_MODE bits. Reset 0 = qualification off = store every sample.
+    constant C_QUAL_MODE_BIT_ENABLE : natural := 0;
+    constant C_QUAL_MODE_BIT_OR     : natural := 1;
+    -- FEATURES[27:24] carries G_QUAL_CONDS, so at most 15 slots (REA-REQ-957).
+    constant C_MAX_QUAL_CONDS : natural := 15;
 
     -- ── Sequencer registers (REA-REQ-607, v0.3) ──────────────────
     -- Per-stage block at ADDR_SEQ_BASE + N * SEQ_STRIDE:
@@ -192,7 +209,10 @@ package rr_rea_pkg is
     --          REA-REQ-913, REA-P2.5). A host may select the axi_stream_window
     --          burst transport only when this bit reads 1.
     --   [21]   UDP_WINDOW reserved 0 (Icebox, REA-ICE.1) — never set today.
-    --   [31:22] reserved (0)
+    --   [22]   STORAGE_QUAL = '1' iff G_QUAL_CONDS > 0 (REA-P2.7, REQ-958).
+    --   [23]   reserved (0)
+    --   [27:24] QUAL_CONDS = G_QUAL_CONDS (storage-qualifier slots, <= 15)
+    --   [31:28] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
@@ -204,6 +224,8 @@ package rr_rea_pkg is
     -- is reserved for udp_window and stays 0.
     constant C_FEAT_AXIS_WINDOW_BIT : natural := 20;
     constant C_FEAT_UDP_WINDOW_BIT  : natural := 21;
+    constant C_FEAT_STORAGE_QUAL_BIT : natural := 22;
+    constant C_FEAT_QUAL_CONDS_LSB   : natural := 24;
     -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
     -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
     -- REA-P2.3: the tier is complete (sweep + publication + selftest fill), so
