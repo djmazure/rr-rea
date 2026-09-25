@@ -12,6 +12,70 @@ and the byte-for-byte drift gate are all GONE — this repo is the sole source o
 shipped REA RTL and the registry is the only distribution path. Anything that
 still tells you to mirror a change into routertl is stale.
 
+## What REA can do — capability summary for agents
+
+Read this before planning a capture or an integration. Every line is backed by
+`SPEC.md`; where a feature is limited or open, the ticket is named. (Checked
+against this repo at `c2a63b3` and the RouteRTL SDK at `a9013711`,
+2026-09-25.)
+
+**Use it through the SDK.** `rr pkg add routertl/rea`, declare the instance in
+`debug/<core>.yml` (probe list = the `probe_i` concatenation, LSB first), then
+`rr ila identity` → `rr ila selftest` → `rr ila capture --core <name>`. Never a
+vendor ILA / SignalTap in a RouteRTL project.
+
+| Feature | Enable | Notes |
+|---|---|---|
+| Single comparator: `==` `!=` `<` `>` rising falling on one masked field, or an all-`==` AND | always | `rr ila capture --trigger 'state == 3'`, `'rising(irq)'` |
+| Mixed-op AND of up to `G_TRIG_CONDS` conditions | always | the host picks the array automatically; each condition value ≤ 32 bits |
+| External board-pin trigger (OR / AND) | `ext_trigger_i` | only `rr_rea_xilinx7` exposes the port (REA-P3.6) |
+| Cross-core trigger | `trigger_o` + `rr_rea_trig_xbar` | freeze several clock domains together |
+| Decimation | `DECIM` | `--decim N`: store 1 in N+1; windows count stored cells |
+| Storage qualification | `G_QUAL_CONDS` 1..15 **and** `G_TIMESTAMP_W > 0` | store only when EQ/NE/RISE/FALL slots hold (AND/OR); `--qualify 'EXPR'`, `--qualify-any`, or `storage_qualifier:` in the yml |
+| Timestamp plane | `G_TIMESTAMP_W` (default 32) | per-sample `sample_clk` count; exports of gapped captures are placed by it |
+| `PRETRIG_VALID` | always | the host trims pre-trigger cells older than this capture |
+| Write-side SOURCE | `G_NUM_SOURCE` | JTAG-driven bits into the design, reset 0, no auto-release; `rr ila source` |
+| Identity | always | `VERSION` magic, generic-derived `FEATURES`, source-hash `BUILD_ID` (build hook) |
+| Readback integrity | always | CRC-32 of both planes + capture epoch; `rr ila selftest` |
+| AXI4-Lite door | `G_REG_IFACE => "external"` + `rr_rea_axi4lite` | `--transport axi\|mmio`; the TAP is not instantiated |
+| AXI-Stream window dump | `G_AXIS_WINDOW => true` | one consumer of the window at a time (REA-REQ-916) |
+| Wide probes | `G_SAMPLE_W` up to 1024 | trigger and readback paged in 32-bit words |
+
+**Not available:** a multi-stage trigger sequencer (in the FSM, not wired to
+`rr_rea_top` or the host — REA-P3.7), segmented capture, `G_NUM_CHAN > 1`.
+
+**Vendor wrappers.** `rr_rea_xilinx7` (BSCANE2, `G_CTRL_CHAIN` = USERn) and
+`rr_rea_intel` (`sld_virtual_jtag`, `G_CTRL_CHAIN` = `sld_instance_index`).
+Neither passes `G_TRIG_CONDS` through (always 4; REA-P3.6). The Microchip UJTAG
+wrapper currently lives in the RouteRTL tree, not in this package (REA-P2.13).
+Connect `trigger_o`: with no observable output the hierarchy can be pruned.
+
+**Integration rules.** Clock REA from the observed boundary's own clock, and
+reset it from a power-on reset the observed block cannot gate. On AMD the
+package ships `constraints/rr_rea_scoped.xdc` (TCK clock plus
+`set_max_delay -datapath_only` at half the faster period on every
+synchronizer first stage), so the consumer adds no REA timing constraints. On
+Intel the equivalent SDC is not shipped yet (REA-P2.12): constrain it
+yourself the same way. Never waive the crossings with
+`set_clock_groups -asynchronous`. Write all configuration while disarmed, then
+arm.
+
+**Cost and speed (Vivado 2024.1, xc7z020-1, routed OOC, REA-P2.9, 2026-09-25):**
+8×1024 with no timestamps and 1 condition, 1027 LUT / 1520 FF / 0.5 BRAM
+tile; the defaults (12×4096, ts32, 4 conditions), 1609 / 2465 / 5.5; 80×4096
+with ts32, 5358 / 5461 / 13. The sample-clock Fmax of those builds is
+136 / 145 / 156 MHz, capped by REA-T2.5 (229 / 214 / 151 MHz before REA-T2.4);
+REA-P2.11 is the next limiter.
+
+**Open defects to design around** (check `tlog list --repo rr-rea` for their
+current state):
+
+- REA-T2.6: a window of exactly DEPTH cells overwrites its oldest cell. The
+  SDK's default window has exactly that shape, so pass `--posttrigger` to keep
+  `PRETRIG + POSTTRIG + 1 <= DEPTH - 1`.
+- REA-T2.5: `PRETRIG_VALID` undercounts when PRETRIG is within the trigger
+  pipeline depth of DEPTH.
+
 ## RTL / VHDL style
 
 The existing RTL is the reference — match it. Salient conventions:

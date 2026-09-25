@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA), v0.7 Spec
+# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.11)
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
@@ -753,9 +753,9 @@ first-AW-beat trigger recipe and an instantiation template.
 | v0.2 | Synthetic `sample_clk` anchor (host-side) | RTL-P3.272 v0.1 promise | **Shipped** |
 | v0.2 | Cross-domain trigger crossbar (`rr_rea_trig_xbar`) | RTL-P3.266 + (new) | **Shipped** |
 | v0.2 | On-chip sample-clock tick channel (RTL companion to host anchor) | (new) | Parked |
-| v0.2 | Edge-detect trigger mode | RTL-P3.263 | Parked |
+| v0.2 | Edge-detect trigger mode | RTL-P3.263 | **Shipped** as the rising/falling comparator ops (RTL-P3.644..646) |
 | v0.3 | Decimation | (new) | **Shipped** |
-| v0.3 | Multi-stage trigger sequencer | RTL-P3.265 | **Shipped** |
+| v0.3 | Multi-stage trigger sequencer | RTL-P3.265 | In the capture FSM only: `rr_rea_top` pins `G_TRIG_STAGES = 1`, `SEQ_BASE` has no decode, and the host refuses `mode: sequence` (REA-P3.7) |
 | v0.5 | Write-side source (ISSP-style `SOURCE`) | RTL-P2.837 | **Shipped** |
 | v0.4 | Segmented capture | (new) | Parked |
 | v0.11 | Storage qualification | REA-P2.7 | **Shipped** |

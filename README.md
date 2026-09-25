@@ -7,9 +7,12 @@ This repository is the public home of the `routertl/rea` package on
 ## What it is
 
 - Sliding-window capture from reset deassertion (no uninitialized pre-trigger
-  cells), value/mask + comparator-array + multi-stage sequencer triggers,
-  decimation, write-side SOURCE, and a content-fingerprint identity block
-  (`VERSION` / `FEATURES` / `BUILD_ID`).
+  cells), value/mask + mixed-op comparator-array triggers (`==` `!=` `<` `>`
+  rising/falling), an external board-pin trigger, decimation, write-side SOURCE,
+  and a content-fingerprint identity block (`VERSION` / `FEATURES` /
+  `BUILD_ID`). The capture FSM also carries a multi-stage sequencer, but it is
+  not wired to `rr_rea_top` or the host yet (REA-P3.7), so a sequence trigger
+  cannot be armed.
 - **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
   when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
   over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses
@@ -48,11 +51,19 @@ wiring. See `SPEC.md` for the register map and integration contract.
 | 14 RTL mutations each turn the suite red | mutation battery (recorded in the landing notes) |
 
 Not yet proven: silicon (the rr-openpiton KV260 UART capture is the first
-field case), and host support (`rr ila capture --qualify`, `storage_qualifier:`
-in `debug/*.yml`, timestamp-axis rendering) lands in the RouteRTL SDK
-separately. Resources: the qualifier is `G_QUAL_CONDS` equality/edge reducers
+field case). Host support landed in the RouteRTL SDK with RTL-P2.1373
+(routertl `a9013711`, 2026-09-25): `rr ila capture --qualify` /
+`--qualify-any`, `storage_qualifier:` in `debug/*.yml`, and CSV/VCD exports
+placed by timestamp. The live RouteWave view still places samples by index
+(RTL-P2.1385). Resources: the qualifier is `G_QUAL_CONDS` equality/edge reducers
 over the probe plus `G_QUAL_CONDS x (2 x G_SAMPLE_W + 5)` config flops and
 their synchronizers; no RAM, no DSP.
+
+## For agents
+
+`AGENTS.md` opens with a capability summary: what REA can and cannot do,
+which generic enables what, the constraints it ships, and the open defects to
+design around. `SPEC.md` is the contract behind every line of it.
 
 ## Verify
 
