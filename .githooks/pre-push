@@ -34,6 +34,18 @@ else
    that cannot run has not cleared your code. pip install pytest."
 fi
 
+# ── 1b. pytest-style sim guards (REA-P2.7) ──────────────────────────────────
+# pytest-style guards under sim/cocotb/tests (no @cocotb.test): elaboration
+# refusals like the REQ-018 ceiling guard and the REQ-957 storage-qualifier
+# guard. `rr sim run --all` runs only cocotb modules, so without this step
+# they ran in NO gate (found REA-P2.7). Discovered, not listed, so a new
+# guard is covered the day it is added; an empty list is a failure, not a pass.
+mapfile -t _guards < <(grep -L '@cocotb.test' sim/cocotb/tests/test_*.py)
+[ "${#_guards[@]}" -gt 0 ] || fail "found no pytest-style guards under sim/cocotb/tests — the
+   discovery pattern broke; a guard that cannot be found has not run."
+echo "   ▶ pytest ${#_guards[@]} sim guard file(s)"
+python3 -m pytest "${_guards[@]}" -q || fail "sim guard (elaboration refusal) failed."
+
 # ── 2. Full cocotb suite ────────────────────────────────────────────────────
 if ! command -v rr >/dev/null 2>&1; then
     fail "rr not on PATH — the cocotb suite could NOT run, which is not the
