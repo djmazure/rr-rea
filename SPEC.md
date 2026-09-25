@@ -374,6 +374,57 @@ then assert the source bit to release.
 
 ---
 
+## Clock-domain crossings (REA-P2.10)
+
+REA has two clock domains: `sample_clk_i` (the probed design's clock) and the
+register clock (`tck_i` under `G_REG_IFACE = "jtag"`, `reg_clk_i` under
+`"external"`). Every crossing lands on a synchronizer from `rr_rea_cdc.vhd`.
+Their destination flops (`s1`, `s2`, ...) carry `ASYNC_REG = "TRUE"`:
+
+- **Register clock → `sample_clk_i`:** configuration words (PRETRIG,
+  POSTTRIG, TRIG_*, DECIM, COND_*, QUAL_*, SEED, SOURCE) through
+  `rr_rea_sync_word`; ARM, RESET and FILL through `rr_rea_pulse_xfer`
+  (toggle synchronizers).
+- **`sample_clk_i` → register clock:** status and integrity words (armed,
+  done, CRC, epoch, selftest) through `rr_rea_sync_word`; publish and
+  invalidate through `rr_rea_pulse_xfer`.
+
+Rules the RTL keeps (REA-REQ-961):
+
+- A synchronizer's first stage is driven straight from a flop in the
+  source domain. The COND/QUAL slot expansion (a barrel shift from the
+  compact `{op, lsb, width}` word) is registered in the register domain
+  before it crosses. Before REA-P2.10 it crossed combinationally, and Vivado
+  reported 17 x CDC-10 on the smallest build.
+- Multi-bit words cross per bit and are **quasi-static**: write every
+  configuration register while REA is disarmed, then arm. The ARM toggle
+  crosses after the words have settled, and the FSM latches the wide
+  comparator words on the arm pulse (REA-REQ-959). Vivado reports these
+  crossings as CDC-6 (multi-bit, synchronized with ASYNC_REG). They are safe
+  only under that write-then-arm protocol, which every host flow uses.
+
+**Constraining an integration.** Bound each crossing's datapath instead of
+waiving it. In a RouteRTL project, declare it in the timing contract; rr
+emits `set_max_delay -datapath_only`, bounded at half the faster clock's
+period and derived from the live clocks:
+
+```yaml
+timing_contract:
+  schema: rr.timing-contract/v1
+  budgets:
+    - id: rea_cdc_sync_first_stage
+      kind: max_delay
+      from: {cells: "*_reg*"}
+      to: {cells: "*u_cdc_*/s1_reg*"}
+      clocks: {src: "<register clock>", dst: "<sample clock>"}
+      formula: "0.5 * min(period.src, period.dst)"
+      justification: "REA synchronizer first stage, both directions"
+```
+
+Do not use `set_clock_groups -asynchronous` between the two domains. It
+removes every inter-domain path from timing, including an unsafe one, so
+a defect like the pre-P2.10 CDC-10 passes unseen.
+
 ## Module hierarchy
 
 ```

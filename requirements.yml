@@ -1298,3 +1298,17 @@ functional_contract:
       earlier capture. `pretrig_valid_o` SHALL count the samples STORED after
       the arm and before the trigger cell (capped at PRETRIG), not that
       count minus the trigger pipeline's cycle latency.
+  # ── rr_rea_regbank CDC sources (REA-P2.10) ────────────────────────
+  - id: REA-REQ-961
+    kind: structural
+    spec: [{ doc: SPEC.md, clause: "Clock-domain crossings (REA-P2.10)" }]
+    desc: >-
+      Every rr_rea_regbank output that rr_rea_top crosses into sample_clk_i
+      SHALL be driven directly by a jtag_clk_i register, with no
+      combinational logic between that register and the synchronizer's first
+      stage (Vivado CDC-10). In particular the expanded comparator and
+      qualifier words `cond_masks_o`, `cond_values_o`, `cond_ops_o`,
+      `cond_valid_o`, `qual_masks_o`, `qual_values_o`, `qual_ops_o` and
+      `qual_valid_o` SHALL change only on a rising `jtag_clk_i` edge, one edge
+      after the COND_*/QUAL_* write that feeds them, never in the same
+      simulation step as that write.
