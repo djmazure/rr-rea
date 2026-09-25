@@ -27,7 +27,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x52454109` ('REA' + v0.9 tier: trust tier + PRETRIG_VALID; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
+| `0x00` | RO  | VERSION     | Magic `0x5245410B` ('REA' + v0.11 tier: storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
 | `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
@@ -46,10 +46,14 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xA0` | RW  | CHAN_SEL    | Must be 0 in v0.1 |
 | `0xA4` | RO  | NUM_CHAN    | = 1 in v0.1 |
 | `0xB0` | RW  | DECIM       | Decimation ratio — store every (N+1)th sample (24-bit, v0.3) |
+| `0xB4` | RW  | QUAL_MODE   | Storage qualification: bit[0]=enable, bit[1]=OR-combine (0=AND); resets to 0 = store every sample (REA-P2.7) |
+| `0xB8` | RW  | QUAL_SEL    | Qualifier slot select (paged, 8-bit); resets to 0 |
+| `0xBC` | RW  | QUAL_CFG    | Slot `QUAL_SEL`: the `COND_CFG` encoding; op EQ/NE/RISE/FALL only |
+| `0xC0` | RW  | QUAL_VAL    | Slot `QUAL_SEL`: 32-bit value, right-aligned in the field |
 | `0xC4` | RO  | TIMESTAMP_W | Exact `G_TIMESTAMP_W`; zero means no timestamp plane |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity, `[20]`=`axi_stream_window` dump engine elaborated (reserved 0 until REA-P2.5), `[21]`=`udp_window` (Icebox, reserved 0); `[31:22]` reserved 0 |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity, `[20]`=`axi_stream_window` dump engine elaborated (reserved 0 until REA-P2.5), `[21]`=`udp_window` (Icebox, reserved 0), `[22]`=storage qualifier elaborated (`G_QUAL_CONDS>0`), `[23]` reserved 0, `[27:24]`=`G_QUAL_CONDS`; `[31:28]` reserved 0 |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
 | `0xD8` | RW  | DATA_PLANE_SEL | Capture read plane: 0=sample, 1=timestamp; resets to 0 |
 | `0xDC` | RW  | SELFTEST_CTRL | bit[0]=fill_toggle; inverse writes request a readback selftest fill |
@@ -60,7 +64,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
-`VERSION` is the exact 32-bit protocol magic `0x52454109`. `CAPTURE_LEN`
+`VERSION` is the exact 32-bit protocol magic `0x5245410B`. `CAPTURE_LEN`
 updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
 using 32-bit unsigned arithmetic; the host may read it before arm or done.
 `TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
@@ -82,6 +86,46 @@ the existing `DATA_BASE` window. Write 0 to select samples. The host rotates bot
 planes by the same `START_PTR`, trims both to `CAPTURE_LEN`, and restores both
 selectors to 0. `G_TIMESTAMP_W=0` elaborates no timestamp DPRAM, clears
 `FEATURES[18]`, and plane 1 reads zero.
+
+### Storage qualification (REA-P2.7)
+
+A capture normally stores one sample per sample-clock cycle (or one per
+`DECIM+1` cycles), so a 4096-deep window at 50 MHz covers 82 us. When the
+events of interest are sparse (one bus write every 0.6 ms), almost the whole
+window is idle cycles. Storage qualification stores a sample only on cycles
+where a **qualifier** holds, so the window holds 4096 *events* spread over as
+long as they take to happen.
+
+- **Elaborated by `G_QUAL_CONDS`** (default 0: no qualifier logic, the core is
+  byte-identical to v0.9). `G_QUAL_CONDS > 0` requires `G_TIMESTAMP_W > 0`
+  (elaboration fails otherwise) — a qualified sample's index no longer says
+  when it was taken, so the timestamp plane is how the host places it in time.
+  `G_QUAL_CONDS <= 15`.
+- **Slots** use the comparator-array encoding (`QUAL_SEL` pages `QUAL_CFG` /
+  `QUAL_VAL`, exactly like `COND_SEL`/`COND_CFG`/`COND_VAL`). A slot compares a
+  field of the probe: `EQ`/`NE` against its value, `RISE`/`FALL` when any bit of
+  the field rose/fell since the previous sample-clock cycle. `LT`/`GT` are not
+  available to the qualifier (it decides in the cycle the sample is written, so
+  it carries no magnitude comparator); such a slot never qualifies, and the host
+  refuses to program it.
+- **`QUAL_MODE`**: `[0]` enables, `[1]` selects OR (any valid slot) instead of
+  AND (every valid slot). Enabled with no valid slot stores every sample. The
+  whole qualifier is arm-time configuration: it is latched on the arm pulse.
+- **Windows count stored samples.** `PRETRIG` is the number of qualified samples
+  kept before the trigger position, `POSTTRIG` the number stored after it, and
+  decimation keeps every `(DECIM+1)`-th qualified sample.
+- **Trigger position.** The trigger comparators see every cycle, qualified or
+  not. When the triggering sample qualifies it is the trigger cell; when it does
+  not, the trigger cell is the first sample stored after it. Its timestamp says
+  where the window sits in time. `PRETRIG_VALID` is the exact count of qualified
+  samples stored after the arm before the trigger position.
+- **Discovery.** `FEATURES[22]=1` and `FEATURES[27:24]=G_QUAL_CONDS` on a core
+  with a qualifier. A host SHALL NOT write the qualifier registers on a core
+  whose `FEATURES[22]` reads 0 (they decode nowhere).
+
+Typical use — every AXI-lite access to a slave whose probe carries a `do_wr`
+bit at [0] and `do_rd` at [1]: one slot, `field_lsb=0`, `field_width=2`,
+`op=NE`, `value=0`, `QUAL_MODE=1`.
 
 ### Wide trigger value/mask (`G_SAMPLE_W > 32`, RTL-P2.658)
 
@@ -634,7 +678,7 @@ first-AW-beat trigger recipe and an instantiation template.
 | v0.3 | Multi-stage trigger sequencer | RTL-P3.265 | **Shipped** |
 | v0.5 | Write-side source (ISSP-style `SOURCE`) | RTL-P2.837 | **Shipped** |
 | v0.4 | Segmented capture | (new) | Parked |
-| v0.4 | Storage qualification | (new) | Parked |
+| v0.11 | Storage qualification | REA-P2.7 | **Shipped** |
 | v0.5 | Multi-channel mux | (new) | Parked |
 | v0.5 | Intel JTAG vendor wrapper (`sld_virtual_jtag`) | RTL-P3.427 | **Shipped** |
 | v0.6 | Sample-width ceiling 256 → 1024 + un-ignorable over-ceiling guard | RTL-P2.876/P2.895 | **Shipped** |
