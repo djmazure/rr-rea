@@ -11,9 +11,16 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.3.0
+#   version: below        the PACKAGE version the registry pins   -> 1.3.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.3.1 (REA-T2.4) is a PATCH: a decimated capture (DECIM > 0) no longer
+# stops one stored cell short when the trigger fires between decimation ticks
+# (the host read a stale cell from an earlier capture as the last sample), and
+# PRETRIG_VALID counts stored samples exactly under decimation (REA-REQ-960).
+# No port, generic, register or VERSION change; DECIM = 0 captures are
+# unchanged.
 #
 # 1.3.0 (REA-P2.7) is a MINOR bump: storage qualification. rr_rea_top gains an
 # OPTIONAL generic G_QUAL_CONDS (default 0 = no qualifier, the v0.9 analyzer
@@ -66,7 +73,7 @@
 
 name: rea
 namespace: routertl
-version: 1.3.0
+version: 1.3.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

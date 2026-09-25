@@ -13,6 +13,15 @@
 -- If a LATER, deliberate FSM change must alter unqualified behaviour, that
 -- change re-freezes this file in the same commit and says so.
 --
+-- RE-FROZEN for REA-T2.4 (REA-REQ-960): v0.9 stopped a DECIMATED window one
+-- stored cell short in most trigger phases (stale last cell) and subtracted
+-- pipeline CYCLES from a count of STORES for pretrig_valid. That behaviour was
+-- a defect, not a contract, so the oracle now carries the correction, in this
+-- file's own terms: when decim_ratio_r /= 0 the window arithmetic is exact
+-- (ref_exact below). With DECIM = 0 every line of v0.9 is unchanged. The
+-- correction itself is proven independently by test_rea_decim_window_t2_4
+-- (spec-derived counter-probe oracle), not by this lockstep.
+--
 -- SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 -- SPDX-License-Identifier: MIT
 --
@@ -462,7 +471,11 @@ architecture rtl of rr_rea_capture_fsm_ref_v09 is
     signal pretrig_valid_r : unsigned(clog2(G_DEPTH) downto 0)
         := (others => '0');
     signal start_ptr_r   : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
-    signal post_count_r  : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
+    signal post_count_r  : unsigned(C_PTR_W downto 0) := (others => '0');
+    -- REA-T2.4 re-freeze: exact window arithmetic under decimation.
+    signal ref_exact     : std_logic;
+    signal ref_full      : std_logic;
+    signal ref_fire_lag  : unsigned(C_PTR_W - 1 downto 0);
     signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal posttrig_len_r: unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal decim_ratio_r : unsigned(23 downto 0)         := (others => '0');
@@ -943,10 +956,21 @@ begin
     -- v0.3: also gated by decim_tick so only every (decim_ratio+1)
     -- sample is stored. With decim_ratio=0 the tick is always 1 and
     -- behavior matches v0.1/v0.2 exactly. ───────────────────────
+    ref_exact <= '1' when decim_ratio_r /= 0 else '0';
+    ref_full  <= '1' when (ref_exact = '0'
+                           and post_count_r >= resize(posttrig_len_r,
+                                                      post_count_r'length))
+                      or (ref_exact = '1'
+                           and post_count_r > resize(posttrig_len_r,
+                                                     post_count_r'length))
+                 else '0';
+    ref_fire_lag <= wr_ptr_r - local_fire_ptr when local_fire_pipe = '1'
+                    else (others => '0');
+
     store_sample <= '1' when (
         done_r = '0' and decim_tick = '1' and not (
             armed_r = '1' and triggered_r = '1' and
-            post_count_r >= posttrig_len_r
+            ref_full = '1'
         )
     ) else '0';
     dpram_we_o   <= store_sample;
@@ -1173,7 +1197,18 @@ begin
                     -- them overstated the valid window by exactly the pipeline
                     -- depth, which the sim caught as a constant +4 at
                     -- G_SAMPLE_W=12 / G_TRIG_CONDS=4.
-                    if since_arm_r <= to_unsigned(C_PIPE_STAGES,
+                    if ref_exact = '1' then
+                        if since_arm_r <= resize(ref_fire_lag,
+                                                 since_arm_r'length) then
+                            pretrig_valid_r <= (others => '0');
+                        elsif (since_arm_r - ref_fire_lag)
+                              < resize(pretrig_len_r, since_arm_r'length) then
+                            pretrig_valid_r <= since_arm_r - ref_fire_lag;
+                        else
+                            pretrig_valid_r <= resize(pretrig_len_r,
+                                                      pretrig_valid_r'length);
+                        end if;
+                    elsif since_arm_r <= to_unsigned(C_PIPE_STAGES,
                                                   since_arm_r'length) then
                         pretrig_valid_r <= (others => '0');
                     elsif (since_arm_r - C_PIPE_STAGES)
@@ -1185,10 +1220,20 @@ begin
                     end if;
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
-                        post_count_r <= wr_ptr_r - local_fire_ptr;
+                        if ref_exact = '1' then
+                            post_count_r <= resize(ref_fire_lag,
+                                                   post_count_r'length)
+                                            + unsigned'("" & store_sample);
+                        else
+                            post_count_r <= resize(wr_ptr_r - local_fire_ptr,
+                                                   post_count_r'length);
+                        end if;
                     else
                         trig_ptr_r <= wr_ptr_r;
                         post_count_r <= (others => '0');
+                        if ref_exact = '1' then
+                            post_count_r(0) <= store_sample;
+                        end if;
                     end if;
                     if local_fire_pipe = '1' then
                         -- LOCAL fire only (drives trig_xbar). In ext-AND mode
@@ -1205,16 +1250,16 @@ begin
             -- so the post-trigger window is `posttrig_len` cells
             -- regardless of decimation ratio.
             if armed_r = '1' and triggered_r = '1' and done_r = '0'
-               and decim_tick = '1'
+               and (decim_tick = '1' or ref_exact = '1')
                and arm_pulse_i = '0' and reset_pulse_i = '0' then  -- REA-T1.5
-                if post_count_r >= posttrig_len_r then
+                if ref_full = '1' then
                     -- Done capturing the post-trigger window.
                     -- REA-REQ-104: start_ptr <= trig_ptr - pretrig_len
                     -- (mod DEPTH — natural wrap on PTR_W-bit subtract).
                     done_r      <= '1';
                     armed_r     <= '0';
                     start_ptr_r <= trig_ptr_r - pretrig_len_r;
-                else
+                elsif decim_tick = '1' then
                     post_count_r <= post_count_r + 1;
                 end if;
             end if;

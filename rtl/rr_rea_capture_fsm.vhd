@@ -571,6 +571,9 @@ architecture rtl of rr_rea_capture_fsm is
     -- Enables/ops/valid are resettable control; the wide value/mask are
     -- validity-gated arm-time data (RTL-P2.897), like cond_values_r.
     signal qual_enable_r  : std_logic := '0';
+    -- REA-T2.4: exact window arithmetic whenever a store can be skipped
+    -- (qualification OR decimation). See the post_full comment.
+    signal exact_count    : std_logic;
     signal qual_or_r      : std_logic := '0';
     signal qual_ops_r     : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0)
                                := (others => '0');
@@ -1027,16 +1030,22 @@ begin
 
     store_tick <= decim_tick and qual_ok;
 
-    -- Qualification off (v0.9 arithmetic): post_count lags the written cells by
-    -- one because the fire edge always stores, so the window is full at
-    -- POSTTRIG. Qualification on: the fire edge usually falls in an idle gap,
-    -- so post_count is the exact number of cells written from the trigger
-    -- position on, and the window (trigger cell + POSTTRIG) is full at
-    -- POSTTRIG + 1 (REA-REQ-954/955).
-    post_full <= '1' when (qual_enable_r = '0'
+    -- Every-cycle storing (no decimation, no qualification — the v0.9
+    -- arithmetic): post_count lags the written cells by one because the fire
+    -- edge always stores, so the window is full at POSTTRIG. Whenever a store
+    -- can be skipped (qualification, REA-REQ-954/955, or DECIM > 0,
+    -- REA-T2.4 / REA-REQ-960) the fire edge may fall in a gap, so post_count
+    -- is the exact number of cells written from the trigger position on and
+    -- the window (trigger cell + POSTTRIG) is full at POSTTRIG + 1. Using the
+    -- lagged form under decimation stopped the window one cell short in most
+    -- trigger phases and left a stale cell from an earlier capture last.
+    exact_count <= '1' when qual_enable_r = '1' or decim_ratio_r /= 0
+                   else '0';
+
+    post_full <= '1' when (exact_count = '0'
                            and post_count_r >= resize(posttrig_len_r,
                                                       post_count_r'length))
-                       or (qual_enable_r = '1'
+                       or (exact_count = '1'
                            and post_count_r > resize(posttrig_len_r,
                                                      post_count_r'length))
                  else '0';
@@ -1315,10 +1324,11 @@ begin
                     -- them overstated the valid window by exactly the pipeline
                     -- depth, which the sim caught as a constant +4 at
                     -- G_SAMPLE_W=12 / G_TRIG_CONDS=4.
-                    if qual_enable_r = '1' then
-                        -- REA-REQ-955: with qualification the samples stored
-                        -- during the trigger pipeline are not C_PIPE_STAGES —
-                        -- count them exactly (fire_lag, from the pointer).
+                    if exact_count = '1' then
+                        -- REA-REQ-955/960: with qualification or decimation
+                        -- the samples stored during the trigger pipeline are
+                        -- not C_PIPE_STAGES — count them exactly (fire_lag,
+                        -- from the pointer). since_arm_r counts STORES.
                         if since_arm_r <= resize(fire_lag, since_arm_r'length) then
                             pretrig_valid_r <= (others => '0');
                         elsif (since_arm_r - fire_lag)
@@ -1340,9 +1350,9 @@ begin
                     end if;
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
-                        if qual_enable_r = '1' then
+                        if exact_count = '1' then
                             -- Cells written from the trigger position on,
-                            -- including this edge's store (REA-REQ-955).
+                            -- including this edge's store (REA-REQ-955/960).
                             post_count_r <= resize(fire_lag, post_count_r'length)
                                             + unsigned'("" & store_sample);
                         else
@@ -1352,7 +1362,7 @@ begin
                     else
                         trig_ptr_r <= wr_ptr_r;
                         post_count_r <= (others => '0');
-                        if qual_enable_r = '1' then
+                        if exact_count = '1' then
                             post_count_r(0) <= store_sample;
                         end if;
                     end if;
@@ -1374,9 +1384,11 @@ begin
             -- qualification is off). With qualification on the window closes
             -- on the cycle after its last store, without waiting for another
             -- qualifying cycle — a bus that falls silent must still finish the
-            -- capture (REA-REQ-954).
+            -- capture (REA-REQ-954). REA-T2.4: the same holds under decimation,
+            -- so `done` rises the cycle after the last post-trigger store, not
+            -- on the next decimation tick.
             if armed_r = '1' and triggered_r = '1' and done_r = '0'
-               and (store_tick = '1' or qual_enable_r = '1')
+               and (store_tick = '1' or exact_count = '1')
                and arm_pulse_i = '0' and reset_pulse_i = '0' then  -- REA-T1.5
                 if post_full = '1' then
                     -- Done capturing the post-trigger window.
