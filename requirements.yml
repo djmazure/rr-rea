@@ -953,9 +953,14 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "AXI4-Lite bridge" }]
     desc: >-
       rr_rea_axi4lite presents a compliant AXI4-Lite slave and drives the
-      rr_rea register bus. A write transaction asserts reg_wr_en_o for exactly
-      ONE cycle with reg_addr_o/reg_wdata_o held stable across it, and a read
-      returns the regbank's data for the addressed register.
+      rr_rea register bus. The low two address bits are ignored (masked to "00")
+      so narrow (byte and halfword) AXI reads to any byte offset within a 32-bit
+      register return the full register word on the corresponding byte lanes of
+      rdata_o (REA-P2.6). Sub-word writes (wstrb /= "1111") are dropped rather
+      than half-applied to side-effect or toggle registers. A write transaction
+      asserts reg_wr_en_o for exactly ONE cycle with reg_addr_o/reg_wdata_o held
+      stable across it, and a read returns the regbank's data for the addressed
+      register.
 
   - id: REA-REQ-904
     kind: behavioral

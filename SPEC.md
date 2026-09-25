@@ -464,6 +464,9 @@ for both — as `rr_rea_axi4lite` now does (REA-REQ-904).
 `rr_rea_axi4lite` is the ready-made AXI4-Lite slave for the external port. It
 presents a compliant AXI4-Lite interface and drives the register bus:
 
+- Addressing: byte address, with the low 2 bits ignored (masked to `00` onto
+  `reg_addr_o`), so narrow AXI reads (byte and halfword) at `+1..+3` return
+  the full register word on the correct byte lanes of `rdata_o` (REA-P2.6).
 - One AXI transaction produces exactly ONE register-bus operation. A write
   asserts `reg_wr_en_o` for a single cycle with address and data stable across
   it (REA-REQ-903/907). A double pulse on a TOGGLE register such as `CTRL`
@@ -484,7 +487,9 @@ presents a compliant AXI4-Lite interface and drives the register bus:
   bus fault.
 - `wstrb` is honoured only as all-or-nothing: every rr_rea register is a whole
   32-bit word, several with side effects, so a sub-word write would be a silent
-  half-action and is dropped instead.
+  half-action and is dropped instead (REA-P2.6: `wstrb_i` is latched when `wvalid_i`
+  is accepted, so `W_APPLY` evaluates the transaction's own strobes rather than
+  floating or subsequent bus state).
 
 ## Dump-path transports (REA-P2.4)
 

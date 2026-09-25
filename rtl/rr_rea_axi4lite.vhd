@@ -31,8 +31,10 @@
 --
 -- Addressing: AXI byte address, word-aligned. The low 2 bits are ignored (a
 -- 32-bit register file); the rr_rea register map is byte-addressed on 4-byte
--- boundaries, so the AXI address passes through to reg_addr_o unmodified and
--- an AXI write to 0x04 hits CTRL exactly as a JTAG write to 0x04 does.
+-- boundaries, so the AXI address has its low 2 bits masked to "00" onto
+-- reg_addr_o (REA-P2.6). An AXI write to 0x04 hits CTRL exactly as a JTAG
+-- write to 0x04 does, and an AXI narrow read at +1..+3 returns the full
+-- register word on the correct byte lanes of rdata_o.
 --
 -- Responses are always OKAY. There is deliberately no decode error: the regbank
 -- reads unmapped addresses as zero and drops unmapped writes, and a debug bus
@@ -98,6 +100,7 @@ architecture rtl of rr_rea_axi4lite is
     signal w_seen_r     : std_logic := '0';
     signal aw_addr_r  : std_logic_vector(G_ADDR_W - 1 downto 0) := (others => '0');
     signal w_data_r   : std_logic_vector(31 downto 0) := (others => '0');
+    signal w_strb_r   : std_logic_vector(3 downto 0) := (others => '0');
 
     -- Read channel. R_ADDR presents the address; R_WAIT burns the regbank's
     -- registered-read cycle; R_WAIT2 burns the DATA window's second one
@@ -119,7 +122,8 @@ architecture rtl of rr_rea_axi4lite is
     signal reg_wr_en_r : std_logic := '0';
     signal reg_rd_en_r : std_logic := '0';
 
-    -- Zero-extend / truncate an AXI address onto the 16-bit register bus.
+    -- Zero-extend / truncate an AXI address onto the 16-bit register bus,
+    -- masking the low 2 bits to enforce word alignment (REA-P2.6).
     function to_reg_addr (a : std_logic_vector) return std_logic_vector is
         variable v : std_logic_vector(15 downto 0) := (others => '0');
     begin
@@ -128,6 +132,7 @@ architecture rtl of rr_rea_axi4lite is
         else
             v(a'length - 1 downto 0) := a;
         end if;
+        v(1 downto 0) := "00";
         return v;
     end function;
 
@@ -172,17 +177,19 @@ begin
                 wr_state_r  <= W_IDLE;
                 aw_seen_r   <= '0';
                 w_seen_r    <= '0';
-                aw_addr_r <= (others => '0');
-                w_data_r  <= (others => '0');
+                aw_addr_r   <= (others => '0');
+                w_data_r    <= (others => '0');
+                w_strb_r    <= (others => '0');
             else
                 if wr_state_r = W_IDLE then
                     if awvalid_i = '1' and aw_seen_r = '0' then
                         aw_addr_r <= awaddr_i;
-                        aw_seen_r   <= '1';
+                        aw_seen_r <= '1';
                     end if;
                     if wvalid_i = '1' and w_seen_r = '0' then
                         w_data_r <= wdata_i;
-                        w_seen_r   <= '1';
+                        w_strb_r <= wstrb_i;
+                        w_seen_r <= '1';
                     end if;
                     -- Both halves in hand — including the same-cycle case,
                     -- which the two ifs above have just latched.
@@ -205,7 +212,7 @@ begin
                        or rd_state_r = R_WAIT2 then
                         null;  -- retry next cycle; stays in W_APPLY
                     else
-                        if wstrb_i = "1111" then
+                        if w_strb_r = "1111" then
                             reg_wr_en_r <= '1';
                         end if;
                         aw_seen_r  <= '0';
