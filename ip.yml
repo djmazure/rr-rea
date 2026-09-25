@@ -144,6 +144,19 @@ synthesis:
       - rtl/rr_rea_jtag_intel.vhd
 
 build:
+  # REA-P2.8: REA's own timing constraints, shipped to every consumer. rr
+  # vendors build.sources.xdc into the consumer's ip.lock scoped_constraints
+  # (RTL-P2.636) and applies it as `read_xdc -ref rr_rea_top` (ref =
+  # hdl.top_module), so every get_* resolves against the REA instance
+  # wherever the consumer puts it. The consumer adds no timing XDC. It
+  # declares the BSCANE2 TCK clock (Vivado does not derive one, which left
+  # the whole JTAG domain untimed) and bounds each tck <-> sample crossing
+  # with set_max_delay -datapath_only at half the faster period, derived
+  # from the live sample clock. No async clock group (SPEC "Clock-domain
+  # crossings").
+  sources:
+    xdc:
+      - constraints/rr_rea_scoped.xdc
   simulation:
     sources: []
     test_dir: sim/cocotb/tests
