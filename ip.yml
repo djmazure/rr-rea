@@ -11,9 +11,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.3.1
+#   version: below        the PACKAGE version the registry pins   -> 1.3.2
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.3.2 (REA-P2.10) is a PATCH: every signal crossed between the register
+# clock and sample_clk_i now leaves its domain from a flop (REA-REQ-961).
+# The COND/QUAL slot expansion is registered in the register domain and
+# selftest_busy in the sample domain. Before this, report_cdc showed 17 x
+# CDC-10 (combinational logic before a synchronizer). One clock of latency
+# on quasi-static/status words; no port, generic, register or VERSION
+# change. The CDC constraint guidance is now bounded datapath, never an async
+# clock group.
 #
 # 1.3.1 (REA-T2.4) is a PATCH: a decimated capture (DECIM > 0) no longer
 # stops one stored cell short when the trigger fires between decimation ticks
@@ -73,7 +82,7 @@
 
 name: rea
 namespace: routertl
-version: 1.3.1
+version: 1.3.2
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
