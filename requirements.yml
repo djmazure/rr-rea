@@ -19,11 +19,11 @@ hdl_file: rtl/rr_rea_top.vhd
 # minimum), so the other configurations are measured, not capped: see SPEC
 # "Resources and Fmax per configuration". Measured OOC routed, Vivado 2024.1,
 # xc7z020clg400-1 (targets/util_default.yml): 1600 LUT, 2525 FF, 5.5 RAMB36
-# tiles, 0 DSP, 179 MHz. Caps carry ~15 % headroom. Fmax is a declared target,
+# tiles, 0 DSP, 179 MHz (214 MHz since 1.4.2, REA-P2.11). Caps carry ~15 % headroom. Fmax is a declared target,
 # not yet a hard gate: rr does not check technical: at synth (RTL-P2.1351).
 technical:
   clocks:
-    - { name: sample_clk_i, fmax_mhz: 175.0 }
+    - { name: sample_clk_i, fmax_mhz: 200.0 }
   resources:
     lut:  { max: 1850 }
     ff:   { max: 2900 }

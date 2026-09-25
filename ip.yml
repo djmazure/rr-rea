@@ -11,9 +11,16 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.4.1
+#   version: below        the PACKAGE version the registry pins   -> 1.4.2
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#
+# 1.4.2 (REA-P2.11) is a PATCH: the capture FSM's window-full flag is a
+# register kept in step with post_count, and its arm-time threshold is taken
+# straight from POSTTRIG. The window-full compare was the Fmax limiter of
+# every configuration; routed OOC xc7z020-1 now 241 / 214 / 219 MHz for
+# util_min / util_default / util_field_noqual (was 217 / 179 / 182). No
+# behaviour change: bit-exact against the frozen reference (lockstep).
 #
 # 1.4.1 (REA-T2.5) is a PATCH: PRETRIG_VALID is carried down the trigger
 # pipeline instead of recomputed as since_arm - fire_lag at the fire edge.
@@ -96,7 +103,7 @@
 
 name: rea
 namespace: routertl
-version: 1.4.1
+version: 1.4.2
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

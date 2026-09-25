@@ -490,6 +490,19 @@ architecture rtl of rr_rea_capture_fsm is
     -- post-trigger cells up to POSTTRIG+1, which is DEPTH when POSTTRIG=DEPTH-1.
     -- Qualification off never exceeds POSTTRIG, so the extra bit stays 0.
     signal post_count_r  : unsigned(C_PTR_W downto 0) := (others => '0');
+    -- REA-P2.11: post_full is a REGISTER kept in step with post_count_r, so
+    -- the window-full compare no longer sits between post_count_r and the
+    -- store strobe (post_count -> compare -> store_sample -> post_count adder
+    -- was the Fmax limiter in every configuration). The compare threshold is
+    -- latched at arm: POSTTRIG, or POSTTRIG + 1 when exact_count (see
+    -- post_full's history below).
+    signal post_full_r   : std_logic := '0';
+    signal pf_thr_m1_r   : unsigned(C_PTR_W downto 0) := (others => '0');
+    -- At the fire edge post_count loads the trigger-pipeline lag, at most
+    -- C_PIPE_STAGES + 1, so only C_PF_K low bits take part in that compare.
+    constant C_PF_K      : positive := clog2(C_PIPE_STAGES + 2);
+    signal pf_thr_small_r : std_logic := '0';
+    signal pf_thr_low_r  : unsigned(C_PF_K - 1 downto 0) := (others => '0');
     -- The post-trigger window is full: stop storing, then finish (REA-REQ-954).
     signal post_full     : std_logic;
     signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
@@ -1065,13 +1078,36 @@ begin
     exact_count <= '1' when qual_enable_r = '1' or decim_ratio_r /= 0
                    else '0';
 
-    post_full <= '1' when (exact_count = '0'
-                           and post_count_r >= resize(posttrig_len_r,
-                                                      post_count_r'length))
-                       or (exact_count = '1'
-                           and post_count_r > resize(posttrig_len_r,
-                                                     post_count_r'length))
-                 else '0';
+    -- Window full: post_count_r >= POSTTRIG (post_count_r > POSTTRIG when
+    -- exact_count). Held in post_full_r, updated wherever post_count_r is.
+    post_full <= post_full_r;
+
+    -- pragma translate_off
+    -- REA-P2.11 equivalence guard (simulation only): whenever post_full is
+    -- consulted, the register must equal the combinational definition it
+    -- replaced. Every sim that reaches post-trigger checks the retiming.
+    p_post_full_equiv : process (sample_clk_i)
+        variable v_ref : std_logic;
+    begin
+        if rising_edge(sample_clk_i) then
+            if sample_rst_i = '0' and armed_r = '1' and triggered_r = '1'
+               and done_r = '0' then
+                if (exact_count = '0' and post_count_r >= resize(
+                        posttrig_len_r, post_count_r'length))
+                   or (exact_count = '1' and post_count_r > resize(
+                        posttrig_len_r, post_count_r'length)) then
+                    v_ref := '1';
+                else
+                    v_ref := '0';
+                end if;
+                assert post_full_r = v_ref
+                    report "REA-P2.11: registered post_full diverged from "
+                           & "post_count vs POSTTRIG"
+                    severity failure;
+            end if;
+        end if;
+    end process;
+    -- pragma translate_on
 
     fire_lag <= wr_ptr_r - local_fire_ptr when local_fire_pipe = '1'
                 else (others => '0');
@@ -1173,6 +1209,9 @@ begin
 
     -- ── Capture FSM ──────────────────────────────────────────────
     process (sample_clk_i, sample_rst_i)
+        -- REA-P2.11: window-full threshold and the fire-edge lag (low bits).
+        variable v_thr   : unsigned(C_PTR_W downto 0);
+        variable v_x_low : unsigned(C_PF_K - 1 downto 0);
     begin
         if sample_rst_i = '1' then
             armed_r        <= '0';
@@ -1183,6 +1222,11 @@ begin
             trig_ptr_r     <= (others => '0');
             start_ptr_r    <= (others => '0');
             post_count_r   <= (others => '0');
+            post_full_r    <= '0';
+            -- POSTTRIG 0, no decimation/qualification: threshold 0.
+            pf_thr_m1_r    <= (others => '0');
+            pf_thr_small_r <= '1';
+            pf_thr_low_r   <= (others => '0');
             pretrig_len_r  <= (others => '0');
             posttrig_len_r <= (others => '0');
             trig_mode_r    <= (others => '0');
@@ -1250,6 +1294,7 @@ begin
                 done_r        <= '0';
                 overflow_r    <= '0';
                 post_count_r  <= (others => '0');
+                post_full_r   <= '0';
                 trigger_out_r <= '0';
                 -- NOTE: wr_ptr_r is NOT reset on reset_pulse for v0.1
                 -- — keeping the buffer state alive across soft resets
@@ -1277,6 +1322,38 @@ begin
                 since_arm_r     <= (others => '0');
                 pretrig_valid_r <= (others => '0');
                 post_count_r   <= (others => '0');
+                post_full_r    <= '0';
+                -- REA-P2.11: the window is full at post_count >= POSTTRIG, or
+                -- > POSTTRIG when this capture is exact_count (qualified or
+                -- decimated): threshold = POSTTRIG (+ 1), from the arm inputs
+                -- so an external trigger in the first armed cycle sees it.
+                -- Derived straight from POSTTRIG so no full-width increment
+                -- sits in series with the exact decode (arm-input Fmax path):
+                --   exact:  thr - 1 = POSTTRIG,       small = POSTTRIG < 2^K - 1
+                --   else:   thr - 1 = POSTTRIG - 1 (sat), small = POSTTRIG < 2^K
+                v_thr := resize(unsigned(posttrig_len_i), v_thr'length);
+                if (G_QUAL_CONDS > 0 and qual_enable_i = '1')
+                   or unsigned(decim_ratio_i) /= 0 then
+                    pf_thr_m1_r  <= v_thr;
+                    pf_thr_low_r <= resize(v_thr, C_PF_K) + 1;
+                    if v_thr < 2 ** C_PF_K - 1 then
+                        pf_thr_small_r <= '1';
+                    else
+                        pf_thr_small_r <= '0';
+                    end if;
+                else
+                    if v_thr = 0 then
+                        pf_thr_m1_r <= (others => '0');
+                    else
+                        pf_thr_m1_r <= v_thr - 1;
+                    end if;
+                    pf_thr_low_r <= resize(v_thr, C_PF_K);
+                    if v_thr < 2 ** C_PF_K then
+                        pf_thr_small_r <= '1';
+                    else
+                        pf_thr_small_r <= '0';
+                    end if;
+                end if;
                 pretrig_len_r  <= unsigned(pretrig_len_i);
                 posttrig_len_r <= unsigned(posttrig_len_i);
                 trig_mode_r    <= trig_mode_i;
@@ -1417,13 +1494,21 @@ begin
                         pretrig_valid_r <= resize(pretrig_len_r,
                                                   pretrig_valid_r'length);
                     end if;
+                    -- REA-P2.11: v_x_low = the low C_PF_K bits of the value
+                    -- loaded into post_count_r below (the trigger-pipeline
+                    -- lag, <= C_PIPE_STAGES + 1, so the low bits ARE the
+                    -- value), for the registered window-full compare.
+                    v_x_low := (others => '0');
                     if local_fire_pipe = '1' then
                         trig_ptr_r <= local_fire_ptr;
+                        v_x_low := resize(wr_ptr_r, C_PF_K)
+                                   - resize(local_fire_ptr, C_PF_K);
                         if exact_count = '1' then
                             -- Cells written from the trigger position on,
                             -- including this edge's store (REA-REQ-955/960).
                             post_count_r <= resize(fire_lag, post_count_r'length)
                                             + unsigned'("" & store_sample);
+                            v_x_low := v_x_low + unsigned'("" & store_sample);
                         else
                             post_count_r <= resize(wr_ptr_r - local_fire_ptr,
                                                    post_count_r'length);
@@ -1433,7 +1518,13 @@ begin
                         post_count_r <= (others => '0');
                         if exact_count = '1' then
                             post_count_r(0) <= store_sample;
+                            v_x_low(0) := store_sample;
                         end if;
+                    end if;
+                    if pf_thr_small_r = '1' and v_x_low >= pf_thr_low_r then
+                        post_full_r <= '1';
+                    else
+                        post_full_r <= '0';
                     end if;
                     if local_fire_pipe = '1' then
                         -- LOCAL fire only (drives trig_xbar). In ext-AND mode
@@ -1468,6 +1559,12 @@ begin
                     start_ptr_r <= trig_ptr_r - pretrig_len_r;
                 elsif store_tick = '1' then
                     post_count_r <= post_count_r + 1;
+                    -- post_count_r + 1 >= threshold (REA-P2.11).
+                    if post_count_r >= pf_thr_m1_r then
+                        post_full_r <= '1';
+                    else
+                        post_full_r <= '0';
+                    end if;
                 end if;
             end if;
 
