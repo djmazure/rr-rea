@@ -5,13 +5,16 @@
 --
 -- Four capture FSMs on ONE set of stimulus inputs:
 --   u_ref  : the frozen pre-qualification FSM (fixtures/..._ref_v09.vhd)
+--   u_refd : the same frozen FSM behind ONE register on its sample-side
+--            inputs (probe, arm, soft reset, trigger) — REA-P2.11: a build
+--            with a qualifier elaborated stores rea_store_lag = 1 cycle late
 --   u_zero : the current FSM, G_QUAL_CONDS = 0 (no qualifier elaborated)
 --   u_off  : the current FSM, G_QUAL_CONDS = G_QUAL_CONDS, qualifier slots
 --            driven with live junk but qual_enable tied '0'
 --   u_qual : the current FSM, G_QUAL_CONDS = G_QUAL_CONDS, qualifier driven
 --            from the qual_*_i ports below; its outputs keep the FSM's names
--- The lockstep test asserts u_zero and u_off match u_ref on every output on
--- every cycle; the qualification tests read u_qual.
+-- The lockstep test asserts u_zero matches u_ref and u_off matches u_refd on
+-- every output on every cycle; the qualification tests read u_qual.
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -57,6 +60,15 @@ entity rr_rea_qual_lockstep_harness is
         ref_start_ptr_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
         ref_pretrig_valid_o : out std_logic_vector(clog2(G_DEPTH) downto 0);
         ref_status_o     : out std_logic_vector(4 downto 0);
+        -- u_refd
+        refd_we_o         : out std_logic;
+        refd_addr_o       : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        refd_din_o        : out std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        refd_wr_ptr_o     : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        refd_trig_ptr_o   : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        refd_start_ptr_o  : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
+        refd_pretrig_valid_o : out std_logic_vector(clog2(G_DEPTH) downto 0);
+        refd_status_o     : out std_logic_vector(4 downto 0);
         -- u_zero
         zero_we_o        : out std_logic;
         zero_addr_o      : out std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
@@ -90,7 +102,50 @@ end entity;
 
 architecture rtl of rr_rea_qual_lockstep_harness is
     -- status = {trigger_out, overflow, done, triggered, armed}
+    signal probe_d   : std_logic_vector(G_SAMPLE_W - 1 downto 0) :=
+        (others => '0');
+    signal arm_d     : std_logic := '0';
+    signal reset_d   : std_logic := '0';
+    signal trigger_d : std_logic := '0';
 begin
+
+    -- The delay u_refd sees: controls reset with the FSM, data does not.
+    process (sample_clk_i, sample_rst_i)
+    begin
+        if sample_rst_i = '1' then
+            arm_d     <= '0';
+            reset_d   <= '0';
+            trigger_d <= '0';
+        elsif rising_edge(sample_clk_i) then
+            arm_d     <= arm_pulse_i;
+            reset_d   <= reset_pulse_i;
+            trigger_d <= trigger_i;
+        end if;
+    end process;
+
+    process (sample_clk_i)
+    begin
+        if rising_edge(sample_clk_i) then
+            probe_d <= probe_i;
+        end if;
+    end process;
+
+    u_refd : entity work.rr_rea_capture_fsm_ref_v09
+        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)
+        port map (
+            sample_clk_i => sample_clk_i, sample_rst_i => sample_rst_i,
+            probe_i => probe_d, arm_pulse_i => arm_d,
+            reset_pulse_i => reset_d, trigger_i => trigger_d,
+            pretrig_len_i => pretrig_len_i, posttrig_len_i => posttrig_len_i,
+            trig_value_i => trig_value_i, trig_mask_i => trig_mask_i,
+            trig_mode_i => trig_mode_i, decim_ratio_i => decim_ratio_i,
+            armed_o => refd_status_o(0), triggered_o => refd_status_o(1),
+            done_o => refd_status_o(2), overflow_o => refd_status_o(3),
+            trigger_o => refd_status_o(4),
+            dpram_we_o => refd_we_o, dpram_addr_o => refd_addr_o,
+            dpram_din_o => refd_din_o, wr_ptr_o => refd_wr_ptr_o,
+            trig_ptr_o => refd_trig_ptr_o, start_ptr_o => refd_start_ptr_o,
+            pretrig_valid_o => refd_pretrig_valid_o);
 
     u_ref : entity work.rr_rea_capture_fsm_ref_v09
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH)

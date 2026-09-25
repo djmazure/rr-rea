@@ -107,9 +107,17 @@ long as they take to happen.
   `QUAL_VAL`, exactly like `COND_SEL`/`COND_CFG`/`COND_VAL`). A slot compares a
   field of the probe: `EQ`/`NE` against its value, `RISE`/`FALL` when any bit of
   the field rose/fell since the previous sample-clock cycle. `LT`/`GT` are not
-  available to the qualifier (it decides in the cycle the sample is written, so
-  it carries no magnitude comparator); such a slot never qualifies, and the host
+  available to the qualifier (it is a one-level equality/edge decision, so it
+  carries no magnitude comparator); such a slot never qualifies, and the host
   refuses to program it.
+- **One cycle of store latency** (REA-P2.11, 1.5.1). A core with
+  `G_QUAL_CONDS > 0` decides the qualifier a cycle ahead into a flop, so its
+  capture FSM runs one sample cycle behind the probe: every write, `STATUS`
+  edge and `trigger_out` comes one cycle later than on a core without a
+  qualifier. What the host reads does not change: the captured window,
+  `PRETRIG_VALID`, `TRIG_PTR`/`START_PTR` and the timestamp plane (its counter
+  starts one behind, so a cell still holds its sample's arrival cycle) are
+  identical. `G_QUAL_CONDS = 0` builds are untouched.
 - **`QUAL_MODE`**: `[0]` enables, `[1]` selects OR (any valid slot) instead of
   AND (every valid slot). Enabled with no valid slot stores every sample. The
   whole qualifier is arm-time configuration: it is latched on the arm pulse.
@@ -471,9 +479,9 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   compare no longer sits between `post_count` and the store strobe: 1.4.1 gave
   217 / 179 / 182 / 139 MHz for the first four rows. What limits each row
   now is the decimation tick or trigger-config fan-in into the store and
-  `post_count` logic, and with `G_QUAL_CONDS > 0` the full-width qualifier
-  compare in front of the store (util_field, util_big), which registering
-  `qual_ok` would remove (REA-P2.11, open). Before REA-T2.5 (1.4.1) the
+  `post_count` logic. With `G_QUAL_CONDS > 0` the full-width qualifier
+  compare sat in front of the store until 1.5.1, which registers it one
+  cycle ahead (REA-P2.11 part 2, see "One cycle of store latency"). Before REA-T2.5 (1.4.1) the
   PRETRIG_VALID chain capped util_min at 136 MHz and util_default at 145 MHz.
 
 ## Module hierarchy

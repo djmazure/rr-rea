@@ -11,9 +11,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.5.0
-#   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
+#   version: below        the PACKAGE version the registry pins   -> 1.5.1
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.5.1 (REA-P2.11 part 2) is a PATCH: with G_QUAL_CONDS > 0 the storage
+# qualifier is decided a cycle ahead into a flop and the capture FSM runs on
+# its sample-side inputs behind one register (rea_store_lag = 1), taking the
+# full-width qualifier compare out of the write enable. Host-visible data is
+# unchanged (window, PRETRIG_VALID, pointers, timestamps — the timestamp
+# counter starts one behind); writes, status and trigger_out come one sample
+# cycle later. No register-map or runtime-tier change; G_QUAL_CONDS = 0
+# builds are untouched.
 #
 # 1.5.0 (REA-T2.6) is a MINOR bump: register map 0.12.0 adds TRIG_LATENCY
 # (0xF4, RO) and the runtime tier moves to 0x5245410D (v0.13). OVERFLOW now
@@ -111,7 +120,7 @@
 
 name: rea
 namespace: routertl
-version: 1.5.0
+version: 1.5.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

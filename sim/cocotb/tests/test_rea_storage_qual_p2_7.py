@@ -3,8 +3,10 @@
 """REA-P2.7 — storage qualification at the capture FSM (REA-REQ-950..955, 959).
 
 Toplevel is ``rr_rea_qual_lockstep_harness``: the FROZEN pre-qualification FSM
-(``u_ref``) beside three current FSMs sharing one stimulus. The lockstep test
-holds the new FSM to today's analyzer cycle for cycle with qualification off;
+(``u_ref``, and ``u_refd`` behind one input register) beside three current FSMs
+sharing one stimulus. The lockstep test holds the new FSM to today's analyzer
+cycle for cycle with qualification off — a build with a qualifier elaborated
+stores STORE_LAG = 1 cycle late (REA-P2.11), so it is held to ``u_refd``;
 the qualification tests read ``u_qual`` and compare it against an independent
 Python model of the qualifier built from SPEC.md, never from DUT state.
 
@@ -43,7 +45,10 @@ PTR_MASK = DEPTH - 1
 # C_TRIG_OP_* (rr_rea_pkg), shared by trigger and qualifier encodings.
 OP_EQ, OP_NE, OP_LT, OP_GT, OP_RISE, OP_FALL = 0, 1, 2, 3, 4, 5
 
-INSTANCES = ("ref", "zero", "off", "qual")
+INSTANCES = ("ref", "refd", "zero", "off", "qual")
+# REA-P2.11 / rea_store_lag: cycles between a sample on probe_i and its write
+# when a qualifier is elaborated (the qualifier decision is registered).
+STORE_LAG = 1
 OUTPUTS = ("we", "addr", "din", "wr_ptr", "trig_ptr", "start_ptr",
            "pretrig_valid", "status")
 
@@ -187,8 +192,9 @@ NEVER_TRIGGER_MODE = 1 | (OP_NE << 4)
 @requires("REA-REQ-950")
 async def test_rea_req_950_qualification_off_is_bit_exact_lockstep(dut):
     """`dpram_we_o`/`dpram_addr_o`/`dpram_din_o`/`trig_ptr_o`/`start_ptr_o`/
-    `pretrig_valid_o` and status of u_zero and u_off equal the frozen u_ref on
-    every cycle, under random probes, arms, soft resets, external triggers,
+    `pretrig_valid_o` and status of u_zero equal the frozen u_ref, and of u_off
+    the frozen u_refd (u_ref behind one input register, REA-P2.11), on every
+    cycle, under random probes, arms, soft resets, external triggers,
     decimation, overflowing windows and LIVE junk in the qualifier slots."""
     rng = random.Random(0x950)
     await _start(dut)
@@ -222,11 +228,12 @@ async def test_rea_req_950_qualification_off_is_bit_exact_lockstep(dut):
         dut.trigger_i.value = int(rng.random() < 0.0008)
         await ReadOnly()
         ref = _read(dut, "ref")
-        for inst in ("zero", "off"):
+        for inst, peer in (("zero", "ref"), ("off", "refd")):
             got = _read(dut, inst)
-            assert got == ref, (
-                f"cycle {cyc}: u_{inst} diverged from the frozen v0.9 FSM with "
-                f"qualification off: {inst}={got} ref={ref}")
+            want = ref if peer == "ref" else _read(dut, peer)
+            assert got == want, (
+                f"cycle {cyc}: u_{inst} diverged from the frozen v0.9 FSM "
+                f"(u_{peer}) with qualification off: {inst}={got} {peer}={want}")
         done = (ref["status"] >> 2) & 1
         if done and not prev_done:
             dones += 1
@@ -241,6 +248,65 @@ async def test_rea_req_950_qualification_off_is_bit_exact_lockstep(dut):
     assert overflows > 0, "no overflowing window configuration was exercised"
     dut._log.info(f"lockstep: {cycles} cycles, {dones} captures "
                   f"({decimated_dones} decimated), overflow cycles {overflows}")
+
+
+@cocotb.test()
+@requires("REA-REQ-950")
+async def test_rea_p2_11_store_lag_leaves_every_captured_window_unchanged(dut):
+    """The one-cycle store lag of a qualifier build (REA-P2.11) is invisible to
+    the host: every completed capture of u_off holds exactly the same samples,
+    in the same order, from `start_ptr_o` over PRETRIG + POSTTRIG + 1 cells, as
+    the frozen u_ref's capture of the same stimulus — decimated or not."""
+    rng = random.Random(0x2110)
+    await _start(dut)
+    rings = {"ref": Ring(), "off": Ring()}
+    windows = {"ref": [], "off": []}
+    prev_done = {"ref": 1, "off": 1}
+    latched = {"ref": None, "off": None}
+    pending = None
+    arm_quiet = 0
+    for _cyc in range(40_000):
+        # Configuration is arm-time and held around the arm (the regbank holds
+        # it across the CDC on silicon); the windows compare under that.
+        if arm_quiet == 0 and rng.random() < 0.01:
+            dut.pretrig_len_i.value = rng.randrange(DEPTH // 2)
+            dut.posttrig_len_i.value = rng.randrange(4, DEPTH // 2 - 4)
+            dut.decim_ratio_i.value = rng.choice([0, 0, 1, 3])
+            dut.trig_mode_i.value = 1 | (rng.choice([OP_EQ, OP_RISE, OP_FALL]) << 4)
+            dut.trig_value_i.value = rng.getrandbits(SAMPLE_W)
+            dut.trig_mask_i.value = rng.choice([0x0003, 0x0007, 0x8000])
+        arm = int(arm_quiet == 0 and rng.random() < 0.004)
+        dut.arm_pulse_i.value = arm
+        arm_quiet = 3 if arm else max(0, arm_quiet - 1)
+        if arm:
+            pending = (int(dut.pretrig_len_i.value), int(dut.posttrig_len_i.value),
+                       int(dut.decim_ratio_i.value))
+            latched["ref"] = latched["off"] = pending
+        dut.probe_i.value = rng.getrandbits(SAMPLE_W)
+        await ReadOnly()
+        for inst in ("ref", "off"):
+            if int(getattr(dut, f"{inst}_we_o").value):
+                rings[inst].mem[int(getattr(dut, f"{inst}_addr_o").value)] = \
+                    int(getattr(dut, f"{inst}_din_o").value)
+            status = int(getattr(dut, f"{inst}_status_o").value)
+            done = (status >> 2) & 1
+            if done and not prev_done[inst] and not (status >> 3) & 1 \
+               and latched[inst] is not None:
+                pre, post, dec = latched[inst]
+                start = int(getattr(dut, f"{inst}_start_ptr_o").value)
+                windows[inst].append((dec, rings[inst].window(start, pre + post + 1)))
+            prev_done[inst] = done
+        await RisingEdge(dut.sample_clk_i)
+    n = min(len(windows["ref"]), len(windows["off"]))
+    assert n >= 20, f"only {n} completed captures — stimulus too weak"
+    decimated = sum(1 for dec, _ in windows["ref"][:n] if dec)
+    assert decimated >= 3, f"only {decimated} decimated captures"
+    for i in range(n):
+        assert windows["off"][i] == windows["ref"][i], (
+            f"capture {i}: the qualifier build's window differs from the frozen "
+            f"FSM's:\n  off {windows['off'][i]}\n  ref {windows['ref'][i]}")
+    assert abs(len(windows["ref"]) - len(windows["off"])) <= 1
+    dut._log.info(f"window equality: {n} captures ({decimated} decimated)")
 
 
 # ── REQ-951/952/953/959: the qualifier gates the store, per cycle ────
@@ -262,32 +328,41 @@ async def _arm_free_running(dut, cfg: QualCfg) -> None:
 
 async def _check_store_gate(dut, rng, cfg: QualCfg, latched: QualCfg,
                             cycles: int, label: str) -> int:
-    """Drive random probes; assert `dpram_we_o` == model(latched) each cycle and
+    """Drive `cycles` random probes; assert the write STORE_LAG cycles after
+    each is model(latched) on that probe and its predecessor, carries it, and
     `wr_ptr_o` advances by exactly one on a store cycle and holds otherwise.
+    The first STORE_LAG writes belong to probes driven before this check (the
+    arm cycle's, judged under the OLD configuration) and are not judged.
     Returns stores seen."""
-    prev = int(dut.probe_i.value)
+    hist = [int(dut.probe_i.value)]      # probe driven at each cycle, oldest first
     stores = 0
     last_ptr = last_we = None
-    for cyc in range(cycles):
+    for cyc in range(cycles + STORE_LAG):
         probe = rng.getrandbits(SAMPLE_W)
         dut.probe_i.value = probe
+        hist.append(probe)          # not a read-back: writes are deferred
         await ReadOnly()
         ptr = int(dut.wr_ptr_o.value)
         if last_ptr is not None:
             assert ptr == (last_ptr + last_we) & PTR_MASK, (
                 f"[{label}] cycle {cyc}: wr_ptr_o={ptr}, but the previous "
                 f"cycle's wr_ptr_o={last_ptr} with dpram_we_o={last_we}")
-        want = qualifier_holds(latched, probe, prev)
         got = int(dut.dpram_we_o.value)
-        assert got == int(want), (
-            f"[{label}] cycle {cyc}: dpram_we_o={got}, qualifier model says "
-            f"{int(want)} for probe=0x{probe:04X} prev=0x{prev:04X}")
-        if got:
-            assert int(dut.dpram_din_o.value) == probe
-            assert int(dut.dpram_addr_o.value) == ptr
-            stores += 1
         last_ptr, last_we = ptr, got
-        prev = probe
+        if cyc >= STORE_LAG:
+            probe, prev = hist[-1 - STORE_LAG], hist[-2 - STORE_LAG]
+            want = qualifier_holds(latched, probe, prev)
+            assert got == int(want), (
+                f"[{label}] cycle {cyc}: dpram_we_o={got}, qualifier model says "
+                f"{int(want)} for the probe {STORE_LAG} cycle(s) back "
+                f"0x{probe:04X} (prev 0x{prev:04X})")
+            if got:
+                assert int(dut.dpram_din_o.value) == probe, (
+                    f"[{label}] cycle {cyc}: dpram_din_o="
+                    f"0x{int(dut.dpram_din_o.value):04X}, want the probe "
+                    f"{STORE_LAG} cycle(s) back 0x{probe:04X}")
+                assert int(dut.dpram_addr_o.value) == ptr
+                stores += 1
         await RisingEdge(dut.sample_clk_i)
     return stores
 

@@ -362,6 +362,13 @@ package rr_rea_pkg is
     -- condition-reduction tree. Single source for the FSM and TRIG_LATENCY.
     function rea_trig_latency(sample_w, trig_conds : positive) return positive;
 
+    -- REA-P2.11: sample cycles between a sample reaching probe_i and the
+    -- capture FSM storing it. 1 when a storage qualifier is elaborated (its
+    -- decision is registered a cycle ahead), else 0. The timestamp plane
+    -- starts its counter this far behind so a cell's timestamp stays the
+    -- cycle its sample arrived.
+    function rea_store_lag(qual_conds : natural) return natural;
+
     function cmp_slice(
         probe_slice : std_logic_vector;
         value_slice : std_logic_vector
@@ -393,6 +400,14 @@ package body rr_rea_pkg is
     function rea_trig_latency(sample_w, trig_conds : positive) return positive is
     begin
         return (sample_w + C_SLICE_W - 1) / C_SLICE_W + clog2(trig_conds);
+    end function;
+
+    function rea_store_lag(qual_conds : natural) return natural is
+    begin
+        if qual_conds > 0 then
+            return 1;
+        end if;
+        return 0;
     end function;
 
     function max_nat(left_value, right_value : natural) return natural is

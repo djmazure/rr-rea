@@ -971,8 +971,13 @@ begin
     -- decimation gaps. Soft capture_i reset preserves time continuity; only
     -- sample_rst_i restarts the counter. G_TIMESTAMP_W=0 elaborates no plane.
     g_timestamp_plane : if G_TIMESTAMP_W > 0 generate
+        -- REA-P2.11: the capture FSM stores a sample rea_store_lag cycles
+        -- after it arrives, so the counter starts that far behind (0 - lag,
+        -- modulo 2^W): a cell's timestamp is its sample's arrival cycle.
+        constant C_TS_RESET : unsigned(G_TIMESTAMP_W - 1 downto 0) :=
+            to_unsigned(0, G_TIMESTAMP_W) - rea_store_lag(G_QUAL_CONDS);
         signal timestamp_r : unsigned(G_TIMESTAMP_W - 1 downto 0) :=
-            (others => '0');
+            C_TS_RESET;
         signal timestamp_dout : std_logic_vector(G_TIMESTAMP_W - 1 downto 0);
         signal ts_owns_a   : std_logic;
         signal ts_busy     : std_logic;
@@ -986,7 +991,7 @@ begin
         process (sample_clk_i, sample_rst_sync)
         begin
             if sample_rst_sync = '1' then
-                timestamp_r <= (others => '0');
+                timestamp_r <= C_TS_RESET;
             elsif rising_edge(sample_clk_i) then
                 timestamp_r <= timestamp_r + 1;
             end if;

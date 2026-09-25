@@ -24,6 +24,17 @@
 -- constant '1' while QUAL_MODE[0] (latched on arm) is 0, so qualification
 -- off is the v0.9 analyzer bit for bit (REA-REQ-950).
 --
+-- REA-P2.11: with G_QUAL_CONDS > 0 the qualifier's compare would sit in front
+-- of the write enable, so it is decided a cycle AHEAD from probe_i into the
+-- qual_ok flop, and the rest of the FSM runs on its sample-side inputs
+-- (probe, arm, soft reset, trigger, external trigger) behind one register:
+-- such a build is the G_QUAL_CONDS = 0 FSM delayed by rea_store_lag = 1
+-- cycle, exactly (REA-REQ-950 holds it to the frozen FSM behind a register).
+-- Window contents, PRETRIG_VALID and timestamps are unchanged; trigger_o,
+-- status and every write come one sample cycle later. Config inputs are
+-- latched on the (staged) arm and must be held one cycle past it, as the
+-- regbank does.
+--
 -- See requirements.yml REA-REQ-100..106 and REA-REQ-950..959 for the test
 -- contract.
 
@@ -614,6 +625,19 @@ architecture rtl of rr_rea_capture_fsm is
     -- is off. store_tick = decimation tick AND qualifier: the one strobe that
     -- writes, advances wr_ptr and counts the post-trigger window.
     signal qual_ok        : std_logic;
+    -- REA-P2.11 (part 2): the FSM's sample-side inputs. With a qualifier
+    -- elaborated they are the ports behind ONE register (C_STORE_LAG = 1)
+    -- so qual_ok can be decided a cycle ahead, from probe_i, into a flop;
+    -- with G_QUAL_CONDS = 0 they ARE the ports (no added latency, no flops).
+    constant C_STORE_LAG  : natural := rea_store_lag(G_QUAL_CONDS);
+    signal probe_s        : std_logic_vector(G_SAMPLE_W - 1 downto 0);
+    signal arm_s          : std_logic;
+    signal reset_s        : std_logic;
+    signal trig_in_s      : std_logic;
+    signal ext_trigger_s  : std_logic;
+    -- qual_enable as the (staged) FSM sees it: loaded on arm_s, while
+    -- qual_enable_r feeds the look-ahead evaluator and loads on arm_pulse_i.
+    signal qual_enable_s_r : std_logic := '0';
     signal store_tick     : std_logic;
     -- Stored samples between the triggering sample and now (REA-REQ-955).
     signal fire_lag       : unsigned(C_PTR_W - 1 downto 0);
@@ -674,7 +698,7 @@ begin
             valid_width_r <= (others => '0');
             ext_width_r <= (others => '0');
         elsif rising_edge(sample_clk_i) then
-            if reset_pulse_i = '1' or arm_pulse_i = '1' then
+            if reset_s = '1' or arm_s = '1' then
                 valid_width_r <= (others => '0');
                 ext_width_r <= (others => '0');
             else
@@ -692,11 +716,11 @@ begin
 
                 for width_node in 0 to C_WIDTH_TREE_NODES - 1 loop
                     token_tree_r(0, width_node, 0) <= cmp_masked_group(
-                        probe_i, trig_value_r, trig_mask_r, width_node);
+                        probe_s, trig_value_r, trig_mask_r, width_node);
                     edge_tree_r(0, width_node, 0).rise <= rise_masked_group(
-                        probe_i, probe_prev_r, trig_mask_r, width_node);
+                        probe_s, probe_prev_r, trig_mask_r, width_node);
                     edge_tree_r(0, width_node, 0).fall <= fall_masked_group(
-                        probe_i, probe_prev_r, trig_mask_r, width_node);
+                        probe_s, probe_prev_r, trig_mask_r, width_node);
 
                     for condition_index in 0 to G_TRIG_CONDS - 1 loop
                         token_tree_r(
@@ -704,7 +728,7 @@ begin
                             width_node,
                             C_COND_BASE + condition_index
                         ) <= cmp_masked_group(
-                            probe_i,
+                            probe_s,
                             cond_values_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto condition_index * G_SAMPLE_W),
@@ -718,7 +742,7 @@ begin
                             width_node,
                             C_COND_BASE + condition_index
                         ).rise <= rise_masked_group(
-                            probe_i,
+                            probe_s,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -730,7 +754,7 @@ begin
                             width_node,
                             C_COND_BASE + condition_index
                         ).fall <= fall_masked_group(
-                            probe_i,
+                            probe_s,
                             probe_prev_r,
                             cond_masks_r(
                                 condition_index * G_SAMPLE_W + G_SAMPLE_W - 1
@@ -745,7 +769,7 @@ begin
                             width_node,
                             C_SEQ_BASE + sequence_index
                         ) <= cmp_masked_group(
-                            probe_i,
+                            probe_s,
                             seq_value_r_flat(
                                 sequence_index * G_SAMPLE_W + G_SAMPLE_W - 1
                                 downto sequence_index * G_SAMPLE_W),
@@ -911,7 +935,7 @@ begin
                 pointer_reduce_r <= (others => (others => '0'));
                 pv_reduce_r <= (others => (others => '0'));
             elsif rising_edge(sample_clk_i) then
-                if reset_pulse_i = '1' or arm_pulse_i = '1' then
+                if reset_s = '1' or arm_s = '1' then
                     condition_reduce_r <= (others => (others => '1'));
                     legacy_reduce_r <= (others => '0');
                     seq_reduce_r <= (others => (others => '0'));
@@ -1001,10 +1025,66 @@ begin
     -- written, so it is equality/edge only (no magnitude comparator —
     -- REA-REQ-953) and shallow: an AND/OR reduction over the probe.
     g_no_qual : if G_QUAL_CONDS = 0 generate
-        qual_ok <= '1';
+        qual_ok         <= '1';
+        qual_enable_s_r <= '0';
+        probe_s         <= probe_i;
+        arm_s           <= arm_pulse_i;
+        reset_s         <= reset_pulse_i;
+        trig_in_s       <= trigger_i;
+        ext_trigger_s   <= ext_trigger_i;
     end generate;
 
     g_qual : if G_QUAL_CONDS > 0 generate
+        -- The evaluator judges probe_i (the sample the FSM stores NEXT cycle)
+        -- against probe_s (its predecessor) with the config latched on the
+        -- UNSTAGED arm, so it is valid exactly when the staged FSM stores
+        -- that sample.
+        signal qual_next : std_logic;
+    begin
+        process (sample_clk_i, sample_rst_i)
+        begin
+            if sample_rst_i = '1' then
+                arm_s           <= '0';
+                reset_s         <= '0';
+                trig_in_s       <= '0';
+                ext_trigger_s   <= '0';
+                qual_ok         <= '1';
+                qual_enable_r   <= '0';
+                qual_or_r       <= '0';
+                qual_ops_r      <= (others => '0');
+                qual_valid_r    <= (others => '0');
+                qual_enable_s_r <= '0';
+            elsif rising_edge(sample_clk_i) then
+                arm_s         <= arm_pulse_i;
+                reset_s       <= reset_pulse_i;
+                trig_in_s     <= trigger_i;
+                ext_trigger_s <= ext_trigger_i;
+                qual_ok       <= qual_next;
+                -- REA-P2.7: the qualifier is arm-time config (REA-REQ-959).
+                if arm_pulse_i = '1' then
+                    qual_enable_r <= qual_enable_i;
+                    qual_or_r     <= qual_or_i;
+                    qual_ops_r    <= qual_ops_i;
+                    qual_valid_r  <= qual_valid_i;
+                end if;
+                if arm_s = '1' then
+                    qual_enable_s_r <= qual_enable_r;
+                end if;
+            end if;
+        end process;
+
+        -- Data stage: no reset (the stored word is don't-care until written).
+        process (sample_clk_i)
+        begin
+            if rising_edge(sample_clk_i) then
+                probe_s <= probe_i;
+                if arm_pulse_i = '1' then
+                    qual_values_r <= qual_values_i;
+                    qual_masks_r  <= qual_masks_i;
+                end if;
+            end if;
+        end process;
+
         process (all)
             variable v_mask    : std_logic_vector(G_SAMPLE_W - 1 downto 0);
             variable v_value   : std_logic_vector(G_SAMPLE_W - 1 downto 0);
@@ -1031,12 +1111,12 @@ begin
                     v_eq := '0';
                 end if;
                 v_rise := '0';
-                if (probe_i and not probe_prev_r and v_mask)
+                if (probe_i and not probe_s and v_mask)
                    /= (v_mask'range => '0') then
                     v_rise := '1';
                 end if;
                 v_fall := '0';
-                if (probe_prev_r and not probe_i and v_mask)
+                if (probe_s and not probe_i and v_mask)
                    /= (v_mask'range => '0') then
                     v_fall := '1';
                 end if;
@@ -1056,11 +1136,11 @@ begin
                 end if;
             end loop;
             if qual_enable_r = '0' or v_some = '0' then
-                qual_ok <= '1';
+                qual_next <= '1';
             elsif qual_or_r = '1' then
-                qual_ok <= v_any;
+                qual_next <= v_any;
             else
-                qual_ok <= v_all;
+                qual_next <= v_all;
             end if;
         end process;
     end generate;
@@ -1076,7 +1156,7 @@ begin
     -- the window (trigger cell + POSTTRIG) is full at POSTTRIG + 1. Using the
     -- lagged form under decimation stopped the window one cell short in most
     -- trigger phases and left a stale cell from an earlier capture last.
-    exact_count <= '1' when qual_enable_r = '1' or decim_ratio_r /= 0
+    exact_count <= '1' when qual_enable_s_r = '1' or decim_ratio_r /= 0
                    else '0';
 
     -- Window full: post_count_r >= POSTTRIG (post_count_r > POSTTRIG when
@@ -1187,17 +1267,15 @@ begin
     ) else '0';
     dpram_we_o   <= store_sample;
     dpram_addr_o <= std_logic_vector(wr_ptr_r);
-    dpram_din_o  <= probe_i;
+    dpram_din_o  <= probe_s;
 
     -- Wide comparator data is atomic arm-time configuration. The resettable
     -- enable/state registers below keep it unobservable until this load.
     process (sample_clk_i)
     begin
         if rising_edge(sample_clk_i) then
-            probe_prev_r <= probe_i;
-            if arm_pulse_i = '1' then
-                qual_values_r   <= qual_values_i;
-                qual_masks_r    <= qual_masks_i;
+            probe_prev_r <= probe_s;
+            if arm_s = '1' then
                 trig_value_r    <= trig_value_i;
                 trig_mask_r     <= trig_mask_i;
                 seq_value_r_flat <= seq_values_i;
@@ -1246,10 +1324,6 @@ begin
             ext_and_r      <= '0';
             ext_trig_r     <= '0';
             trigger_out_r  <= '0';
-            qual_enable_r  <= '0';
-            qual_or_r      <= '0';
-            qual_ops_r     <= (others => '0');
-            qual_valid_r   <= (others => '0');
 
         elsif rising_edge(sample_clk_i) then
 
@@ -1259,7 +1333,7 @@ begin
             -- External board-pin: register every cycle (RTL-P3.266). The pin
             -- is already sample_clk-synced in rr_rea_top; this is the local
             -- pipeline flop so the fold above sees a clean registered level.
-            ext_trig_r <= ext_trigger_i;
+            ext_trig_r <= ext_trigger_s;
 
             -- ── Free-running write pointer ─────────────────────
             -- REA-REQ-100/101: wr_ptr advances every cycle while
@@ -1289,7 +1363,7 @@ begin
             end if;
 
             -- ── reset_pulse: hard reset of capture state ───────
-            if reset_pulse_i = '1' then
+            if reset_s = '1' then
                 armed_r       <= '0';
                 triggered_r   <= '0';
                 done_r        <= '0';
@@ -1315,7 +1389,7 @@ begin
                 since_arm_r <= since_arm_r + 1;
             end if;
 
-            if arm_pulse_i = '1' then
+            if arm_s = '1' then
                 armed_r        <= '1';
                 triggered_r    <= '0';
                 done_r         <= '0';
@@ -1373,13 +1447,6 @@ begin
                 -- arm (quasi-static, like the other enables).
                 ext_enable_r   <= ext_enable_i;
                 ext_and_r      <= ext_and_i;
-                -- REA-P2.7: the qualifier is arm-time config (REA-REQ-959).
-                if G_QUAL_CONDS > 0 then
-                    qual_enable_r <= qual_enable_i;
-                    qual_or_r     <= qual_or_i;
-                    qual_ops_r    <= qual_ops_i;
-                    qual_valid_r  <= qual_valid_i;
-                end if;
                 -- Load count to 0 so the FIRST cycle after arm ticks
                 -- (stores) — and subsequent ticks happen every
                 -- (decim_ratio + 1) cycles. With decim_ratio=0 the
@@ -1456,8 +1523,8 @@ begin
             -- sequential write, leaving an inconsistent state (e.g. done=1 with
             -- triggered=0). The arm/reset branch must fully own that cycle.
             if armed_r = '1' and triggered_r = '0' and done_r = '0'
-               and arm_pulse_i = '0' and reset_pulse_i = '0' then
-                if local_fire_pipe = '1' or trigger_i = '1' then
+               and arm_s = '0' and reset_s = '0' then
+                if local_fire_pipe = '1' or trig_in_s = '1' then
                     triggered_r <= '1';
                     -- RTL-T1.16: freeze the contiguity figure AT the trigger.
                     -- Cells beyond this are pre-arm residue, not context.
@@ -1555,7 +1622,7 @@ begin
             -- on the next decimation tick.
             if armed_r = '1' and triggered_r = '1' and done_r = '0'
                and (store_tick = '1' or exact_count = '1')
-               and arm_pulse_i = '0' and reset_pulse_i = '0' then  -- REA-T1.5
+               and arm_s = '0' and reset_s = '0' then  -- REA-T1.5
                 if post_full = '1' then
                     -- Done capturing the post-trigger window.
                     -- REA-REQ-104: start_ptr <= trig_ptr - pretrig_len

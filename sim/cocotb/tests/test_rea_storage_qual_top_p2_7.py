@@ -153,7 +153,23 @@ class EventDriver:
         self.rng = random.Random(seed)
         self.cycle = 0
         self.event_cycle: dict = {}
+        # Sample-clock edges since the timestamp plane's reset released, in
+        # the cycle the event is on probe_i: the timestamp its cell must hold
+        # (REA-P2.11 — the qualifier build stores a cycle late, and must not
+        # let that shift the stamp).
+        self.since_reset = 0
+        self.event_ts: dict = {}
         self.running = True
+
+    async def count_edges(self) -> None:
+        prev_rst = 1
+        while True:
+            await RisingEdge(self.dut.sample_clk_i)
+            if prev_rst == 0:
+                self.since_reset += 1
+            await ReadOnly()
+            rst = self.dut.sample_rst_sync.value
+            prev_rst = int(rst) if rst.is_resolvable else 1
 
     async def run(self) -> None:
         n = 0
@@ -166,6 +182,7 @@ class EventDriver:
             self.dut.probe_i.value = ((n << 1) | 1) & 0xFFF
             await ReadOnly()
             self.event_cycle[n] = self.cycle
+            self.event_ts[n] = self.since_reset
             await RisingEdge(self.dut.sample_clk_i)
             self.cycle += 1
 
@@ -190,8 +207,9 @@ async def test_rea_req_956_qualified_capture_timestamps_are_event_times(dut):
     timestamp plane holds the real gaps between them (mod 2**16), measured
     by the testbench's own cycle counter."""
     await _start_clocks(dut)
-    await _reset(dut)
     drv = EventDriver(dut, 0x956)
+    cocotb.start_soon(drv.count_edges())    # from before the reset releases
+    await _reset(dut)
     cocotb.start_soon(drv.run())
 
     pretrig, posttrig, trig = 6, 5, 60
@@ -234,6 +252,11 @@ async def test_rea_req_956_qualified_capture_timestamps_are_event_times(dut):
         assert got == want, (
             f"timestamp gap between events {a} and {b} is {got} cycles, the "
             f"testbench measured {want}")
+    want_ts = [drv.event_ts[e] & 0xFFFF for e in events]
+    assert stamps == want_ts, (
+        f"a cell's timestamp is not the number of sample-clock edges since "
+        f"reset in the cycle its sample was on probe_i (REA-P2.11): got "
+        f"{stamps}, want {want_ts}")
     dut._log.info(f"qualified window spans "
                   f"{drv.event_cycle[events[-1]] - drv.event_cycle[events[0]]} "
                   f"cycles in {n} cells")

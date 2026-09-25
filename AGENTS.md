@@ -75,6 +75,13 @@ current state):
   trigger cell whatever POSTTRIG says, so `PRETRIG + max(POSTTRIG,
   TRIG_LATENCY) >= DEPTH` is OVERFLOW and the host refuses it. The
   `rr ila capture` defaults are inside the limit.
+- Qualifier builds store one cycle late (REA-P2.11, ip 1.5.1): with
+  `G_QUAL_CONDS > 0` the capture FSM runs one sample cycle behind the probe
+  so the qualifier can be a flop. Window, PRETRIG_VALID, pointers and
+  timestamps are unchanged; writes, STATUS and trigger_out move one cycle.
+  A cycle-exact testbench on such a build compares against the reference
+  delayed one register (see `rr_rea_qual_lockstep_harness`'s `u_refd`), and
+  ignores STATUS for one cycle after the arm.
 - REA-T2.5: before ip 1.4.1, `PRETRIG_VALID` could vouch for 1-2 of those
   overwritten cells, and its since_arm - fire_lag chain capped Fmax at
   136-156 MHz on a -1 7-series.

@@ -63,6 +63,9 @@ INSTANCES = {
     "qual": ("dpram_we_o", "dpram_addr_o", "dpram_din_o",
              "start_ptr_o", "pretrig_valid_o", "status_o"),
 }
+# REA-P2.11 (rea_store_lag): u_off / u_qual elaborate a qualifier, so they
+# store each sample one cycle after it is on probe_i; u_ref / u_zero do not.
+STORE_LAG = {"ref": 0, "zero": 0, "off": 1, "qual": 1}
 STATUS_DONE = 1 << 2
 
 
@@ -100,14 +103,17 @@ class Bench:
                 if int(getattr(dut, we).value):
                     value = int(getattr(dut, din).value)
                     self.mem[name][int(getattr(dut, addr).value)] = value
-                    self.stores[name].append((self.cycle, value))
+                    # Labelled with the cycle the SAMPLE was on probe_i:
+                    # a qualifier build writes it STORE_LAG cycles later.
+                    self.stores[name].append((self.cycle - STORE_LAG[name],
+                                              value))
             await RisingEdge(dut.sample_clk_i)
             self.cycle += 1
 
 
 async def _start(dut) -> Bench:
     cocotb.start_soon(Clock(dut.sample_clk_i, 8.0, unit="ns").start())
-    for sig in ("arm_pulse_i", "reset_pulse_i", "trigger_i", "pretrig_len_i",
+    for sig in ("probe_i", "arm_pulse_i", "reset_pulse_i", "trigger_i", "pretrig_len_i",
                 "posttrig_len_i", "trig_value_i", "trig_mask_i", "trig_mode_i",
                 "decim_ratio_i", "qual_enable_i", "qual_or_i", "qual_values_i",
                 "qual_masks_i", "qual_ops_i", "qual_valid_i"):
@@ -141,9 +147,13 @@ async def _capture(bench: Bench, decim: int, trig_offset: int,
     dut.arm_pulse_i.value = 0
 
     done = {}
-    for _ in range(trig_offset + 40 * (decim + 1) * (posttrig + 8)):
+    for since_arm in range(trig_offset + 40 * (decim + 1) * (posttrig + 8)):
         await ReadOnly()
         for name, (*_w, start, pvalid, status) in INSTANCES.items():
+            # A lagged instance takes the arm STORE_LAG cycles late, so its
+            # status still shows the PREVIOUS capture until then.
+            if since_arm < STORE_LAG[name]:
+                continue
             if name not in done and int(getattr(dut, status).value) & STATUS_DONE:
                 done[name] = (int(getattr(dut, start).value),
                               int(getattr(dut, pvalid).value))
