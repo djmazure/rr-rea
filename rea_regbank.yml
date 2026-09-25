@@ -1,5 +1,5 @@
 name: rea_registers
-version: 0.11.0  # REA-P2.7: storage qualification (QUAL_MODE/SEL/CFG/VAL)
+version: 0.12.0  # REA-T2.6: TRIG_LATENCY (0xF4)
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -57,4 +57,8 @@ registers:
   # cells still hold the PREVIOUS capture's tail. Stale-but-plausible
   # samples are worse than uninitialised ones, so the host trims to this.
   - {name: PRETRIG_VALID, address: 0x00F0, access: RO, description: Pre-trigger samples contiguous with this capture}
+  # REA-T2.6: samples stored while the trigger pipeline catches up land past
+  # the trigger cell. A window is legal only if PRETRIG + max(POSTTRIG,
+  # TRIG_LATENCY) < DEPTH; the host reads this to refuse or clamp.
+  - {name: TRIG_LATENCY, address: 0x00F4, access: RO, description: Trigger pipeline latency in samples}
   - {name: DATA_BASE, address: 0x0100, access: RO, description: Capture data window base}

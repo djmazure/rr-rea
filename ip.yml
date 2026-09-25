@@ -1,5 +1,5 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.11 (VERSION magic 0x5245410B): storage qualification
+# On-chip protocol tier v0.13 (VERSION magic 0x5245410D): TRIG_LATENCY (REA-T2.6), after v0.11 storage qualification
 # (REA-P2.7) on top of the aligned per-sample timestamp plane (DATA_PLANE_SEL,
 # RTL-T2.123), the v0.8 readback-integrity trust tier and PRETRIG_VALID.
 #
@@ -11,9 +11,17 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.4.2
+#   version: below        the PACKAGE version the registry pins   -> 1.5.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.11.0
-#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410B
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.5.0 (REA-T2.6) is a MINOR bump: register map 0.12.0 adds TRIG_LATENCY
+# (0xF4, RO) and the runtime tier moves to 0x5245410D (v0.13). OVERFLOW now
+# asserts when PRETRIG + max(POSTTRIG, TRIG_LATENCY) >= DEPTH: the samples
+# stored during the trigger latency land past the trigger cell, so a larger
+# window overwrote its own oldest pre-trigger cells (measured 59 genuine of
+# PRETRIG 62 at DEPTH 64). A host that arms such a window now sees OVERFLOW;
+# rr ila refuses it up front from TRIG_LATENCY.
 #
 # 1.4.2 (REA-P2.11) is a PATCH: the capture FSM's window-full flag is a
 # register kept in step with post_count, and its arm-time threshold is taken
@@ -58,7 +66,7 @@
 # qualifier built from comparator-array slots holds, so a 4096-deep window
 # holds 4096 bus events over seconds instead of 82 us of idle cycles. The
 # register map GAINS QUAL_MODE/SEL/CFG/VAL (0xB4..0xC0) and FEATURES[22]/
-# [27:24], so VERSION moves to the next odd tier 0x5245410B (REA-REQ-913/806).
+# [27:24], so VERSION moves to the next odd tier 0x5245410B (REA-REQ-913/806).  # rea-magic:historical
 # G_QUAL_CONDS > 0 requires G_TIMESTAMP_W > 0 (elaboration fails otherwise).
 # No existing port or generic changes; existing instantiations are untouched.
 #
@@ -103,7 +111,7 @@
 
 name: rea
 namespace: routertl
-version: 1.4.2
+version: 1.5.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

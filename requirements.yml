@@ -136,7 +136,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact current feature-tier magic
-      0x5245410B (v0.11, REA-P2.7 storage qualification). The value is a protocol discriminator, not an
+      0x5245410D (v0.13, REA-T2.6 TRIG_LATENCY; v0.11 added storage qualification). The value is a protocol discriminator, not an
       inferred string or a mutable register. The tier byte is ODD by
       permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
       is how a wide-readback miscompile is detected (RTL-P1.96).
@@ -267,10 +267,15 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
     desc: >-
-      On arm_pulse, overflow SHALL assert exactly when PRETRIG + POSTTRIG is
-      greater than or equal to DEPTH (the requested window cannot fit), and
-      SHALL clear for a subsequent legal arm or reset_pulse. STATUS[3] mirrors
-      this generated FSM flag through the sample-to-JTAG CDC.
+      On arm_pulse, overflow SHALL assert exactly when PRETRIG +
+      max(POSTTRIG, TRIG_LATENCY) is greater than or equal to DEPTH, and SHALL
+      clear for a subsequent legal arm or reset_pulse. The TRIG_LATENCY samples
+      stored while the trigger pipeline catches up land past the trigger cell
+      whatever POSTTRIG says, so a capture spans PRETRIG + max(POSTTRIG,
+      TRIG_LATENCY) + 1 ring cells; a larger request would overwrite its own
+      oldest pre-trigger cells (REA-T2.6). Below the bound every cell of the
+      window SHALL be this capture's. STATUS[3] mirrors this generated FSM flag
+      through the sample-to-JTAG CDC.
   - id: REA-REQ-108
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]
@@ -783,8 +788,8 @@ functional_contract:
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
       logic — never hand-set — preserving the generic-derived fingerprint
-      invariant. VERSION reads the current tier magic (0x5245410B since
-      REA-P2.7, REA-REQ-958); the tier byte is
+      invariant. VERSION reads the current tier magic (0x5245410D since
+      REA-T2.6); the tier byte is
       ODD (structural test: VERSION bit0 = 1, permanent contract for the
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
@@ -1293,8 +1298,8 @@ functional_contract:
       `rd_data_o`; a QUAL_CFG/QUAL_VAL write while QUAL_SEL >= G_QUAL_CONDS is
       dropped and such a page reads 0. FEATURES[22] SHALL read 1 exactly when
       G_QUAL_CONDS > 0 and FEATURES[27:24] SHALL read G_QUAL_CONDS (both
-      derived from the generic, never hand-set). VERSION SHALL read 0x5245410B
-      (tier byte stays odd, REA-REQ-806).
+      derived from the generic, never hand-set). VERSION SHALL read the current tier
+      magic (0x5245410D since REA-T2.6; tier byte stays odd, REA-REQ-806).
   - id: REA-REQ-959
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Storage qualification (REA-P2.7)" }]
@@ -1353,6 +1358,14 @@ functional_contract:
       contain set_clock_groups or set_false_path between the domains. Every
       synchronizer instance in rr_rea_top SHALL be labelled `u_cdc_*` with its
       first stage named `s1`, so the selector reaches it.
+  - id: REA-REQ-964
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
+    desc: >-
+      TRIG_LATENCY (0xF4, RO) SHALL read the capture FSM's trigger-pipeline
+      depth in sample cycles, ceil(G_SAMPLE_W / 8) + ceil(log2(G_TRIG_CONDS)),
+      computed by the same package function the FSM uses (never hand-set), so a
+      host can refuse or clamp a window that would overflow (REA-REQ-107).
   - id: REA-REQ-963
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Capture FSM contract (the core fix)" }]

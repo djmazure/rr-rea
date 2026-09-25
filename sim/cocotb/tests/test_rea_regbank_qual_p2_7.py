@@ -104,9 +104,9 @@ def _slot(vec: int, k: int, w: int) -> int:
 async def test_rea_req_958_registers_read_back_on_rd_data_o(dut):
     """Reset 0; QUAL_MODE keeps [1:0]; slots read back per page on `rd_data_o`;
     a page >= G_QUAL_CONDS drops writes and reads 0 without aliasing;
-    FEATURES[22]=1, [27:24]=G_QUAL_CONDS; VERSION 0x5245410B."""
+    FEATURES[22]=1, [27:24]=G_QUAL_CONDS; VERSION 0x5245410D."""
     await _start(dut)
-    assert await _read(dut, ADDR_VERSION) == 0x5245410B
+    assert await _read(dut, ADDR_VERSION) == 0x5245410D
     features = await _read(dut, ADDR_FEATURES)
     assert (features >> 22) & 1 == 1
     assert (features >> 24) & 0xF == QUAL_CONDS

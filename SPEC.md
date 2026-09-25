@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.11)
+# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.13)
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships **both** vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based) and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
@@ -27,7 +27,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x5245410B` ('REA' + v0.11 tier: storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
+| `0x00` | RO  | VERSION     | Magic `0x5245410D` ('REA' + v0.13 tier: TRIG_LATENCY + window overflow covers trigger latency (REA-T2.6), after v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
 | `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
@@ -61,10 +61,12 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xE4` | RO  | CRC_SAMPLE  | CRC-32 of the canonical sample-plane page stream; valid when STATUS[4] |
 | `0xE8` | RO  | CRC_TS      | Independent CRC-32 of the timestamp-plane page stream; 0 without timestamps |
 | `0xEC` | RO  | CAPTURE_EPOCH | Capture generation counter used as the anti-tear anchor |
+| `0xF0` | RO  | PRETRIG_VALID | Pre-trigger cells of the window that belong to this capture (RTL-T1.16, REA-REQ-963) |
+| `0xF4` | RO  | TRIG_LATENCY | Trigger-pipeline depth in samples, `ceil(G_SAMPLE_W/8) + ceil(log2(G_TRIG_CONDS))` (REA-T2.6, REA-REQ-964) |
 | `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
-`VERSION` is the exact 32-bit protocol magic `0x5245410B`. `CAPTURE_LEN`
+`VERSION` is the exact 32-bit protocol magic `0x5245410D`. `CAPTURE_LEN`
 updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
 using 32-bit unsigned arithmetic; the host may read it before arm or done.
 `TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
@@ -211,7 +213,7 @@ would reintroduce the cap P2.658b removed. See the WIDTH CONTRACT note in
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x5245410B` at the v0.11 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x5245410D` at the v0.13 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -529,7 +531,7 @@ hard-pinned to USER1, so a second core on USER2+ was uncapturable.
 - `arm_pulse` sets `armed <= 1`, clears `triggered/done`. Does **not** touch `wr_ptr`.
 - On the cycle `trigger_hit` fires (and `armed && !triggered`): `trig_ptr <= wr_ptr` AND `triggered <= 1`.
 - After trigger: count `posttrig_len` more cycles, then `done <= 1`, `start_ptr <= (trig_ptr - pretrig_len) mod DEPTH`.
-- On arm: `overflow` asserts when `pretrig_len + posttrig_len >= DEPTH`; a legal re-arm or reset clears it.
+- On arm: `overflow` asserts when `pretrig_len + max(posttrig_len, TRIG_LATENCY) >= DEPTH`; a legal re-arm or reset clears it. The TRIG_LATENCY samples stored while the trigger pipeline catches up land past the trigger cell whatever POSTTRIG says, so a larger request would overwrite its own oldest pre-trigger cells (REA-T2.6, v0.13). Hosts read TRIG_LATENCY and refuse such a window before arming.
 - `dpram_we` is `!done` (always writes when capture is permitted).
 
 This is where we explicitly diverge from the reference ELA design.
@@ -550,11 +552,11 @@ window lengths count **stored** cells, never cycles:
 - `PRETRIG_VALID` counts the samples stored after the arm and before the
   trigger cell, capped at PRETRIG, and never covers a cell the ring has
   overwritten (REA-REQ-963). The samples stored while the trigger pipeline
-  catches up (at most `C_PIPE_STAGES`) land past the trigger cell, so with
-  PRETRIG > DEPTH - 1 - C_PIPE_STAGES they can overwrite the oldest
-  pre-trigger cells (REA-T2.6). Below that bound the count is exact; above it
-  the core reports at most DEPTH - 1 - C_PIPE_STAGES, which may under-count
-  when decimation or qualification skipped some of those stores.
+  catches up (at most `C_PIPE_STAGES` = TRIG_LATENCY) land past the trigger
+  cell. Since v0.13 a window where they would reach the oldest pre-trigger
+  cells is OVERFLOW (REA-T2.6), so in every legal window the count is exact.
+  If an overflowing window is captured anyway, the core reports at most
+  DEPTH - 1 - C_PIPE_STAGES, never a cell the ring overwrote.
 
 Before REA-T2.4 (fixed in ip 1.3.1), a decimated capture stopped one stored
 cell short whenever the trigger fired between ticks. `done` rose before the
@@ -809,6 +811,7 @@ first-AW-beat trigger recipe and an instantiation template.
 | v0.5 | Write-side source (ISSP-style `SOURCE`) | RTL-P2.837 | **Shipped** |
 | v0.4 | Segmented capture | (new) | Parked |
 | v0.11 | Storage qualification | REA-P2.7 | **Shipped** |
+| v0.13 | TRIG_LATENCY; OVERFLOW covers the trigger latency | REA-T2.6 | **Shipped** |
 | v0.5 | Multi-channel mux | (new) | Parked |
 | v0.5 | Intel JTAG vendor wrapper (`sld_virtual_jtag`) | RTL-P3.427 | **Shipped** |
 | v0.6 | Sample-width ceiling 256 → 1024 + un-ignorable over-ceiling guard | RTL-P2.876/P2.895 | **Shipped** |

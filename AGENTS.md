@@ -70,11 +70,11 @@ REA-P2.11 is the next limiter.
 **Open defects to design around** (check `tlog list --repo rr-rea` for their
 current state):
 
-- REA-T2.6: the samples stored while the trigger pipeline catches up (up to
-  C_PIPE_STAGES, 4 undecimated) land past the trigger cell whatever POSTTRIG
-  says, so when `PRETRIG + max(POSTTRIG, lag) + 1 > DEPTH` they overwrite the
-  oldest pre-trigger cells. Keep POSTTRIG >= 4 for a near-DEPTH window. The
-  `rr ila capture` defaults are not affected (measured).
+- Window limit (REA-T2.6, fixed in v0.13 / ip 1.5.0): the TRIG_LATENCY
+  (0xF4) samples stored while the trigger pipeline catches up land past the
+  trigger cell whatever POSTTRIG says, so `PRETRIG + max(POSTTRIG,
+  TRIG_LATENCY) >= DEPTH` is OVERFLOW and the host refuses it. The
+  `rr ila capture` defaults are inside the limit.
 - REA-T2.5: before ip 1.4.1, `PRETRIG_VALID` could vouch for 1-2 of those
   overwritten cells, and its since_arm - fire_lag chain capped Fmax at
   136-156 MHz on a -1 7-series.

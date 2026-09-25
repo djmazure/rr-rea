@@ -102,11 +102,11 @@ def _slot_cfg(op: int, lsb: int, width: int, valid: bool = True) -> int:
 async def test_rea_req_958_qualifier_registers_features_and_version(dut):
     """QUAL_* read back on `rd_data_o` what was written; a slot page past
     G_QUAL_CONDS drops writes and reads 0; FEATURES[22]=1, [27:24]=2;
-    VERSION = 0x5245410B."""
+    VERSION = 0x5245410D."""
     await _start_clocks(dut)
     await _reset(dut)
 
-    assert await _jtag_read(dut, ADDR_VERSION) == 0x5245410B
+    assert await _jtag_read(dut, ADDR_VERSION) == 0x5245410D
     features = await _jtag_read(dut, ADDR_FEATURES)
     assert (features >> 22) & 1 == 1, f"FEATURES=0x{features:08X}: [22] clear"
     assert (features >> 24) & 0xF == GENERICS["G_QUAL_CONDS"], (

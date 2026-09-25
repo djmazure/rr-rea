@@ -9,7 +9,7 @@
 -- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x5245410B ('REA' + v0.11 feature tier; single-sourced
+--   0x00 RO  VERSION       0x5245410D ('REA' + v0.13 feature tier; single-sourced
 --                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
@@ -249,6 +249,9 @@ architecture rtl of rr_rea_regbank is
     constant C_REG_SAMPLE_W    : std_logic_vector(31 downto 0) := u32(G_SAMPLE_W);
     constant C_REG_DEPTH       : std_logic_vector(31 downto 0) := u32(G_DEPTH);
     constant C_REG_TIMESTAMP_W : std_logic_vector(31 downto 0) := u32(G_TIMESTAMP_W);
+    -- REA-T2.6: 0xF4 TRIG_LATENCY, the capture FSM's trigger-pipeline depth.
+    constant C_REG_TRIG_LATENCY : std_logic_vector(31 downto 0) :=
+        u32(rea_trig_latency(G_SAMPLE_W, G_TRIG_CONDS));
     constant C_REG_NUM_CHAN    : std_logic_vector(31 downto 0) := u32(G_NUM_CHAN);
 
     -- ── FEATURES register (0xD0, RTL-P3.1198) ────────────────────
@@ -723,6 +726,7 @@ begin
             when C_ADDR_CRC_TS        => rd_data_o <= crc_ts_i;
             when C_ADDR_CAPTURE_EPOCH => rd_data_o <= capture_epoch_i;
             when C_ADDR_PRETRIG_VALID => rd_data_o <= pretrig_valid_i;
+            when C_ADDR_TRIG_LATENCY  => rd_data_o <= C_REG_TRIG_LATENCY;
             when C_ADDR_SELFTEST_CTRL =>
                 rd_data_o <= (others => '0');
                 rd_data_o(0) <= selftest_ctrl_r;

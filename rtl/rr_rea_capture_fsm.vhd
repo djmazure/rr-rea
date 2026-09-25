@@ -200,7 +200,8 @@ architecture rtl of rr_rea_capture_fsm is
         (G_SAMPLE_W + C_SLICE_W - 1) / C_SLICE_W;
     constant C_REDUCE_STAGES : natural :=
         clog2(G_TRIG_CONDS);
-    constant C_PIPE_STAGES : positive := C_WIDTH_STAGES + C_REDUCE_STAGES;
+    constant C_PIPE_STAGES : positive :=
+        rea_trig_latency(G_SAMPLE_W, G_TRIG_CONDS);  -- = width + reduce stages
     constant C_WIDTH_TREE_STAGES : positive :=
         max_nat(1, (clog2(C_WIDTH_STAGES) + 1) / 2);
     constant C_WIDTH_TREE_NODES : positive :=
@@ -1386,8 +1387,13 @@ begin
                 -- cycle (no decimation, matches v0.1/v0.2).
                 decim_count_r  <= (others => '0');
                 -- Overflow check: window doesn't fit in DEPTH.
-                if (unsigned('0' & pretrig_len_i) +
-                    unsigned('0' & posttrig_len_i)) >= G_DEPTH then
+                -- REA-T2.6 / REA-REQ-107: the up-to-C_PIPE_STAGES samples
+                -- stored while the trigger pipeline catches up land past the
+                -- trigger cell whatever POSTTRIG says, so the window really
+                -- spans PRETRIG + max(POSTTRIG, C_PIPE_STAGES) + 1 cells.
+                if to_integer(unsigned(pretrig_len_i))
+                   + max_nat(to_integer(unsigned(posttrig_len_i)),
+                             C_PIPE_STAGES) >= G_DEPTH then
                     overflow_r <= '1';
                 else
                     overflow_r <= '0';

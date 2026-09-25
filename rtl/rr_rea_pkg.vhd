@@ -52,6 +52,7 @@ package rr_rea_pkg is
     constant C_REGBANK_ADDR_CRC_TS             : unsigned(15 downto 0) := x"00E8";  -- RO
     constant C_REGBANK_ADDR_CAPTURE_EPOCH      : unsigned(15 downto 0) := x"00EC";  -- RO
     constant C_REGBANK_ADDR_PRETRIG_VALID      : unsigned(15 downto 0) := x"00F0";  -- RO
+    constant C_REGBANK_ADDR_TRIG_LATENCY       : unsigned(15 downto 0) := x"00F4";  -- RO
     constant C_REGBANK_ADDR_DATA_BASE          : unsigned(15 downto 0) := x"0100";  -- RO
     -- rr-regbank-end REGBANK_ADDRESSES
 
@@ -79,7 +80,9 @@ package rr_rea_pkg is
     -- v0.11 (REA-P2.7) adds storage qualification: QUAL_MODE/SEL/CFG/VAL
     -- (0xB4..0xC0) and FEATURES[22]/[27:24]. The register map gained registers,
     -- so the tier moves (REA-REQ-913), to the next ODD minor (REA-REQ-806).
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410B";
+    -- v0.13 (REA-T2.6) adds TRIG_LATENCY (0xF4) and makes OVERFLOW cover a
+    -- window the trigger-latency stores would overrun; next ODD minor again.
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410D";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -186,6 +189,7 @@ package rr_rea_pkg is
     constant C_ADDR_CAPTURE_EPOCH  : unsigned(15 downto 0) := C_REGBANK_ADDR_CAPTURE_EPOCH;
     -- RTL-T1.16
     constant C_ADDR_PRETRIG_VALID  : unsigned(15 downto 0) := C_REGBANK_ADDR_PRETRIG_VALID;
+    constant C_ADDR_TRIG_LATENCY   : unsigned(15 downto 0) := C_REGBANK_ADDR_TRIG_LATENCY;
     constant C_ADDR_DATA_BASE   : unsigned(15 downto 0) := C_REGBANK_ADDR_DATA_BASE;
 
     -- ── FEATURES register (0xD0) field layout (RTL-P3.1198) ──────
@@ -353,6 +357,11 @@ package rr_rea_pkg is
 
     function max_nat(left_value, right_value : natural) return natural;
 
+    -- REA-T2.6: trigger-pipeline latency in sample cycles (the capture FSM's
+    -- C_PIPE_STAGES): one stage per C_SLICE_W probe slice plus the
+    -- condition-reduction tree. Single source for the FSM and TRIG_LATENCY.
+    function rea_trig_latency(sample_w, trig_conds : positive) return positive;
+
     function cmp_slice(
         probe_slice : std_logic_vector;
         value_slice : std_logic_vector
@@ -379,6 +388,11 @@ package body rr_rea_pkg is
             r := r + 1;
         end loop;
         return r;
+    end function;
+
+    function rea_trig_latency(sample_w, trig_conds : positive) return positive is
+    begin
+        return (sample_w + C_SLICE_W - 1) / C_SLICE_W + clog2(trig_conds);
     end function;
 
     function max_nat(left_value, right_value : natural) return natural is

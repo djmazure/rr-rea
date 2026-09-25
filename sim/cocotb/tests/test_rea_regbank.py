@@ -48,12 +48,13 @@ ADDR_TRIG_MASK   = 0x28
 ADDR_CHAN_SEL    = 0xA0
 ADDR_NUM_CHAN    = 0xA4
 ADDR_TIMESTAMP_W = 0xC4
+ADDR_TRIG_LATENCY = 0xF4
 ADDR_START_PTR   = 0xC8
 ADDR_FEATURES    = 0xD0
 ADDR_BUILD_ID    = 0xD4
 ADDR_DATA_PLANE_SEL = 0xD8
 
-EXPECTED_VERSION = 0x5245410B  # v0.11 feature tier (rr_rea_pkg C_REA_VERSION)
+EXPECTED_VERSION = 0x5245410D  # v0.11 feature tier (rr_rea_pkg C_REA_VERSION)
 
 # FEATURES (0xD0) is derived from the synth-time generics. This elaboration
 # uses the regbank entity defaults G_TRIG_CONDS=4, G_NUM_SOURCE=1 (GENERICS
@@ -201,6 +202,19 @@ async def test_rea_req_023_timestamp_width_metadata(dut):
     assert observed == 32, f"TIMESTAMP_W = {observed}, expected G_TIMESTAMP_W=32"
 
 
+@cocotb.test()
+@requires("REA-REQ-964")
+async def test_rea_req_964_trig_latency_reports_the_pipeline_depth(dut):
+    """TRIG_LATENCY (0xF4) = ceil(G_SAMPLE_W / 8) + ceil(log2(G_TRIG_CONDS)):
+    12-bit probe -> 2 slices, 4 conditions (default) -> 2 reduce stages."""
+    await _start_clk(dut)
+    await _reset(dut)
+
+    observed = await _read(dut, ADDR_TRIG_LATENCY)
+    assert observed == 2 + 2, (
+        f"TRIG_LATENCY = {observed}, expected 4 (2 slices + 2 reduce stages)")
+
+
 # ── REA-REQ-011: STATUS reflects input wires combinationally ────────
 
 
@@ -271,7 +285,7 @@ async def test_rea_req_012_ro_writes_are_dropped(dut):
     ro_addrs = [
         ADDR_VERSION, ADDR_STATUS, ADDR_SAMPLE_W, ADDR_DEPTH,
         ADDR_CAPTURE_LEN, ADDR_NUM_CHAN, ADDR_TIMESTAMP_W,
-        ADDR_START_PTR,
+        ADDR_START_PTR, ADDR_TRIG_LATENCY,
     ]
     for addr in ro_addrs:
         await _write(dut, addr, poison)
