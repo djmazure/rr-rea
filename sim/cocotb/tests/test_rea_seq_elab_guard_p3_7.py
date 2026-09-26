@@ -12,10 +12,22 @@ legal builds is a lockout, not a guard.
 
 from __future__ import annotations
 
+import sys as _sys
+from pathlib import Path as _Path
+
 import pytest
 
-from sdk.cocotb_helpers import requires
-from test_rea_qual_elab_guard_p2_7 import _elaborate, needs_nvc
+# The sibling helper import needs this directory on sys.path. pytest's default
+# prepend mode supplies it, but --import-mode=importlib does not: that is the
+# mode tich-super's pytest.ini sets, and it applies whenever rr-rea is checked
+# out as its submodule (REA-P3.12).
+_tb = str(_Path(__file__).resolve().parent)
+if _tb not in _sys.path:
+    _sys.path.insert(0, _tb)
+del _tb
+
+from sdk.cocotb_helpers import requires  # noqa: E402
+from test_rea_qual_elab_guard_p2_7 import _elaborate, needs_nvc  # noqa: E402
 
 _BASE = {"G_SAMPLE_W": 40, "G_DEPTH": 16}
 
