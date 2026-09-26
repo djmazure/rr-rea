@@ -535,6 +535,64 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   `qual_ok` flop), which grows with `G_SAMPLE_W x G_QUAL_CONDS`. Before REA-T2.5 (1.4.1) the
   PRETRIG_VALID chain capped util_min at 136 MHz and util_default at 145 MHz.
 
+## Resources and Fmax on Quartus and Libero (REA-P3.10)
+
+Measured **through the vendor wrapper on a harness top, placed and routed —
+not out-of-context** (rr's OOC mode is Vivado-only, RTL-P3.1834, so these
+rows are not directly comparable with the table above). rr-rea 1.8.0
+(b44bf3b) consumed as an rr package; the harness feeds `probe_i` from a
+`G_SAMPLE_W`-bit shift register on one input pin (so no probe bit folds to a
+constant) and brings `trigger_o` / `source_o` to pins. Built with `rr queue
+submit synth` then `impl`, `sample_clk_i` constrained at 2.5 ns, plus REA's
+own vendor constraints: the shipped `rr_rea_scoped.sdc` on Quartus, and on
+Libero `rr_rea_scoped_microchip.sdc` (REA-P2.13, not yet shipped: see
+"Clock-domain crossings"). Every clock is constrained: Quartus report_ucp
+lists 0 unconstrained clocks, and its only unconstrained paths are the
+harness's own false-pathed pins; SmartTime's coverage report lists 0
+unconstrained checks.
+Counts are the REA hierarchy only (the wrapper instance), harness excluded.
+Generics as in `targets/util_default.yml` and `targets/util_field.yml`.
+
+| Config | Tool, part | Logic | FF | Block RAM | Fmax sample_clk | TCK |
+|---|---|---|---|---|---|---|
+| util_default | Quartus Pro 25.3.1, A5ED013BB32AE4SCS (DE25) | 1795 ALM (2129 ALUT) | 2726 | 24 M20K | 403 MHz | 80 MHz |
+| util_field | Quartus Pro 25.3.1, A5ED013BB32AE4SCS (DE25) | 5724 ALM (6741 ALUT) | 7356 | 48 M20K | 395 MHz | 89 MHz |
+| util_default | Libero 2025.2, MPFS095T-1FCSG325E | 3235 4LUT | 2808 | 10 LSRAM | 278 MHz | meets 30 MHz |
+| util_field | Libero 2025.2, MPFS095T-1FCSG325E | 11964 4LUT | 7444 | 23 LSRAM | 260 MHz | meets 30 MHz |
+
+- **Both capture planes land in block RAM on both tools, not in logic.**
+  Quartus fit "RAM Summary": `u_dpram|mem_rtl_*` 4096 x 12 and
+  `u_timestamp_dpram|mem_rtl_*` 4096 x 32, all M20K, "Total block memory
+  bits 360,448" at util_default. Libero compile hierarchy report:
+  `u_dpram` 3 and `u_timestamp_dpram` 7 "LSRAM (20K)"; at 4096 deep an LSRAM
+  is 4K x 5, so a plane costs ceil(width / 5): 3 + 7 = 10, and 16 + 7 = 23 at
+  80 bits. The Libero LUT and FF counts include the LSRAM interface logic
+  (360 / 360 at util_default, 828 / 828 at util_field).
+- **Quartus builds every plane twice** (REA-P3.11). Each `rr_rea_dpram`
+  appears as two RAMs, `mem_rtl_0` (single clock) and `mem_rtl_1` (dual
+  clock): port A writes and reads on the sample clock (the CRC sweep) while
+  port B reads on TCK, and Quartus keeps one copy per read port. So
+  360,448 = 2 x (49,152 + 131,072) bits, and 24 M20K where one copy per plane
+  would need about 10.
+- **What the Fmax numbers mean.** Quartus: the "Fmax Summary" (restricted
+  Fmax, slow 0 C model). The fitter stops optimising once the 2.5 ns request
+  is met or nearly met (setup slack +0.018 / -0.031 ns), so 403 and 395 MHz
+  are where the request left it, not a ceiling. Its critical paths are the
+  reset-synchronizer fan-out into the trigger token tree (util_default) and
+  the decimation tick into `post_count` (util_field). Libero:
+  1000 / (2.5 - WNS), worst of the three corners (WNS -1.100 ns,
+  slow_lv_ht, at util_default), limited by `since_arm` into
+  `pretrig_valid` (util_default) and `done` into `post_count`
+  (util_field, WNS -1.339 ns). Libero placement moves these rows by tens of
+  MHz: an earlier util_field build that differed only in the Libero SDC
+  closed at 297 MHz, limited by the decimation count into the sample RAM
+  write enable, 37 MHz apart. TCK: Quartus reports the
+  JTAG clock's own Fmax; on Libero the 33.333 ns UDRCK clock meets with
+  +2.1 ns or more of slack.
+- **Elaboration.** This is the first 1.5-and-later rr-rea build on either
+  tool (the Xilinx rows above were the only ones before). All four builds
+  elaborate, place and route, so no elaboration defect was filed.
+
 ## Module hierarchy
 
 ```
