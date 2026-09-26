@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 # SPDX-License-Identifier: MIT
-"""REA-P3.6: rr_rea_microchip passes G_TRIG_CONDS and G_QUAL_CONDS to
+"""REA-P3.6: rr_rea_microchip passes G_TRIG_CONDS, G_QUAL_CONDS and (REA-P3.7) G_TRIG_STAGES to
 rr_rea_top (it passed neither before 1.8.0, so util_field / the lean profile
 could not be built on PolarFire through the wrapper), and ext_trigger_i
 reaches the core. Scanned through the UJTAG behavioural TAP
@@ -21,6 +21,7 @@ from cocotb.triggers import ClockCycles  # noqa: E402
 
 import rea_wrapper_generics as rwg  # noqa: E402
 from engine.simulation import run_simulation  # noqa: E402
+from sdk.cocotb_helpers import requires  # noqa: E402
 from test_rea_jtag_microchip import (  # noqa: E402
     OPCODE_USER1, ir_scan, read_reg, tap_reset, write_reg,
 )
@@ -41,6 +42,7 @@ async def _start(dut):
 
 
 @cocotb.test()
+@requires("REA-REQ-966", "REA-REQ-967")
 async def test_wrapper_passes_trig_and_qual_conds(dut):
     await _start(dut)
     rwg.check_features(await read_reg(dut, rwg.ADDR_FEATURES))

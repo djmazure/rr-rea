@@ -1,5 +1,6 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.13 (VERSION magic 0x5245410D): TRIG_LATENCY (REA-T2.6), after v0.11 storage qualification
+# On-chip protocol tier v0.15 (VERSION magic 0x5245410F): the multi-stage trigger sequencer is
+# reachable (REA-P3.7), after v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification
 # (REA-P2.7) on top of the aligned per-sample timestamp plane (DATA_PLANE_SEL,
 # RTL-T2.123), the v0.8 readback-integrity trust tier and PRETRIG_VALID.
 #
@@ -11,9 +12,20 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.9.0
-#   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
-#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#   version: below        the PACKAGE version the registry pins   -> 1.10.0
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.10.0 (REA-P3.7) is a MINOR bump: the multi-stage trigger sequencer, which
+# lived only in rr_rea_capture_fsm, is reachable. rr_rea_top and all three
+# vendor wrappers take G_TRIG_STAGES (1..4; the default 0 elaborates none, so
+# existing builds are the pre-1.10.0 core); the regbank decodes the
+# frozen SEQ window (0x40 + 20*K: cfg count_target[15:0], value and mask paged
+# by TRIG_WORD_SEL); the stage config crosses to the sample clock through
+# rr_rea_sync_word; TRIG_MODE bit[1] (already frozen) enables it; FEATURES[30:28]
+# reports the depth. Runtime tier 0x5245410D -> 0x5245410F (tier byte stays  # rea-magic:historical
+# odd, REA-REQ-806); register map 0.12.0 -> 0.13.0. Host arming is routertl
+# RTL-P2.1400.
 #
 # 1.9.0 (REA-P2.13) is a MINOR bump: the package now ships its Libero SmartTime
 # constraints, constraints/rr_rea_scoped_microchip.sdc, under
@@ -75,7 +87,7 @@
 # builds are untouched.
 #
 # 1.5.0 (REA-T2.6) is a MINOR bump: register map 0.12.0 adds TRIG_LATENCY
-# (0xF4, RO) and the runtime tier moves to 0x5245410D (v0.13). OVERFLOW now
+# (0xF4, RO) and the runtime tier moves to 0x5245410D (v0.13). OVERFLOW now  # rea-magic:historical
 # asserts when PRETRIG + max(POSTTRIG, TRIG_LATENCY) >= DEPTH: the samples
 # stored during the trigger latency land past the trigger cell, so a larger
 # window overwrote its own oldest pre-trigger cells (measured 59 genuine of
@@ -170,7 +182,7 @@
 
 name: rea
 namespace: routertl
-version: 1.9.0
+version: 1.10.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

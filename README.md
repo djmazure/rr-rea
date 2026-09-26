@@ -10,9 +10,12 @@ This repository is the public home of the `routertl/rea` package on
   cells), value/mask + mixed-op comparator-array triggers (`==` `!=` `<` `>`
   rising/falling), an external board-pin trigger, decimation, write-side SOURCE,
   and a content-fingerprint identity block (`VERSION` / `FEATURES` /
-  `BUILD_ID`). The capture FSM also carries a multi-stage sequencer, but it is
-  not wired to `rr_rea_top` or the host yet (REA-P3.7), so a sequence trigger
-  cannot be armed.
+  `BUILD_ID`).
+- **Multi-stage sequencer triggers** (v0.15, `G_TRIG_STAGES` 1..4, default 0 =
+  none): fire only
+  after up to four patterns appear in order, each with an optional match count.
+  The RTL and register window are in place (REA-P3.7); arming it from `rr ila`
+  needs routertl RTL-P2.1400.
 - **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
   when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
   over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses

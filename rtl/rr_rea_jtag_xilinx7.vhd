@@ -29,7 +29,10 @@ entity rr_rea_xilinx7 is
         -- REA-P3.6: comparator-array slots, passed to rr_rea_top (default 4,
         -- rr_rea_top's own default, so existing builds are unchanged). The
         -- lean profile (SPEC "Lean profile") sets 1.
-        G_TRIG_CONDS  : positive := 4
+        G_TRIG_CONDS  : positive := 4;
+        -- REA-P3.7: trigger-sequencer depth 0..4, passed to rr_rea_top
+        -- (default 0 = no sequencer, rr_rea_top's own default).
+        G_TRIG_STAGES : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -106,7 +109,8 @@ begin
             G_NUM_CHAN    => G_NUM_CHAN,
             G_NUM_SOURCE  => G_NUM_SOURCE,
             G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_CONDS  => G_TRIG_CONDS
+            G_TRIG_CONDS  => G_TRIG_CONDS,
+            G_TRIG_STAGES => G_TRIG_STAGES
         )
         port map (
             sample_clk_i  => sample_clk_i,

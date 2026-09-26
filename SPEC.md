@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.13)
+# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.15)
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships three vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based), Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) and Microchip PolarFire / PolarFire SoC (`rr_rea_jtag_microchip`, UJTAG-based, since 1.6.0) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. PolarFire parts use an OpenOCD bridge on the embedded FlashPro5 (RTL-P2.1279). **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
@@ -27,7 +27,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x5245410D` ('REA' + v0.13 tier: TRIG_LATENCY + window overflow covers trigger latency (REA-T2.6), after v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
+| `0x00` | RO  | VERSION     | Magic `0x5245410F` ('REA' + v0.15 tier: the multi-stage sequencer's SEQ window decodes and FEATURES[30:28] reports its depth (REA-P3.7), after v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
 | `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
@@ -63,10 +63,10 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xEC` | RO  | CAPTURE_EPOCH | Capture generation counter used as the anti-tear anchor |
 | `0xF0` | RO  | PRETRIG_VALID | Pre-trigger cells of the window that belong to this capture (RTL-T1.16, REA-REQ-963) |
 | `0xF4` | RO  | TRIG_LATENCY | Trigger-pipeline depth in samples, `ceil(G_SAMPLE_W/8) + ceil(log2(G_TRIG_CONDS))` (REA-T2.6, REA-REQ-964) |
-| `0x0040` | —  | SEQ_BASE    | Reserved window (constant minted in `rea_regbank.yml`; no decode yet — sequencer slots planned) |
+| `0x0040` | RW | SEQ_BASE    | Sequencer window 0x40..0x9F (decodes nothing when `G_TRIG_STAGES = 0`, the default): stage K at `0x40 + 20*K` for K < `G_TRIG_STAGES` — +0 `SEQ_CFG` (count_target [15:0]), +4 `SEQ_VALUE`, +8 `SEQ_MASK` (both paged by `TRIG_WORD_SEL`), +0x0C/+0x10 reserved (REA-P3.7, REA-REQ-607) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
-`VERSION` is the exact 32-bit protocol magic `0x5245410D`. `CAPTURE_LEN`
+`VERSION` is the exact 32-bit protocol magic `0x5245410F`. `CAPTURE_LEN`
 updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
 using 32-bit unsigned arithmetic; the host may read it before arm or done.
 `TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
@@ -210,18 +210,15 @@ the full cell window, merges words little-endian, masks to `SAMPLE_W`, and
 restores the selector to 0. It refuses wide capture from a core older than v0.5
 instead of silently repeating or truncating word 0.
 
-**Sequencer fields (forward contract, RTL-P3.691).** The multi-stage sequencer's
-per-stage `value_a`/`mask_a` are carried full-width (`SAMPLE_W` bits/stage) inside
-`rr_rea_capture_fsm` already, but their JTAG register slots (`SEQ_BASE`+) are not
-implemented yet. When they are, they **must** follow the same banking rule — a
-32-bit window per field paged by `TRIG_WORD_SEL` (or a SEQ-local equivalent),
-with `SEQ_STRIDE` unchanged — never a single 32-bit `value_a`/`mask_a`, which
-would reintroduce the cap P2.658b removed. See the WIDTH CONTRACT note in
-`rr_rea_pkg.vhd`.
+**Sequencer fields (RTL-P3.691).** The multi-stage sequencer's per-stage
+`SEQ_VALUE`/`SEQ_MASK` follow the same banking rule: a 32-bit window per field
+paged by `TRIG_WORD_SEL`, `SEQ_STRIDE` unchanged, never a single 32-bit field
+(which would reintroduce the cap P2.658b removed). See "Multi-stage trigger
+sequencer (REA-P3.7)".
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x5245410D` at the v0.13 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x5245410F` at the v0.15 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -230,7 +227,8 @@ gap along the two axes a fork can diverge on:
 
 - **`FEATURES` (0xD0)** is a **generic-derived** configuration fingerprint. Every
   field is a function of a synth-time generic (`[7:0]`=`G_TRIG_CONDS`,
-  `[15:8]`=`G_NUM_SOURCE`, `[16]`=wide-sample when `G_SAMPLE_W > 32`), so a build
+  `[15:8]`=`G_NUM_SOURCE`, `[16]`=wide-sample when `G_SAMPLE_W > 32`,
+  `[30:28]`=`G_TRIG_STAGES`, 0 when no sequencer, since v0.15), so a build
   compiled with a different configuration genuinely reports a different value — it
   cannot be forged by copying a constant. A host validates it against the
   configuration it expects (e.g. "I need 4 comparator slots; chip reports 4").
@@ -304,6 +302,47 @@ are ≤32 bits (a full-width `==` uses the single-comparator path). Inert when
 `array_enable=0`; `seq_enable` (bit[1]) takes precedence. `REAClient.configure`
 programs the slots from `REAConfig.conditions`; `rr ila` composes them from
 signal-named trigger conditions.
+
+### Multi-stage trigger sequencer (REA-P3.7)
+
+A sequence trigger fires only after a series of patterns has appeared **in
+order**: stage 0 must match, then stage 1, and so on; the final stage's match
+is the trigger. Elaborate it with `G_TRIG_STAGES` (1..4) on `rr_rea_top` or
+any vendor wrapper. The default, 0, elaborates no sequencer: the core is the
+pre-v0.15 one, the SEQ window decodes nowhere and `TRIG_MODE` bit[1] is
+ignored. `FEATURES[30:28]` reports the depth (0 = none); a host reads it only
+from a core whose `VERSION` is at least `0x5245410F`.
+`G_TRIG_STAGES > 4` halts elaboration, because the window holds four stages
+(REA-REQ-967).
+
+Program it while disarmed, then arm (the configuration is latched on arm, like
+the comparator array):
+
+1. For each stage K below `G_TRIG_STAGES`, write `SEQ_CFG` at
+   `0x40 + 20*K` (count_target in [15:0]), then `SEQ_VALUE` (+4) and
+   `SEQ_MASK` (+8) one page at a time: `TRIG_WORD_SEL = p`, write the page,
+   for p up to `ceil(G_SAMPLE_W/32) - 1`, then restore `TRIG_WORD_SEL` to 0.
+2. Set `TRIG_MODE` bit[1] (`seq_enable`), which takes precedence over
+   `array_enable` (bit[2]) and the single comparator.
+3. Arm.
+
+Each stage compares `probe & mask == value & mask` (masked equality; there is
+no per-stage op). Stage K advances only while the sequencer is on stage K
+(REA-REQ-601, REQ-605); a stage with count_target N > 1 needs N cumulative
+matches before it advances (REQ-603); a non-final match never triggers
+(REQ-604); an arm restarts at stage 0 (REQ-606). With bit[1] clear the stages
+are ignored (REQ-600). The stage compares share the single comparator's
+pipeline, whose depth does not depend on `G_TRIG_STAGES` (`TRIG_LATENCY`
+unchanged), and the window's trigger cell is the final stage's matching sample
+(checked on a 40-bit, 3-stage core in test_rea_sequencer_top_p3_7).
+
+`+0x0C`/`+0x10` (value_b/mask_b, reserved for compound stage conditions),
+`SEQ_CFG` bits above [15:0], and every address of a stage at or beyond
+`G_TRIG_STAGES` drop writes and read 0 (REA-REQ-607). The stage configuration
+crosses to the sample clock through `rr_rea_sync_word` (`u_cdc_seq_*`), so the
+scoped constraints on every vendor bound it like the other configuration words.
+The host side (`REAConfig` stages, `rr ila` `trigger.mode: sequence`) is
+routertl RTL-P2.1400.
 
 ### External board-pin trigger (`TRIG_MODE` bit[3]/bit[8], RTL-P3.266)
 
@@ -939,7 +978,7 @@ first-AW-beat trigger recipe and an instantiation template.
 | v0.2 | On-chip sample-clock tick channel (RTL companion to host anchor) | (new) | Parked |
 | v0.2 | Edge-detect trigger mode | RTL-P3.263 | **Shipped** as the rising/falling comparator ops (RTL-P3.644..646) |
 | v0.3 | Decimation | (new) | **Shipped** |
-| v0.3 | Multi-stage trigger sequencer | RTL-P3.265 | In the capture FSM only: `rr_rea_top` pins `G_TRIG_STAGES = 1`, `SEQ_BASE` has no decode, and the host refuses `mode: sequence` (REA-P3.7) |
+| v0.3 | Multi-stage trigger sequencer | RTL-P3.265 | **Shipped** in the RTL at v0.15 (REA-P3.7): `G_TRIG_STAGES` 1..4 (default 0 = none) through the top and every wrapper. Host arming is routertl RTL-P2.1400 |
 | v0.5 | Write-side source (ISSP-style `SOURCE`) | RTL-P2.837 | **Shipped** |
 | v0.4 | Segmented capture | (new) | Parked |
 | v0.11 | Storage qualification | REA-P2.7 | **Shipped** |

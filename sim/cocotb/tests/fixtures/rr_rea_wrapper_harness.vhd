@@ -20,7 +20,8 @@ entity rr_rea_wrapper_harness is
         G_DEPTH       : positive := 64;
         G_TIMESTAMP_W : natural  := 32;
         G_TRIG_CONDS  : positive := 4;
-        G_QUAL_CONDS  : natural  := 0
+        G_QUAL_CONDS  : natural  := 0;
+        G_TRIG_STAGES : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -58,7 +59,8 @@ begin
                 G_DEPTH       => G_DEPTH,
                 G_TIMESTAMP_W => G_TIMESTAMP_W,
                 G_QUAL_CONDS  => G_QUAL_CONDS,
-                G_TRIG_CONDS  => G_TRIG_CONDS
+                G_TRIG_CONDS  => G_TRIG_CONDS,
+                G_TRIG_STAGES => G_TRIG_STAGES
             )
             port map (
                 sample_clk_i  => sample_clk_i,
@@ -77,7 +79,8 @@ begin
                 G_DEPTH       => G_DEPTH,
                 G_TIMESTAMP_W => G_TIMESTAMP_W,
                 G_QUAL_CONDS  => G_QUAL_CONDS,
-                G_TRIG_CONDS  => G_TRIG_CONDS
+                G_TRIG_CONDS  => G_TRIG_CONDS,
+                G_TRIG_STAGES => G_TRIG_STAGES
             )
             port map (
                 sample_clk_i  => sample_clk_i,

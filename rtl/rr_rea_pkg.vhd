@@ -82,7 +82,9 @@ package rr_rea_pkg is
     -- so the tier moves (REA-REQ-913), to the next ODD minor (REA-REQ-806).
     -- v0.13 (REA-T2.6) adds TRIG_LATENCY (0xF4) and makes OVERFLOW cover a
     -- window the trigger-latency stores would overrun; next ODD minor again.
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410D";
+    -- v0.15 (REA-P3.7) decodes the SEQ window (0x40..0x9F) and adds
+    -- FEATURES[30:28]; the register map gained registers, next ODD minor.
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410F";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -143,19 +145,30 @@ package rr_rea_pkg is
     -- Layout is frozen (see SPEC.md) so any future host SW
     -- reuse keeps the same wire format.
     --
-    -- WIDTH CONTRACT (RTL-P3.691, sibling of RTL-P2.658b): the per-stage
-    -- value_a/mask_a (and value_b/mask_b) RW slots are NOT YET implemented
-    -- in rr_rea_regbank. The capture_i-FSM already carries them full-width
-    -- (G_SAMPLE_W bits per stage), so WHEN these JTAG slots are added they
-    -- MUST be banked exactly like TRIG_VALUE/TRIG_MASK — a 32-bit window
-    -- into trig_words(G_SAMPLE_W) words, paged by TRIG_WORD_SEL (0x2C) or a
-    -- SEQ-local equivalent. SEQ_STRIDE stays 20 bytes (one 32-bit window per
-    -- field) so the address map and wire format are preserved; the
-    -- extra words are reached by paging, never by widening the slot. Do NOT
-    -- reintroduce a single-32-bit value_a/mask_a — that is the exact cap
-    -- P2.658b removed from the legacy path.
+    -- WIDTH CONTRACT (RTL-P3.691, sibling of RTL-P2.658b): value_a/mask_a
+    -- are banked exactly like TRIG_VALUE/TRIG_MASK — a 32-bit window into
+    -- trig_words(G_SAMPLE_W) words, paged by TRIG_WORD_SEL (0x2C). SEQ_STRIDE
+    -- stays 20 bytes; the extra words are reached by paging, never by
+    -- widening the slot. Do NOT reintroduce a single-32-bit value_a/mask_a —
+    -- that is the exact cap P2.658b removed from the legacy path.
+    --
+    -- REA-P3.7 (v0.15, VERSION 0x5245410F): implemented in rr_rea_regbank for
+    -- G_TRIG_STAGES stages (0..C_MAX_TRIG_STAGES; 0 = no sequencer). cfg carries count_target in
+    -- [15:0]; its other bits, and value_b/mask_b, are reserved (write
+    -- dropped, read 0) because the FSM's stages compare by masked equality
+    -- only. G_TRIG_STAGES = 0 (the default) decodes no SEQ address at all.
+    -- The sequencer is ENABLED by TRIG_MODE bit[1]
+    -- (C_TRIG_MODE_BIT_SEQ_EN), not by a cfg bit. A stage address at or
+    -- beyond G_TRIG_STAGES decodes nowhere, like any unmapped address.
     constant C_ADDR_SEQ_BASE    : unsigned(15 downto 0) := C_REGBANK_ADDR_SEQ_BASE;
     constant C_SEQ_STRIDE       : positive := 20;  -- bytes per stage
+    constant C_SEQ_OFF_CFG      : natural := 0;
+    constant C_SEQ_OFF_VALUE    : natural := 4;
+    constant C_SEQ_OFF_MASK     : natural := 8;
+    constant C_SEQ_COUNT_W      : positive := 16;  -- cfg[15:0] count_target
+    -- The SEQ window is 0x40..0x9F (CHAN_SEL sits at 0xA0), so it holds four
+    -- 20-byte stages; FEATURES[30:28] carries G_TRIG_STAGES.
+    constant C_MAX_TRIG_STAGES  : positive := 4;
     constant C_ADDR_TIMESTAMP_W : unsigned(15 downto 0) := C_REGBANK_ADDR_TIMESTAMP_W;
     constant C_ADDR_START_PTR   : unsigned(15 downto 0) := C_REGBANK_ADDR_START_PTR;
     -- RTL-P1.91: independent bank selector for capture_i data. DATA_BASE keeps
@@ -230,6 +243,9 @@ package rr_rea_pkg is
     constant C_FEAT_UDP_WINDOW_BIT  : natural := 21;
     constant C_FEAT_STORAGE_QUAL_BIT : natural := 22;
     constant C_FEAT_QUAL_CONDS_LSB   : natural := 24;
+    -- REA-P3.7: [30:28] = G_TRIG_STAGES (0..4, 0 = none), the sequencer depth. Read it
+    -- only from a core whose VERSION is >= 0x5245410F; older cores read 0.
+    constant C_FEAT_TRIG_STAGES_LSB  : natural := 28;
     -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
     -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
     -- REA-P2.3: the tier is complete (sweep + publication + selftest fill), so

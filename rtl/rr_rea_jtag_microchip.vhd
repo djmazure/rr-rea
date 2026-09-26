@@ -53,7 +53,9 @@ entity rr_rea_microchip is
         -- needs G_TIMESTAMP_W > 0 (REA-REQ-957); G_TRIG_CONDS = 1 is the lean
         -- profile. Before 1.8.0 this wrapper passed neither.
         G_QUAL_CONDS  : natural  := 0;
-        G_TRIG_CONDS  : positive := 4
+        G_TRIG_CONDS  : positive := 4;
+        -- REA-P3.7: trigger-sequencer depth 0..4 (default 0 = no sequencer).
+        G_TRIG_STAGES : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -99,7 +101,8 @@ architecture rtl of rr_rea_microchip is
             G_NUM_CHAN    : positive := 1;
             G_TRIG_CONDS  : positive := 4;
             G_NUM_SOURCE  : positive := 1;
-            G_QUAL_CONDS  : natural  := 0
+            G_QUAL_CONDS  : natural  := 0;
+            G_TRIG_STAGES : natural  := 0
         );
         port (
             sample_clk_i  : in  std_logic;
@@ -186,7 +189,8 @@ begin
             G_NUM_CHAN    => G_NUM_CHAN,
             G_TRIG_CONDS  => G_TRIG_CONDS,
             G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_QUAL_CONDS  => G_QUAL_CONDS
+            G_QUAL_CONDS  => G_QUAL_CONDS,
+            G_TRIG_STAGES => G_TRIG_STAGES
         )
         port map (
             sample_clk_i  => sample_clk_i,
@@ -220,7 +224,8 @@ entity rr_rea_jtag_microchip is
         G_NUM_SOURCE  : positive := 1;
         G_CTRL_CHAIN  : integer  := 1;
         G_QUAL_CONDS  : natural  := 0;
-        G_TRIG_CONDS  : positive := 4
+        G_TRIG_CONDS  : positive := 4;
+        G_TRIG_STAGES : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -248,7 +253,8 @@ begin
             G_NUM_SOURCE  => G_NUM_SOURCE,
             G_CTRL_CHAIN  => G_CTRL_CHAIN,
             G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_CONDS  => G_TRIG_CONDS
+            G_TRIG_CONDS  => G_TRIG_CONDS,
+            G_TRIG_STAGES => G_TRIG_STAGES
         )
         port map (
             sample_clk_i  => sample_clk_i,

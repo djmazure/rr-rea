@@ -136,7 +136,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact current feature-tier magic
-      0x5245410D (v0.13, REA-T2.6 TRIG_LATENCY; v0.11 added storage qualification). The value is a protocol discriminator, not an
+      0x5245410F (v0.15, REA-P3.7 sequencer register window; v0.13 added TRIG_LATENCY, v0.11 storage qualification). The value is a protocol discriminator, not an
       inferred string or a mutable register. The tier byte is ODD by
       permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
       is how a wide-readback miscompile is detected (RTL-P1.96).
@@ -412,7 +412,7 @@ functional_contract:
   # ── rr_rea_trig_seq (multi-stage sequencer, v0.3) ─────────────────
   - id: REA-REQ-600
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       With seq_enable_in=0 (default), the FSM honors the legacy
       trig_value_in / trig_mask_in comparator: a matching probe_in
@@ -420,7 +420,7 @@ functional_contract:
       No regression on REA-REQ-100..106.
   - id: REA-REQ-601
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       With G_TRIG_STAGES=N and seq_enable=1, seq_state advances
       from K to K+1 only when stage K's local comparator (using
@@ -429,14 +429,14 @@ functional_contract:
       while seq_state == K.
   - id: REA-REQ-602
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       The FINAL stage's local comparator match drives both
       triggered and trigger_out at the match cycle, then the
       post-trigger countdown runs unchanged.
   - id: REA-REQ-603
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       Each stage's seq_count_target_k, when non-zero, requires
       that many cumulative matches before advancing. seq_counter_k
@@ -444,14 +444,14 @@ functional_contract:
       stage K (or on arm_pulse).
   - id: REA-REQ-604
     kind: negative
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       A non-final-stage match must NOT drive triggered or
       trigger_out. Only the final stage's match drives the
       capture trigger.
   - id: REA-REQ-605
     kind: negative
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       An out-of-order probe_in pattern that matches a later
       stage's value while we're still on an earlier stage must
@@ -459,21 +459,25 @@ functional_contract:
       the sequencer to the final stage.
   - id: REA-REQ-606
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "Out of scope (parked)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
       arm_pulse resets seq_state to 0 and clears all seq_counter_k
       registers. A new arm cycle restarts the sequence from
       stage 0 regardless of where the previous capture left it.
   - id: REA-REQ-607
     kind: behavioral
-    spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
     desc: >-
-      Per-stage config maps at ADDR_SEQ_BASE = 0x0040 with stride
-      20 bytes. wr_addr / wr_data writes to the SEQ_BASE address
-      window must NOT alias into the v0.1/v0.2 RW slots
-      (PRETRIG / POSTTRIG / TRIG_VALUE / TRIG_MASK / CHAN_SEL /
-      DECIM); rd_addr at PRETRIG returns its written value
-      regardless of intervening SEQ_BASE writes.
+      Per-stage config maps at ADDR_SEQ_BASE = 0x0040 with stride 20 bytes
+      for stages 0..G_TRIG_STAGES-1: +0 SEQ_CFG keeps count_target in [15:0]
+      (other bits dropped, read 0); +4 SEQ_VALUE and +8 SEQ_MASK are 32-bit
+      windows onto the full G_SAMPLE_W-bit stage value/mask, paged by
+      TRIG_WORD_SEL like TRIG_VALUE/TRIG_MASK, and read back what was
+      written. The reserved +0x0C/+0x10 slots and every address of a stage
+      >= G_TRIG_STAGES drop their writes and read 0. No SEQ write aliases
+      into the v0.1/v0.2 RW slots (PRETRIG / POSTTRIG / TRIG_VALUE /
+      TRIG_MASK / CHAN_SEL / DECIM). TRIG_MODE bit[1] enables the sequencer
+      and the stage config reaches rr_rea_capture_fsm through the CDC.
   - id: REA-REQ-608
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Mixed-op AND comparator array (`TRIG_MODE` bit[2], RTL-P3.647)" }]
@@ -788,8 +792,8 @@ functional_contract:
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
       logic — never hand-set — preserving the generic-derived fingerprint
-      invariant. VERSION reads the current tier magic (0x5245410D since
-      REA-T2.6); the tier byte is
+      invariant. VERSION reads the current tier magic (0x5245410F since
+      REA-P3.7); the tier byte is
       ODD (structural test: VERSION bit0 = 1, permanent contract for the
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
@@ -1061,6 +1065,18 @@ functional_contract:
       and G_QUAL_CONDS = 1, FEATURES[7:0] SHALL read 1 and FEATURES[22] and
       [27:24] SHALL read 1; with TRIG_MODE ext_en|ext_and the core SHALL NOT
       trigger while ext_trigger_i is low and SHALL trigger once it is high.
+  - id: REA-REQ-967
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Multi-stage trigger sequencer (REA-P3.7)" }]
+    desc: >-
+      rr_rea_top and every vendor wrapper (rr_rea_xilinx7, rr_rea_intel,
+      rr_rea_microchip) take G_TRIG_STAGES (0..4) and pass it to the capture
+      FSM and the regbank. 0, the default, elaborates no sequencer — the
+      pre-P3.7 core: the SEQ window decodes nowhere (writes dropped, reads 0)
+      and TRIG_MODE bit[1] is ignored. FEATURES[30:28] SHALL read the
+      elaborated G_TRIG_STAGES (derived from the generic, never hand-set), and
+      G_TRIG_STAGES > 4 SHALL halt elaboration: the SEQ window 0x40..0x9F
+      holds four 20-byte stages.
 
   # ── Dump-path transport contract (REA-P2.4, docs/DUMP_PATH_STRATEGY.md) ──
   #
@@ -1312,7 +1328,7 @@ functional_contract:
       dropped and such a page reads 0. FEATURES[22] SHALL read 1 exactly when
       G_QUAL_CONDS > 0 and FEATURES[27:24] SHALL read G_QUAL_CONDS (both
       derived from the generic, never hand-set). VERSION SHALL read the current tier
-      magic (0x5245410D since REA-T2.6; tier byte stays odd, REA-REQ-806).
+      magic (0x5245410F since REA-P3.7; tier byte stays odd, REA-REQ-806).
   - id: REA-REQ-959
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Storage qualification (REA-P2.7)" }]

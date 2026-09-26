@@ -9,7 +9,7 @@
 -- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x5245410D ('REA' + v0.13 feature tier; single-sourced
+--   0x00 RO  VERSION       0x5245410F ('REA' + v0.15 feature tier; single-sourced
 --                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle
 --   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
@@ -62,7 +62,11 @@ entity rr_rea_regbank is
         G_AXIS_WINDOW : boolean  := false;
         -- REA-P2.7: storage-qualifier slots (0 = none elaborated). FEATURES[22]
         -- and [27:24] advertise it (REQ-958).
-        G_QUAL_CONDS  : natural  := 0
+        G_QUAL_CONDS  : natural  := 0;
+        -- REA-P3.7: sequencer depth (0..C_MAX_TRIG_STAGES); decodes the SEQ
+        -- window for stages 0..G_TRIG_STAGES-1 (REA-REQ-607). 0 (the default)
+        -- decodes nothing: the pre-P3.7 register bank, byte for byte.
+        G_TRIG_STAGES : natural  := 0
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
         -- generic didn't survive Vivado synthesis).
@@ -146,6 +150,18 @@ entity rr_rea_regbank is
         qual_valid_o   : out std_logic_vector(max_nat(1, G_QUAL_CONDS) - 1 downto 0);
 
         -- ── Pulse toggles (to rr_rea_cdc → sample_clk_i pulses) ────
+        -- REA-P3.7: per-stage sequencer configuration, flop-sourced for the
+        -- CDC (the FSM latches it on arm). Stage K occupies
+        -- [(K+1)*W-1 : K*W]; W = G_SAMPLE_W for value/mask, 16 for counts.
+        -- Sized max(1, G_TRIG_STAGES) so a 0-stage build keeps legal (zero)
+        -- ports, like the qual_* ports.
+        seq_values_o   : out std_logic_vector(
+            max_nat(1, G_TRIG_STAGES) * G_SAMPLE_W - 1 downto 0);
+        seq_masks_o    : out std_logic_vector(
+            max_nat(1, G_TRIG_STAGES) * G_SAMPLE_W - 1 downto 0);
+        seq_counts_o   : out std_logic_vector(
+            max_nat(1, G_TRIG_STAGES) * C_SEQ_COUNT_W - 1 downto 0);
+
         arm_toggle_o   : out std_logic;
         reset_toggle_o : out std_logic
     );
@@ -170,6 +186,22 @@ architecture rtl of rr_rea_regbank is
     signal trig_mask_flat  : std_logic_vector(C_TRIG_WORDS * 32 - 1 downto 0)
                                  := (others => '0');
     signal trig_word_sel_r : unsigned(7 downto 0) := (others => '0');
+    -- REA-P3.7: sequencer stage value/mask, banked like trig_value/mask
+    -- (C_TRIG_WORDS words per stage, paged by trig_word_sel_r), and each
+    -- stage's 16-bit count_target (SEQ_CFG[15:0]).
+    constant C_SEQ_STAGES : positive := max_nat(1, G_TRIG_STAGES);
+    signal seq_value_flat : std_logic_vector(
+        C_SEQ_STAGES * C_TRIG_WORDS * 32 - 1 downto 0) := (others => '0');
+    signal seq_mask_flat  : std_logic_vector(
+        C_SEQ_STAGES * C_TRIG_WORDS * 32 - 1 downto 0) := (others => '0');
+    signal seq_count_flat : std_logic_vector(
+        C_SEQ_STAGES * C_SEQ_COUNT_W - 1 downto 0) := (others => '0');
+
+    -- Byte address of stage k's field at offset off inside the SEQ window.
+    function seq_addr(k, off : natural) return unsigned is
+    begin
+        return C_ADDR_SEQ_BASE + to_unsigned(k * C_SEQ_STRIDE + off, 16);
+    end function;
     signal data_word_sel_r : unsigned(7 downto 0) := (others => '0');
     signal data_plane_sel_r : std_logic := '0';
     signal selftest_ctrl_r  : std_logic := '0';
@@ -295,6 +327,9 @@ architecture rtl of rr_rea_regbank is
             v(C_FEAT_QUAL_CONDS_LSB + 3 downto C_FEAT_QUAL_CONDS_LSB) :=
                 std_logic_vector(to_unsigned(G_QUAL_CONDS, 4));
         end if;
+        -- REA-P3.7: [30:28] = G_TRIG_STAGES, the sequencer depth.
+        v(C_FEAT_TRIG_STAGES_LSB + 2 downto C_FEAT_TRIG_STAGES_LSB) :=
+            std_logic_vector(to_unsigned(G_TRIG_STAGES, 3));
         return v;
     end function;
 
@@ -317,6 +352,15 @@ begin
     -- vector is C_TRIG_WORDS*32 bits (>= G_SAMPLE_W), so the slice is
     -- always in range; bits above G_SAMPLE_W in the top word are unused.
     trig_value_o   <= trig_value_flat(G_SAMPLE_W - 1 downto 0);
+    g_seq_out : for k in 0 to C_SEQ_STAGES - 1 generate
+        seq_values_o((k + 1) * G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            seq_value_flat(k * C_TRIG_WORDS * 32 + G_SAMPLE_W - 1
+                           downto k * C_TRIG_WORDS * 32);
+        seq_masks_o((k + 1) * G_SAMPLE_W - 1 downto k * G_SAMPLE_W) <=
+            seq_mask_flat(k * C_TRIG_WORDS * 32 + G_SAMPLE_W - 1
+                          downto k * C_TRIG_WORDS * 32);
+    end generate;
+    seq_counts_o <= seq_count_flat;
     trig_mask_o    <= trig_mask_flat(G_SAMPLE_W - 1 downto 0);
     trig_mode_o    <= trig_mode_r;
     chan_sel_o     <= chan_sel_r(7 downto 0);
@@ -470,6 +514,9 @@ begin
             trig_value_flat <= (others => '0');
             trig_mask_flat  <= (others => '0');
             trig_word_sel_r <= (others => '0');
+            seq_value_flat  <= (others => '0');
+            seq_mask_flat   <= (others => '0');
+            seq_count_flat  <= (others => '0');
             data_word_sel_r <= (others => '0');
             data_plane_sel_r <= '0';
             selftest_ctrl_r <= '0';
@@ -602,9 +649,33 @@ begin
                         end loop;
 
                     when others =>
-                        -- REA-REQ-012: writes to RO/unmapped addrs
-                        -- are dropped on the floor.
-                        null;
+                        -- REA-P3.7 (REA-REQ-607): the SEQ window. Stage k's
+                        -- cfg keeps count_target [15:0]; value/mask write the
+                        -- word trig_word_sel_r selects. Reserved offsets
+                        -- (+0x0C/+0x10) and stages >= G_TRIG_STAGES match
+                        -- nothing. REA-REQ-012: every other RO/unmapped
+                        -- write is dropped on the floor.
+                        for k in 0 to G_TRIG_STAGES - 1 loop
+                            if unsigned(wr_addr_i) = seq_addr(k, C_SEQ_OFF_CFG) then
+                                seq_count_flat((k + 1) * C_SEQ_COUNT_W - 1
+                                               downto k * C_SEQ_COUNT_W)
+                                    <= wr_data_i(C_SEQ_COUNT_W - 1 downto 0);
+                            end if;
+                            for i in 0 to C_TRIG_WORDS - 1 loop
+                                if to_integer(trig_word_sel_r) = i then
+                                    if unsigned(wr_addr_i) = seq_addr(k, C_SEQ_OFF_VALUE) then
+                                        seq_value_flat((k * C_TRIG_WORDS + i + 1) * 32 - 1
+                                                       downto (k * C_TRIG_WORDS + i) * 32)
+                                            <= wr_data_i;
+                                    end if;
+                                    if unsigned(wr_addr_i) = seq_addr(k, C_SEQ_OFF_MASK) then
+                                        seq_mask_flat((k * C_TRIG_WORDS + i + 1) * 32 - 1
+                                                      downto (k * C_TRIG_WORDS + i) * 32)
+                                            <= wr_data_i;
+                                    end if;
+                                end if;
+                            end loop;
+                        end loop;
                 end case;
             end if;
         end if;
@@ -731,7 +802,29 @@ begin
                 rd_data_o <= (others => '0');
                 rd_data_o(0) <= selftest_ctrl_r;
             when C_ADDR_SELFTEST_SEED => rd_data_o <= selftest_seed_r;
-            when others             => rd_data_o <= (others => '0');
+            when others             =>
+                -- REA-P3.7: SEQ window read-back (same selectors as the
+                -- write side); anything else unmapped reads 0.
+                rd_data_o <= (others => '0');
+                for k in 0 to G_TRIG_STAGES - 1 loop
+                    if unsigned(rd_addr_i) = seq_addr(k, C_SEQ_OFF_CFG) then
+                        rd_data_o(C_SEQ_COUNT_W - 1 downto 0) <=
+                            seq_count_flat((k + 1) * C_SEQ_COUNT_W - 1
+                                           downto k * C_SEQ_COUNT_W);
+                    end if;
+                    for i in 0 to C_TRIG_WORDS - 1 loop
+                        if to_integer(trig_word_sel_r) = i then
+                            if unsigned(rd_addr_i) = seq_addr(k, C_SEQ_OFF_VALUE) then
+                                rd_data_o <= seq_value_flat((k * C_TRIG_WORDS + i + 1) * 32 - 1
+                                                            downto (k * C_TRIG_WORDS + i) * 32);
+                            end if;
+                            if unsigned(rd_addr_i) = seq_addr(k, C_SEQ_OFF_MASK) then
+                                rd_data_o <= seq_mask_flat((k * C_TRIG_WORDS + i + 1) * 32 - 1
+                                                           downto (k * C_TRIG_WORDS + i) * 32);
+                            end if;
+                        end if;
+                    end loop;
+                end loop;
         end case;
         end if;
     end process;

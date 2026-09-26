@@ -51,7 +51,7 @@ ADDR_POSTTRIG = 0x18
 ADDR_START_PTR = 0xC8
 ADDR_DATA_BASE = 0x100
 
-EXPECTED_VERSION = 0x5245410D  # v0.13 feature tier (rr_rea_pkg C_REA_VERSION)
+EXPECTED_VERSION = 0x5245410F  # v0.15 feature tier (rr_rea_pkg C_REA_VERSION)
 
 ACLK_PERIOD_NS = 10.0
 SAMPLE_PERIOD_NS = 8.0
@@ -475,7 +475,7 @@ async def test_rea_req_903_narrow_reads_mask_low_bits_p2_6(dut):
     return the full 32-bit register on rdata_o with araddr[1:0] ignored (masked
     to "00"). The master/interconnect extracts the requested byte or halfword
     from its respective lane:
-      - byte read at VERSION+0 returns 0x0D on lane 0 (bits 7..0; the v0.13 tier)
+      - byte read at VERSION+0 returns 0x0F on lane 0 (bits 7..0; the v0.15 tier)
       - byte read at VERSION+1 returns 0x41 ('A') on lane 1 (bits 15..8)
       - byte read at VERSION+2 returns 0x45 ('E') on lane 2 (bits 23..16)
       - byte read at VERSION+3 returns 0x52 ('R') on lane 3 (bits 31..24)

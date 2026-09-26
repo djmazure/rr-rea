@@ -296,5 +296,50 @@ async def test_rea_req_958_no_qualifier_core_advertises_none(dut):
         got = await _jtag_read(dut, addr)
         assert got == 0, f"0x{addr:02X} read 0x{got:08X} on a core with no qualifier"
 
+
+# ── REA-REQ-967: a G_TRIG_STAGES=0 core has no sequencer to find ────
+
+
+@cocotb.test()
+@requires("REA-REQ-967", "REA-REQ-607")
+async def test_rea_req_967_no_sequencer_core_ignores_seq(dut):
+    """This build elaborates G_TRIG_STAGES=0 (the default): FEATURES[30:28]
+    reads 0, the SEQ window decodes nowhere (writes dropped, reads 0), and
+    TRIG_MODE bit[1] is ignored — with it set, the single comparator still
+    decides the trigger. (A live sequencer would fire at once on its
+    all-zero stage 0, so the trigger cell would not be the programmed value.)"""
+    DEPTH = 256
+    PRETRIG = POSTTRIG = DEPTH // 2 - 1
+    await _start_clocks(dut)
+    await _reset(dut)
+    features = await _jtag_read(dut, 0xD0)
+    assert (features >> 28) & 0x7 == 0, f"FEATURES=0x{features:08X}: [30:28]"
+    seq = [0x40 + 20 * k + off for k in range(4) for off in (0, 4, 8)]
+    for addr in seq:
+        await _jtag_write(dut, addr, 0xFFFF_FFFF)
+    for addr in seq:
+        got = await _jtag_read(dut, addr)
+        assert got == 0, f"SEQ 0x{addr:02X} read 0x{got:08X} on a core with no sequencer"
+
+    cocotb.start_soon(_drive_probe_counter(dut, 100_000))
+    await ClockCycles(dut.sample_clk_i, 2 * DEPTH)
+    await _jtag_write(dut, ADDR_PRETRIG, PRETRIG)
+    await _jtag_write(dut, ADDR_POSTTRIG, POSTTRIG)
+    await _jtag_write(dut, ADDR_TRIG_MODE, 0x0000_0003)   # value_match | seq_en
+    await _jtag_write(dut, ADDR_TRIG_VALUE, 0x0000_01FF)
+    await _jtag_write(dut, ADDR_TRIG_MASK, 0x0000_0FFF)
+    await _jtag_write(dut, ADDR_CTRL, CTRL_BIT_ARM)
+    for _ in range(200):
+        if await _jtag_read(dut, ADDR_STATUS) & STATUS_BIT_DONE:
+            break
+        await ClockCycles(dut.tck_i, 4)
+    else:
+        raise AssertionError("capture never completed")
+    start_ptr = await _jtag_read(dut, ADDR_START_PTR) & (DEPTH - 1)
+    cell = await _jtag_read(dut, ADDR_DATA_BASE + 4 * ((start_ptr + PRETRIG) & (DEPTH - 1)))
+    assert cell & 0xFFF == 0x1FF, (
+        f"trigger cell 0x{cell & 0xFFF:03X}: TRIG_MODE bit[1] changed the trigger "
+        "on a core with no sequencer")
+
 if __name__ == "__main__":
     main()

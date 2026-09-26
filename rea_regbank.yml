@@ -1,5 +1,5 @@
 name: rea_registers
-version: 0.12.0  # REA-T2.6: TRIG_LATENCY (0xF4)
+version: 0.13.0  # REA-P3.7: SEQ window decodes (0x40..0x9F)
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -30,7 +30,7 @@ registers:
   - {name: COND_CFG, address: 0x0034, access: RW, description: Comparator-array slot configuration}
   - {name: COND_VAL, address: 0x0038, access: RW, description: Comparator-array slot value}
   - {name: SOURCE, address: 0x003C, access: RW, description: DUT-facing source control bits}
-  - {name: SEQ_BASE, address: 0x0040, access: RW, description: Sequencer stage window base}
+  - {name: SEQ_BASE, address: 0x0040, access: RW, description: Sequencer window base; stage K at +20*K (cfg, value, mask; value/mask paged by TRIG_WORD_SEL), K < G_TRIG_STAGES (REA-P3.7)}
   - {name: CHAN_SEL, address: 0x00A0, access: RW, description: Capture channel selector}
   - {name: NUM_CHAN, address: 0x00A4, access: RO, description: Synthesized channel count}
   - {name: DECIM, address: 0x00B0, access: RW, description: Capture decimation ratio}

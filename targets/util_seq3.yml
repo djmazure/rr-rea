@@ -1,0 +1,19 @@
+extends: ../project.yml
+
+# REA-P3.7: util_default plus a 3-stage trigger sequencer, so a vendor tool
+# elaborates and maps the SEQ window decode, the u_cdc_seq_* synchronizers and
+# the FSM's stage logic (G_TRIG_STAGES = 0, the default, elaborates none).
+project:
+  output_dir: build/util_seq3
+
+paths:
+  sources: [rtl]
+  constraints: constraints
+
+sources:
+  libraries:
+    rr_rea: [verif/rr_rea_build_id_stub.vhd]
+
+build_options:
+  generics:
+    G_TRIG_STAGES: "3"

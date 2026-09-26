@@ -4,7 +4,8 @@
 
 Each vendor wrapper is elaborated under a mocked TAP (fixtures/
 rea_tap_mock_pkg + a BSCANE2 / sld_virtual_jtag mock) with the NON-default
-generics G_TRIG_CONDS = 1 and G_QUAL_CONDS = 1, and the register bus is scanned
+generics G_TRIG_CONDS = 1, G_QUAL_CONDS = 1 and G_TRIG_STAGES = 2 (REA-P3.7),
+and the register bus is scanned
 THROUGH the wrapper. FEATURES is generic-derived inside rr_rea_top
 (RTL-P3.1198), so it reads back the generics the core actually elaborated:
 a wrapper that does not pass one on elaborates rr_rea_top's default and
@@ -24,6 +25,8 @@ FIX = Path(__file__).resolve().parent / "fixtures"
 GENERICS = {
     "G_SAMPLE_W": 12, "G_DEPTH": 64, "G_TIMESTAMP_W": 32,
     "G_TRIG_CONDS": 1, "G_QUAL_CONDS": 1,
+    # REA-P3.7: a non-default sequencer depth, read back in FEATURES[30:28].
+    "G_TRIG_STAGES": 2,
 }
 
 ADDR_CTRL, ADDR_STATUS, ADDR_POSTTRIG = 0x04, 0x08, 0x18
@@ -127,6 +130,10 @@ def check_features(features: int):
     assert (features >> 22) & 1 == 1 and (features >> 24) & 0xF == 1, (
         f"FEATURES=0x{features:08X}: [22]/[27:24] (G_QUAL_CONDS) do not read "
         "1 — the wrapper did not pass G_QUAL_CONDS to rr_rea_top")
+    assert (features >> 28) & 0x7 == 2, (
+        f"FEATURES=0x{features:08X}: [30:28] (G_TRIG_STAGES) = "
+        f"{(features >> 28) & 0x7}, expected 2 — the wrapper did not pass "
+        "G_TRIG_STAGES to rr_rea_top (REA-P3.7)")
 
 
 async def ext_trigger_fires_only_on_the_pin(dut):

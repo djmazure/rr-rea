@@ -59,7 +59,13 @@ entity rr_rea_top is
         -- qualifier — the core is the v0.9 analyzer byte for byte
         -- (REA-REQ-950). > 0 requires G_TIMESTAMP_W > 0, because a qualified
         -- sample's index no longer says when it was taken (REA-REQ-957).
-        G_QUAL_CONDS  : natural  := 0
+        G_QUAL_CONDS  : natural  := 0;
+
+        -- REA-P3.7: multi-stage trigger sequencer depth, 0..4 (REA-REQ-601..607,
+        -- REA-REQ-967). 0 (the default) elaborates no sequencer — the
+        -- pre-P3.7 core byte for byte, TRIG_MODE bit[1] ignored. The SEQ
+        -- window holds four stages.
+        G_TRIG_STAGES : natural  := 0
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
@@ -282,6 +288,20 @@ architecture rtl of rr_rea_top is
         boolean'pos(G_QUAL_CONDS > 0 and G_TIMESTAMP_W = 0);
     constant C_QUAL_CONDS_GUARD : natural range 0 to 0 :=
         boolean'pos(G_QUAL_CONDS > C_MAX_QUAL_CONDS);
+    -- REA-P3.7: the SEQ window (0x40..0x9F) holds C_MAX_TRIG_STAGES stages.
+    constant C_TRIG_STAGES_GUARD : natural range 0 to 0 :=
+        boolean'pos(G_TRIG_STAGES > C_MAX_TRIG_STAGES);
+
+    -- REA-P3.7: sequencer stage config, register domain -> sample domain.
+    -- A 0-stage build keeps one tied-off stage for the FSM's positive generic.
+    constant C_SEQ_STAGES : positive := max_nat(1, G_TRIG_STAGES);
+    signal seq_values_jclk : std_logic_vector(C_SEQ_STAGES * G_SAMPLE_W - 1 downto 0);
+    signal seq_masks_jclk  : std_logic_vector(C_SEQ_STAGES * G_SAMPLE_W - 1 downto 0);
+    signal seq_counts_jclk : std_logic_vector(C_SEQ_STAGES * C_SEQ_COUNT_W - 1 downto 0);
+    signal seq_values_sclk : std_logic_vector(C_SEQ_STAGES * G_SAMPLE_W - 1 downto 0);
+    signal seq_masks_sclk  : std_logic_vector(C_SEQ_STAGES * G_SAMPLE_W - 1 downto 0);
+    signal seq_counts_sclk : std_logic_vector(C_SEQ_STAGES * C_SEQ_COUNT_W - 1 downto 0);
+    signal seq_enable_sclk : std_logic;
 
     -- ── FSM outputs (sample_clk_i domain) ──────────────────────────
     signal armed_sclk     : std_logic;
@@ -394,6 +414,11 @@ begin
         report "rr_rea: G_QUAL_CONDS exceeds 15 - FEATURES[27:24] carries the "
              & "slot count (REA-P2.7, REA-REQ-957)."
         severity failure;
+    assert G_TRIG_STAGES <= C_MAX_TRIG_STAGES
+        report "rr_rea: G_TRIG_STAGES exceeds 4 - the SEQ register window "
+             & "(0x40..0x9F, 20 bytes per stage) holds four stages (REA-P3.7, "
+             & "REA-REQ-607)."
+        severity failure;
 
     u_rst_sync : rr_rea_rst_sync
         port map (clk_i => sample_clk_i, arst_i => sample_rst_i,
@@ -450,7 +475,8 @@ begin
             G_TRIG_CONDS  => G_TRIG_CONDS,
             G_NUM_SOURCE  => G_NUM_SOURCE,
             G_AXIS_WINDOW => G_AXIS_WINDOW,
-            G_QUAL_CONDS  => G_QUAL_CONDS
+            G_QUAL_CONDS  => G_QUAL_CONDS,
+            G_TRIG_STAGES => G_TRIG_STAGES
         )
         port map (
             jtag_clk_i => reg_clk_o,
@@ -497,6 +523,9 @@ begin
             qual_masks_o   => qual_masks_jclk,
             qual_ops_o     => qual_ops_jclk,
             qual_valid_o   => qual_valid_jclk,
+            seq_values_o   => seq_values_jclk,
+            seq_masks_o    => seq_masks_jclk,
+            seq_counts_o   => seq_counts_jclk,
             arm_toggle_o   => arm_toggle_jclk,
             reset_toggle_o => reset_toggle_jclk
         );
@@ -845,10 +874,40 @@ begin
     end process;
 
     -- ── Capture FSM ──────────────────────────────────────────────
+    -- REA-P3.7 sequencer CDC (REA-REQ-959 profile). Quasi-static arm-time
+    -- configuration like the cond_* arrays: the host writes the SEQ window
+    -- while disarmed, then arms; the FSM latches it on the arm pulse. Each
+    -- first stage is driven straight from a regbank flop (REA-REQ-961).
+    -- Elaborated only when a sequencer exists, so a G_TRIG_STAGES = 0 core
+    -- carries no extra flops and ignores TRIG_MODE bit[1] (REA-REQ-967).
+    g_seq_cdc : if G_TRIG_STAGES > 0 generate
+        u_cdc_seq_values : rr_rea_sync_word
+            generic map (G_WIDTH => G_TRIG_STAGES * G_SAMPLE_W)
+            port map (dst_clk_i => sample_clk_i, din_i => seq_values_jclk,
+                      dout_o => seq_values_sclk);
+        u_cdc_seq_masks : rr_rea_sync_word
+            generic map (G_WIDTH => G_TRIG_STAGES * G_SAMPLE_W)
+            port map (dst_clk_i => sample_clk_i, din_i => seq_masks_jclk,
+                      dout_o => seq_masks_sclk);
+        u_cdc_seq_counts : rr_rea_sync_word
+            generic map (G_WIDTH => G_TRIG_STAGES * C_SEQ_COUNT_W)
+            port map (dst_clk_i => sample_clk_i, din_i => seq_counts_jclk,
+                      dout_o => seq_counts_sclk);
+        seq_enable_sclk <= trig_mode_sclk(C_TRIG_MODE_BIT_SEQ_EN);
+    end generate;
+
+    g_no_seq_cdc : if G_TRIG_STAGES = 0 generate
+        seq_values_sclk <= (others => '0');
+        seq_masks_sclk  <= (others => '0');
+        seq_counts_sclk <= (others => '0');
+        seq_enable_sclk <= '0';
+    end generate;
+
     u_fsm : entity work.rr_rea_capture_fsm
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
                      G_TRIG_CONDS => G_TRIG_CONDS,
-                     G_QUAL_CONDS => G_QUAL_CONDS)
+                     G_QUAL_CONDS => G_QUAL_CONDS,
+                     G_TRIG_STAGES => C_SEQ_STAGES)
         port map (
             sample_clk_i    => sample_clk_i,
             sample_rst_i    => sample_rst_sync,
@@ -864,6 +923,12 @@ begin
             -- RTL-P3.647: array_enable rides in trig_mode bit[2] (CDC'd above);
             -- the per-condition arrays come from their own sync.
             array_enable_i => trig_mode_sclk(C_TRIG_MODE_BIT_ARRAY_EN),
+            -- REA-P3.7: TRIG_MODE bit[1] enables the sequencer when one is
+            -- elaborated (it takes precedence over the array path).
+            seq_enable_i   => seq_enable_sclk,
+            seq_values_i   => seq_values_sclk,
+            seq_masks_i    => seq_masks_sclk,
+            seq_counts_i   => seq_counts_sclk,
             cond_values_i  => cond_values_sclk,
             cond_masks_i   => cond_masks_sclk,
             cond_ops_i     => cond_ops_sclk,

@@ -41,8 +41,11 @@ vendor ILA / SignalTap in a RouteRTL project.
 | AXI-Stream window dump | `G_AXIS_WINDOW => true` | one consumer of the window at a time (REA-REQ-916) |
 | Wide probes | `G_SAMPLE_W` up to 1024 | trigger and readback paged in 32-bit words |
 
-**Not available:** a multi-stage trigger sequencer (in the FSM, not wired to
-`rr_rea_top` or the host — REA-P3.7), segmented capture, `G_NUM_CHAN > 1`.
+**Sequencer (v0.15, REA-P3.7):** `G_TRIG_STAGES` 1..4 (default 0 = none) on
+the top and every wrapper, SEQ window at 0x40, enabled by `TRIG_MODE` bit[1]. The RTL is wired;
+`rr ila` cannot arm it until routertl RTL-P2.1400 lands.
+
+**Not available:** segmented capture, `G_NUM_CHAN > 1`.
 
 **Vendor wrappers.** `rr_rea_xilinx7` (BSCANE2, `G_CTRL_CHAIN` = USERn) and
 `rr_rea_intel` (`sld_virtual_jtag`, `G_CTRL_CHAIN` = `sld_instance_index`),

@@ -1,6 +1,6 @@
 # SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 # SPDX-License-Identifier: MIT
-"""REA-P3.6: rr_rea_intel passes G_TRIG_CONDS and G_QUAL_CONDS to rr_rea_top,
+"""REA-P3.6: rr_rea_intel passes G_TRIG_CONDS, G_QUAL_CONDS and (REA-P3.7) G_TRIG_STAGES to rr_rea_top,
 and its ext_trigger_i reaches the core. Body in rea_wrapper_generics.py."""
 from __future__ import annotations
 
@@ -16,11 +16,13 @@ import cocotb  # noqa: E402
 
 import rea_wrapper_generics as rwg  # noqa: E402
 from engine.simulation import run_simulation  # noqa: E402
+from sdk.cocotb_helpers import requires  # noqa: E402
 
 VENDOR = "intel"
 
 
 @cocotb.test()
+@requires("REA-REQ-966", "REA-REQ-967")
 async def test_wrapper_passes_trig_and_qual_conds(dut):
     await rwg.start(dut)
     rwg.check_features(await rwg.read(dut, rwg.ADDR_FEATURES))
