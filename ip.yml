@@ -11,9 +11,19 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.6.0
+#   version: below        the PACKAGE version the registry pins   -> 1.7.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.7.0 (REA-P2.12) is a MINOR bump: the package now ships its Quartus timing
+# constraints, constraints/rr_rea_scoped.sdc (build.sources.sdc -> ip.lock
+# scoped_constraints kind: sdc, applied globally on intel/altera builds,
+# RTL-P3.1331). Quartus does not clock the sld_virtual_jtag TCK on its own
+# (measured on DE25, Quartus Pro 25.3.1: altera_reserved_tck Unconstrained), so
+# every Altera REA build before this ran its JTAG domain untimed. The file
+# declares altera_reserved_tck (unless the consumer already clocks it) and
+# bounds every crossing into a synchronizer first stage to half the faster
+# period (set_false_path + set_net_delay). No RTL change.
 #
 # 1.6.0 (REA-P2.13) is a MINOR bump: the package now ships the Microchip
 # PolarFire / PolarFire SoC wrapper rr_rea_jtag_microchip (UJTAG hard macro,
@@ -133,7 +143,7 @@
 
 name: rea
 namespace: routertl
-version: 1.6.0
+version: 1.7.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
@@ -210,6 +220,16 @@ build:
   sources:
     xdc:
       - constraints/rr_rea_scoped.xdc
+    # REA-P2.12: the Quartus twin. Quartus has no `read_xdc -ref`, so rr applies
+    # this file GLOBALLY and it scopes itself by REA's own entity names
+    # (*|rr_rea_sync_word:*|s1*, *|rr_rea_pulse_xfer:*|s1*). It declares the
+    # sld_virtual_jtag clock altera_reserved_tck unless the consumer already
+    # clocks that port, and bounds every crossing with set_net_delay at half
+    # the faster period after removing the default inter-clock relationship.
+    # Quartus-only: rr feeds a bare build.sources.sdc to intel/altera builds
+    # alone (Microchip needs its own dialect, routertl RTL-P2.1392).
+    sdc:
+      - constraints/rr_rea_scoped.sdc
   simulation:
     sources: []
     test_dir: sim/cocotb/tests

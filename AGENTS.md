@@ -45,9 +45,12 @@ vendor ILA / SignalTap in a RouteRTL project.
 `rr_rea_top` or the host — REA-P3.7), segmented capture, `G_NUM_CHAN > 1`.
 
 **Vendor wrappers.** `rr_rea_xilinx7` (BSCANE2, `G_CTRL_CHAIN` = USERn) and
-`rr_rea_intel` (`sld_virtual_jtag`, `G_CTRL_CHAIN` = `sld_instance_index`).
-Neither passes `G_TRIG_CONDS` through (always 4; REA-P3.6). The Microchip UJTAG
-wrapper currently lives in the RouteRTL tree, not in this package (REA-P2.13).
+`rr_rea_intel` (`sld_virtual_jtag`, `G_CTRL_CHAIN` = `sld_instance_index`),
+and since 1.6.0 `rr_rea_jtag_microchip` (UJTAG, `G_CTRL_CHAIN` 1..4 = user
+opcode 0x55..0x58, or a raw opcode 16..127). None passes `G_TRIG_CONDS` through
+(always 4; REA-P3.6). On PolarFire, instantiate it as
+`entity rr_rea.rr_rea_jtag_microchip`: a `component` in your `work` library
+does not bind to the package's `rr_rea` library under Libero.
 Connect `trigger_o`: with no observable output the hierarchy can be pruned.
 
 **Integration rules.** Clock REA from the observed boundary's own clock, and
@@ -55,8 +58,10 @@ reset it from a power-on reset the observed block cannot gate. On AMD the
 package ships `constraints/rr_rea_scoped.xdc` (TCK clock plus
 `set_max_delay -datapath_only` at half the faster period on every
 synchronizer first stage), so the consumer adds no REA timing constraints. On
-Intel the equivalent SDC is not shipped yet (REA-P2.12): constrain it
-yourself the same way. Never waive the crossings with
+Intel, since 1.7.0, `constraints/rr_rea_scoped.sdc` does the same
+(`altera_reserved_tck` clock plus `set_net_delay` at half the faster period;
+REA-P2.12). On Microchip the UJTAG constraints are not shipped yet: rr cannot
+feed a package SDC to Libero (routertl RTL-P2.1392, REA-P2.13). Never waive the crossings with
 `set_clock_groups -asynchronous`. Write all configuration while disarmed, then
 arm.
 

@@ -376,7 +376,8 @@ then assert the source bit to release.
   -datapath_only` at half the faster clock's period into the synchronizer's
   first stage (see "Clock-domain crossings", REA-P2.10). On Xilinx the
   BSCANE2 `TCK` and on Altera the `sld_virtual_jtag` `tck` must also be
-  declared as clocks, or the whole JTAG domain is untimed (REA-P2.8). Leaving
+  declared as clocks, or the whole JTAG domain is untimed (REA-P2.8; the
+  shipped `rr_rea_scoped.xdc` / `rr_rea_scoped.sdc` do both, REA-P2.12). Leaving
   it implicit is an **unconstrained-but-reported-met STA trap**. Do not reach
   for `set_clock_groups -asynchronous`: it waives the crossing instead of
   bounding it. `rr_rea_top.vhd`'s `source_out` port comment restates this.
@@ -430,8 +431,35 @@ timing constraints. The file:
   the TCK and sample periods. The bound is computed in the XDC from the live
   clock on `sample_clk_i`, never a literal.
 
+**Quartus (REA-P2.12).** `constraints/rr_rea_scoped.sdc` is the Intel/Altera
+twin, declared in `ip.yml` `build.sources.sdc`. Quartus has no `read_xdc -ref`,
+so rr applies it globally (after the consumer's own SDC) and the file scopes
+itself by REA's entity names: `*|rr_rea_sync_word:*|s1*` and
+`*|rr_rea_pulse_xfer:*|s1*`, which match in both Quartus Standard and Pro
+netlists and cannot reach another IP's synchronizers. It:
+
+- **Declares the JTAG clock** `altera_reserved_tck` at 33.333 ns, unless the
+  consumer already clocks that port. Quartus does not do this itself: on a
+  DE25 build (Quartus Pro 25.3.1, 2026-09-26) `report_ucp` listed
+  `altera_reserved_tck` as an unconstrained clock (warning 332060), so every
+  Altera REA build before 1.7.0 ran its JTAG domain untimed.
+- **Bounds every crossing** in the Quartus CDC idiom, since Quartus has no
+  `-datapath_only`: `set_false_path` removes the default inter-clock
+  relationship and `set_net_delay -max -get_value_from_clock_period
+  min_clock_period -value_multiplier 0.5` bounds the route into each first
+  stage at half the faster period. The first stage is driven straight from a
+  source-domain flop (REA-REQ-961), so that net is the whole datapath. On the
+  DE25 build: 327 first stages, requirement 10.000 ns (0.5 x min(33.333, 20)),
+  worst slack 8.725 ns; setup and hold met in both clocks.
+
+The routertl DE25 and Arria 10 demos carry a `set_clock_groups -asynchronous`
+in their own `constraints/timing.sdc`, but that file never reached their
+Quartus project (only the board `master.sdc` did), so it was not in force.
+
 Outside RouteRTL, add the same file with `read_xdc -ref rr_rea_top
-rr_rea_scoped.xdc` after your own clocks are defined. Under `G_REG_IFACE =
+rr_rea_scoped.xdc` after your own clocks are defined (Vivado), or
+`set_global_assignment -name SDC_FILE rr_rea_scoped.sdc` after your own SDC
+(Quartus). Under `G_REG_IFACE =
 "external"` the register clock is yours: bound those crossings the same way
 against your register clock (in RouteRTL, a `timing_contract` budget with
 `formula: "0.5 * min(period.src, period.dst)"`).

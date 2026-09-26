@@ -1358,6 +1358,22 @@ functional_contract:
       contain set_clock_groups or set_false_path between the domains. Every
       synchronizer instance in rr_rea_top SHALL be labelled `u_cdc_*` with its
       first stage named `s1`, so the selector reaches it.
+  - id: REA-REQ-965
+    kind: structural
+    spec: [{ doc: SPEC.md, clause: "Clock-domain crossings (REA-P2.10)" }]
+    desc: >-
+      The package SHALL ship its Quartus timing constraints to every
+      intel/altera consumer (REA-P2.12): ip.yml `build.sources.sdc` SHALL
+      declare constraints/rr_rea_scoped.sdc, applied globally, which (1) SHALL
+      create the clock `altera_reserved_tck` unless the consumer already clocks
+      that port (Quartus derives none for the sld_virtual_jtag TCK, so without
+      it the whole JTAG domain is untimed), and (2) SHALL bound every crossing
+      into a synchronizer first stage, selected by REA's own entity names
+      (`*|rr_rea_sync_word:*|s1*`, `*|rr_rea_pulse_xfer:*|s1*`), with
+      set_net_delay -max at half the faster of the two clock periods, derived
+      from the live clocks. Every set_false_path SHALL be paired with that
+      bound on the same target; the file SHALL NOT contain set_clock_groups.
+      Guarded by tests/test_rea_scoped_sdc_p2_12.py.
   - id: REA-REQ-964
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
