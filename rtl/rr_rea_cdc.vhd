@@ -44,13 +44,39 @@ end entity;
 architecture rtl of rr_rea_sync_word is
     signal s1 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');
     signal s2 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');
-    -- Vendor-specific synthesis attributes. Vivado/Quartus both honor
-    -- the canonical "ASYNC_REG" attribute on the destination flops to
-    -- group them into the same slice and disable timing analysis on
-    -- the source path. Harmless to other tools.
+    -- How each vendor tool recognises this synchronizer, from its own
+    -- reports (REA-P3.8, 2026-09-26, util_field: G_SAMPLE_W 80, QUAL 1):
+    --
+    --   Vivado 2024.1 (xc7z020) honours ASYNC_REG. All 1208 s1 and 1208 s2
+    --   flops carry it, and report_cdc rates every crossing Safe: CDC-3
+    --   "1-bit synchronized with ASYNC_REG property", CDC-6 "Multi-bit
+    --   synchronized with ASYNC_REG property". ASYNC_REG keeps the pair
+    --   together and out of SRLs and retiming. It does NOT exempt the
+    --   source path from timing: constraints/rr_rea_scoped.xdc bounds it.
+    --
+    --   Quartus Pro 25.3.1 (Agilex 5) ignores ASYNC_REG ("Invalid
+    --   assignment name" in syn.ae.rpt). Its synchronizer identification
+    --   is Auto: report_metastability lists every u_cdc_* chain (1207)
+    --   when both clocks are constrained, which constraints/rr_rea_scoped.sdc
+    --   ensures, and none while the JTAG clock is unconstrained.
+    --
+    --   Libero 2025.2 (Synplify, MPFS095T) does not read ASYNC_REG. Its CDC
+    --   report found every chain, but rated 17 of 27 "Divergence detected
+    --   in the crossover path", and it forwards only safe chains to
+    --   placement as synchronizers (designer cdc_synchronizer.csv). The
+    --   divergence is the source register also fanning out in its own
+    --   domain, e.g. into the register read-back. That is safe here: each
+    --   source is a flop (REA-REQ-961) and, per the same report, no source
+    --   feeds two synchronizers, so nothing reconverges downstream.
+    --   syn_safe_cdc on s1 records that review: all 27 then report
+    --   SAFE_CDC YES and all 27 reach placement as synchronizers.
+    --
+    -- Tools that do not know an attribute ignore it.
     attribute ASYNC_REG : string;
     attribute ASYNC_REG of s1 : signal is "TRUE";
     attribute ASYNC_REG of s2 : signal is "TRUE";
+    attribute syn_safe_cdc : boolean;
+    attribute syn_safe_cdc of s1 : signal is true;
 begin
     process (dst_clk_i)
     begin
@@ -80,9 +106,12 @@ end entity;
 
 architecture rtl of rr_rea_pulse_xfer is
     signal s1, s2, s3 : std_logic := '0';
+    -- Same attributes, same measured recognition as rr_rea_sync_word.
     attribute ASYNC_REG : string;
     attribute ASYNC_REG of s1 : signal is "TRUE";
     attribute ASYNC_REG of s2 : signal is "TRUE";
+    attribute syn_safe_cdc : boolean;
+    attribute syn_safe_cdc of s1 : signal is true;
 begin
     -- Destination: two-flop sync the toggle level, then one extra
     -- register for edge detect. Pulse out for one dst_clk_i per

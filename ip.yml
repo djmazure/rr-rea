@@ -11,9 +11,17 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.8.0
+#   version: below        the PACKAGE version the registry pins   -> 1.8.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.8.1 (REA-P3.8) is a PATCH: rr_rea_sync_word and rr_rea_pulse_xfer add
+# syn_safe_cdc on their first stage, so Synplify (Libero) forwards every REA
+# synchronizer to placement. Measured on MPFS095T, Libero 2025.2: before, 17 of
+# 27 were rated "Divergence detected in the crossover path" and placed as
+# ordinary flops; after, all 27 SAFE_CDC YES and in cdc_synchronizer.csv.
+# The rr_rea_cdc header now states what each vendor's report shows (Quartus
+# ignores ASYNC_REG and relies on Auto identification). Logic is unchanged.
 #
 # 1.8.0 (REA-P3.6) is a MINOR bump: every vendor wrapper now passes
 # G_TRIG_CONDS (default 4) and G_QUAL_CONDS (default 0) to rr_rea_top and has
@@ -152,7 +160,7 @@
 
 name: rea
 namespace: routertl
-version: 1.8.0
+version: 1.8.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

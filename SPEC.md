@@ -390,7 +390,9 @@ then assert the source bit to release.
 REA has two clock domains: `sample_clk_i` (the probed design's clock) and the
 register clock (`tck_i` under `G_REG_IFACE = "jtag"`, `reg_clk_i` under
 `"external"`). Every crossing lands on a synchronizer from `rr_rea_cdc.vhd`.
-Their destination flops (`s1`, `s2`, ...) carry `ASYNC_REG = "TRUE"`:
+Their destination flops (`s1`, `s2`, ...) carry `ASYNC_REG = "TRUE"`, and
+since 1.8.1 each first stage also carries `syn_safe_cdc` (see "How each tool
+recognises the synchronizers" below):
 
 - **Register clock → `sample_clk_i`:** configuration words (PRETRIG,
   POSTTRIG, TRIG_*, DECIM, COND_*, QUAL_*, SEED, SOURCE) through
@@ -468,6 +470,23 @@ against your register clock (in RouteRTL, a `timing_contract` budget with
 Do not use `set_clock_groups -asynchronous` between the two domains. It
 removes every inter-domain path from timing, including an unsafe one, so
 a defect like the pre-P2.10 CDC-10 passes unseen.
+
+**How each tool recognises the synchronizers (REA-P3.8).** Read from each
+tool's own report on a util_field build (G_SAMPLE_W 80, G_QUAL_CONDS 1),
+2026-09-26:
+
+| Tool | Attribute it reads | Report evidence |
+|---|---|---|
+| Vivado 2024.1, xc7z020 | `ASYNC_REG` | All 1208 `s1` and 1208 `s2` flops carry it; `report_cdc` rates all 1207 clocked crossings Safe: CDC-3 "1-bit synchronized with ASYNC_REG property" and CDC-6 "Multi-bit synchronized with ASYNC_REG property", 0 "No ASYNC_REG". (The port-driven `u_cdc_ext_trig` has no input delay in the OOC build, so `report_cdc` skips it.) |
+| Quartus Pro 25.3.1, Agilex 5 | none: `ASYNC_REG` is "Invalid assignment name" in `syn.ae.rpt` | Synchronizer identification is Auto. `report_metastability` lists every `u_cdc_*` instance (1207 chains) when both clocks are constrained, as `rr_rea_scoped.sdc` ensures, and "No synchronizer chains to report." when only the board SDC is read, leaving the JTAG clock unconstrained (DE25 REA demo build). Auto-found chains are left out of the design MTBF unless you enable "Analyze Auto-Detected Synchronizers for Metastability". |
+| Libero 2025.2 (Synplify), MPFS095T | `syn_safe_cdc` | Without it, the Synplify CDC report rated 17 of 27 synchronizers "Divergence detected in the crossover path", and only the 10 safe ones reached placement as synchronizers (designer `cdc_synchronizer.csv`). With it, all 27 report SAFE_CDC YES and all 27 reach placement; timing is still met. |
+
+The divergence Synplify flags is the source register also fanning out in its
+own domain (into the register read-back, for example). It is safe because
+each source is a flop (REA-REQ-961) and, in the same report, no source feeds
+more than one synchronizer, so nothing reconverges in the destination
+domain. `syn_safe_cdc` records that review. It does not remove the crossing
+from timing: the scoped constraints bound it as above.
 
 ## Resources and Fmax per configuration (REA-P2.9)
 
