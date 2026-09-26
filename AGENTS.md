@@ -155,24 +155,25 @@ gate is therefore ours, and it has three layers:
 | Layer | What runs | Armed by |
 |---|---|---|
 | pre-push | `pytest tests/` + the full cocotb suite | `git config core.hooksPath .githooks` |
-| CI | same, on every push to main, every PR, every `v*` tag | `.github/workflows/ci.yml` (automatic) |
-| | ⚠ the CI **sim** job is BLOCKED on RTL-T1.26 — see below | |
+| CI | **nothing — the workflow is DISABLED** | `.github/workflows/ci.yml`, state `disabled_manually` on GitHub |
 | publish | `rr pkg publish` refuses a red suite for `routertl/*` | routertl's `_prepublish_sim_gate` |
 
 **`core.hooksPath` is LOCAL git config — it is not cloned.** A fresh clone has
 NO pre-push gate until you run the command above, and the repo will look gated
 when it isn't. Check with `git config core.hooksPath` before trusting it.
 
-**CI's sim job is red until a routertl release ships RTL-T1.26**, and that is
-deliberate rather than hidden. A published routertl wheel is Cython-compiled,
-and engine-script dispatch resolved scripts by literal `.py` filename — so on a
-runner (no source tree on the walk-up path) every dispatch missed: hooks
-skipped, EMPTY compile order, `make: Nothing to be done for 'sim'`, all 39
-tests red. It cannot reproduce on a dev bench, which is why it went unseen.
-Fixed in routertl main; the job preflights for it and fails with that reason
-instead of a wall of unexplained failures, and goes green on its own once a
-release lands. **The pre-push hook is the live behavioural gate meanwhile** —
-and it is a real one: it ran during the actual pushes that landed this work.
+**GitHub CI does not run (measured 2026-09-26, REA-P2.15).** The `CI` workflow
+is `disabled_manually`; its last run was a push on 2026-08-24 and it failed. A
+push, PR or tag triggers nothing, so the pre-push hook and the publish gate are
+the only automatic checks. Before it was disabled, its sim job was red on
+RTL-T1.26: a published routertl wheel is Cython-compiled, and engine-script
+dispatch resolved scripts by literal `.py` filename, so on a runner (no source
+tree on the walk-up path) every dispatch missed: hooks skipped, EMPTY compile
+order, `make: Nothing to be done for 'sim'`, all 39 tests red. It could not
+reproduce on a dev bench. Re-enabling CI needs that fix in a released routertl
+and a green run; until then do not describe a push as "CI-checked". **The
+pre-push hook is the live behavioural gate**, and it is a real one: it runs on
+the pushes that land this repo's work.
 
 Why the whole suite and not a fast subset: it takes ~50 s, and a curated subset
 silently stops covering every test file added after it was written.
@@ -181,6 +182,40 @@ silently stops covering every test file added after it was written.
 and three test files kept the old literal. The suite sat RED for weeks because
 nothing ran it. `tests/test_version_magic_single_source.py` is the cheap
 structural backstop for that specific class; the gate above is the real fix.
+
+## Releasing (REA-P2.15)
+
+A version bump in `ip.yml` is not a release. Consumers resolve `routertl/rea`
+by version (`^1.6.0`) through the registry, which knows only versions that were
+TAGGED and PUBLISHED. On 2026-09-26 `ip.yml` had reached 1.8.0 through eleven
+bumps while the newest tag was `v1.2.0`, so no consumer could resolve `^1.6.0`
+(REA-P2.15, a recurrence of RTL-P2.1318). Every bump needs the steps below, or
+a stated reason in its landing message why it is not released yet.
+
+1. **Bump and land.** Bump `version:` in `ip.yml` with a changelog entry,
+   through the gate, landed on `main` (in this bench's flow, via Mission
+   Control).
+2. **Tag the LAST commit of that version**: the newest commit on `main` whose
+   `ip.yml` still says that version, i.e. the commit just before the next bump,
+   or the tip if nothing has bumped since. `v1.2.0` is on `6350ce8`, the P2.5
+   revision after the 1.2.0 bump, for that reason. Annotated tag, pushed:
+   `git tag -a vX.Y.Z <sha> -m "rr-rea X.Y.Z" && git push origin vX.Y.Z`.
+3. **Publish from a clean checkout of that tag.** `rr pkg publish` records
+   `git rev-parse HEAD` and uploads the working tree; it checks neither the tag
+   nor a clean tree. So:
+   `git -C <scratch> checkout --detach vX.Y.Z && git status --short` (must be
+   empty), then `rr pkg publish -n routertl` from there. Its
+   `_prepublish_sim_gate` runs the cocotb suite and REFUSES a red one for
+   `routertl/*`; never pass `--skip-sim`.
+4. **Verify** the registry row: version X.Y.Z with commit_sha equal to the
+   tag's commit (`git rev-parse vX.Y.Z^{}`).
+
+**Tagging and publishing are the owner's call.** On this bench an agent does
+not push tags or run `rr pkg publish`; it lands the bump and reports the
+pending release to Mission Control. **Do not back-fill** tags for intermediate
+versions nobody consumes just to silence a drift check (REA-P2.15 prohibits
+it). Tag the versions a consumer actually needs, at the commit that is that
+version.
 
 ## Simulation
 
