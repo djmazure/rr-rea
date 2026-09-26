@@ -40,6 +40,13 @@ _VENDOR_PRIMITIVES: dict[str, set[str]] = {
         "virtual_state_cdr", "virtual_state_sdr", "virtual_state_udr",
         "ir_in", "ir_out",
     },
+    # Microchip PolarFire UJTAG hard macro (rr_rea_jtag_microchip.vhd,
+    # REA-P2.13). Names as Libero binds them; the declaration synthesised and
+    # captured on MPFS095T silicon (RTL-P2.1279).
+    "ujtag": {
+        "utdo", "udrcap", "udrsh", "udrupd", "uireg", "urstb", "utdi",
+        "tck", "trstb", "tdi", "tdo", "tms", "udrck",
+    },
 }
 
 #: Suffixes the ESA convention adds to OUR ports. None may appear on a vendor
@@ -51,7 +58,10 @@ def _component_blocks(text: str) -> dict[str, str]:
     """Map component-name -> its declaration body."""
     out: dict[str, str] = {}
     for m in re.finditer(
-        r"^\s*component\s+(\w+)\s+is\b(.*?)^\s*end\s+component\s*;",
+        # `end component [name];` — the name is optional in VHDL; missing it
+        # hid the UJTAG declaration (closed `end component UJTAG;`) from
+        # every check here (REA-P2.13).
+        r"^\s*component\s+(\w+)\s+is\b(.*?)^\s*end\s+component(?:\s+\w+)?\s*;",
         text, re.S | re.M | re.I,
     ):
         out[m.group(1).lower()] = m.group(2)

@@ -20,10 +20,11 @@ This repository is the public home of the `routertl/rea` package on
   OR across slots), and the timestamp plane (mandatory with a qualifier) places
   each stored event in time. Off by default; with `G_QUAL_CONDS = 0` the core
   is the v0.9 analyzer bit for bit. See `SPEC.md` "Storage qualification".
-- Vendor JTAG wrappers for Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2)
-  and Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`), selected
-  per-vendor by the package manifest. Silicon-proven on Zybo Z7-20 (Zynq-7000)
-  and DE25-Standard (Agilex 5).
+- Vendor JTAG wrappers for Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2),
+  Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`) and Microchip
+  PolarFire / PolarFire SoC (`rr_rea_jtag_microchip`, UJTAG), selected
+  per-vendor by the package manifest. Silicon-proven on Zybo Z7-20 (Zynq-7000),
+  DE25-Standard (Agilex 5) and the PolarFire SoC Discovery Kit (MPFS095T).
 - Host side lives in the [RouteRTL](https://pypi.org/project/routertl/) SDK:
   `rr ila capture --core <name>`, `rr ila identity`, RouteWave wave viewer.
 

@@ -11,9 +11,22 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.5.1
+#   version: below        the PACKAGE version the registry pins   -> 1.6.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.6.0 (REA-P2.13) is a MINOR bump: the package now ships the Microchip
+# PolarFire / PolarFire SoC wrapper rr_rea_jtag_microchip (UJTAG hard macro,
+# sources_per_vendor.microchip). It lived only in routertl src/units, so a
+# consumer that ran `rr pkg add routertl/rea` had no PolarFire door although
+# routertl ships the host side (OpenOcdFlashProTransport). The wrapper is
+# moved unchanged from the one captured on MPFS095T silicon (RTL-P2.1279).
+# The wrapper is NEW in the package. A pre-1.6 consumer that compiles
+# routertl's in-tree copy is unaffected until it re-locks to ^1.6.0, and at
+# that point it must drop the in-tree path, or both copies define
+# rr_rea_microchip (routertl RTL-P2.1393 does this for the PolarFire demo).
+# No register-map or runtime-tier change. Its UDRCK timing constraints wait on
+# routertl applying package SDC to Libero builds (RTL-P2.1392).
 #
 # 1.5.1 (REA-P2.11 part 2) is a PATCH: with G_QUAL_CONDS > 0 the storage
 # qualifier is decided a cycle ahead into a flop and the capture FSM runs on
@@ -120,7 +133,7 @@
 
 name: rea
 namespace: routertl
-version: 1.5.1
+version: 1.6.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
@@ -180,6 +193,8 @@ synthesis:
       - rtl/rr_rea_jtag_xilinx7.vhd
     altera:
       - rtl/rr_rea_jtag_intel.vhd
+    microchip:
+      - rtl/rr_rea_jtag_microchip.vhd
 
 build:
   # REA-P2.8: REA's own timing constraints, shipped to every consumer. rr
