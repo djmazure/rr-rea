@@ -1,0 +1,6 @@
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+✓ bit-sha : MATCH — PL is running the expected bit (0x77fa0945)
+    expected: 0x77fa0945 (sidecar:kv260_rea_source.usr_access)
+    device:   0x77fa0945
+    outcome:  CONFIRMED (vendor=xilinx mechanism=usr-access-32)

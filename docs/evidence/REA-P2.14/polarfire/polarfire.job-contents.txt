@@ -1,0 +1,26 @@
+64:Importing source: libs/routertl/rea/rtl/rr_rea_pkg.vhd
+65:Importing source: libs/routertl/rea/rtl/rr_rea_dpram.vhd
+66:Importing source: libs/routertl/rea/rtl/rr_rea_capture_fsm.vhd
+67:Importing source: libs/routertl/rea/rtl/rr_rea_regbank.vhd
+68:Importing source: libs/routertl/rea/rtl/rr_rea_cdc.vhd
+69:Importing source: libs/routertl/rea/rtl/rr_rea_jtag_iface.vhd
+70:Importing source: libs/routertl/rea/rtl/rr_rea_fill_fsm.vhd
+71:Importing source: libs/routertl/rea/rtl/rr_rea_crc_sweep.vhd
+72:Importing source: libs/routertl/rea/rtl/rr_rea_trust_core.vhd
+73:Importing source: libs/routertl/rea/rtl/rr_rea_axi4lite.vhd
+74:Importing source: libs/routertl/rea/rtl/rr_rea_axis_window.vhd
+75:Importing source: libs/routertl/rea/rtl/rr_rea_top.vhd
+76:Importing source: libs/routertl/rea/rtl/rr_rea_trig_xbar.vhd
+77:Importing source: libs/routertl/rea/rtl/rr_rea_jtag_microchip.vhd
+407:INFO: — timing met: SmartTime lists no setup/hold violation and no unwaived unconstrained check.
+416:Info:  Stage 1 initialization client has been added to sNVM.
+417:Info:  Stage 2_3 initialization client has been added to sNVM.
+431:Info:  Found sNVM configuration file: /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/polarfire_soc_rea_demo/project/designer/polarfire_soc_rea_demo_top/SNVM.cfg
+432:Warning:  Bitstream not generated for eNVM. The configuration file:  is either absent, unreadable, or empty. Use the Design and Memory Initialization tool in the design flow to configure eNVM if needed.
+453:Info:  Found sNVM configuration file: /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/polarfire_soc_rea_demo/project/designer/polarfire_soc_rea_demo_top/SNVM.cfg
+454:Warning:  Bitstream not generated for eNVM. The configuration file:  is either absent, unreadable, or empty. Use the Design and Memory Initialization tool in the design flow to configure eNVM if needed.
+464:Successfully generated bitstream file and it has been added to the job container; file programs Fabric and sNVM.
+465:Fabric component bitstream digest: 3ab26abd55699cec0bdee00400188c36662bbfd840f1a22c407cbb8c4af7902b
+466:sNVM component bitstream digest: 004f0cf648e9c205d41f501dff28f234c389280e7420e93d4823c715dd3aee2a
+467:Entire bitstream digest: 04ba1bf385aa2fa637d030b8b4c66bff8581965716bdc0ea1da7fc2dc551c752
+477:Programming job exported to /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/polarfire_soc_rea_demo/bitstream/polarfire_soc_rea_demo.job

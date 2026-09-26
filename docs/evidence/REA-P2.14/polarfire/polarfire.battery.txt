@@ -1,0 +1,9 @@
+══ REA battery: polarfire_soc_rea_demo (profile: counter) ══
+  ⚠️  bit-sha not confirmed (expected on Altera and Microchip — Xilinx USR_ACCESS only)
+  ✅ identity:  VERSION 0x00 0x5245410D
+       FEATURES  0xD0  0x00080104  (trig_conds=4, num_source=1, readback_integrity)
+  ✅ capture returned 4096 samples over JTAG
+  ✅ exactly one trigger marker (got 1)
+  ✅ counter steps +1 on every sample (4095/4095)
+  ✅ ✅ REA selftest passed — full window word-exact, CRC 0xbd3bcf60
+══ polarfire_soc_rea_demo: ALL CHECKS PASSED ══

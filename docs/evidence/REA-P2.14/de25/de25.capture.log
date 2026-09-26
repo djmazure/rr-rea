@@ -1,0 +1,28 @@
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+ℹ  Agilex-class part — REA via Quartus System Console SLD (SDM-mediated JTAG; openocd can't reach the SLD here, and quartus_stp DR writes 
+are capture-only).
+ trigger: value_match value=0x100 mask=0x100 pre=1024 post=3071
+ arming...
+ armed; waiting for trigger (value=0x100 mask=0x100 mode=0x1)...
+ reading dpram (4096 cells, one block read)...
+ capture+read in 19666 ms; start_ptr=2049; trigger at idx 1024; shipping to viewer...
+✅ Captured window written to /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.up.csv (4096 samples — replay
+with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.up.csv)
+ RouteWave not launched (--no-open) — the capture is on disk.
+  Open it with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.up.csv.
+  To bind the wave_stream socket anyway, re-run with --open.
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+ℹ  Agilex-class part — REA via Quartus System Console SLD (SDM-mediated JTAG; openocd can't reach the SLD here, and quartus_stp DR writes 
+are capture-only).
+ trigger: value_match value=0x100 mask=0x100 pre=1024 post=3071
+ arming...
+ armed; waiting for trigger (value=0x100 mask=0x100 mode=0x1)...
+ reading dpram (4096 cells, one block read)...
+ capture+read in 19627 ms; start_ptr=1351; trigger at idx 1024; shipping to viewer...
+✅ Captured window written to /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.down.csv (4096 samples — 
+replay with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.down.csv)
+ RouteWave not launched (--no-open) — the capture is on disk.
+  Open it with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/de25/de25.down.csv.
+  To bind the wave_stream socket anyway, re-run with --open.

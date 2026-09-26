@@ -1,0 +1,9 @@
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+No openocd bridge running — spawning FlashPro 03ASSOGW bridge (tap mpfs.cpu, port 6666)…
+
+REA identity (core u_dbg_rea)
+  VERSION   0x00  0x5245410D
+  FEATURES  0xD0  0x00080104  (trig_conds=4, num_source=1, readback_integrity)
+  BUILD_ID  0xD4  0x903A93E9  (source hash)
+

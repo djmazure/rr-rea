@@ -1,0 +1,6 @@
+
+REA identity (core u_dbg_rea)
+  VERSION   0x00  0x5245410D
+  FEATURES  0xD0  0x00080B04  (trig_conds=4, num_source=11, readback_integrity)
+  BUILD_ID  0xD4  0x903A93E9  (source hash)
+

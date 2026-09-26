@@ -1,0 +1,31 @@
+board 'zybo' matches zybo-classic-1, zybo-classic-2, zybo-z7-20; using zybo-classic-1: it is the one your lease holds.
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+ trigger: value_match value=0x100 mask=0x100 pre=1024 post=3071
+ arming...
+ armed; waiting for trigger (value=0x100 mask=0x100 mode=0x1)...
+ reading dpram (4096 cells, one block read)...
+ capture+read in 1998 ms; start_ptr=1664; trigger at idx 1024; shipping to viewer...
+✅ Captured window written to 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.up.csv (4096 samples — replay 
+with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.up.csv)
+ RouteWave not launched (--no-open) — the capture is on disk.
+  Open it with rr ila replay 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.up.csv.
+  To bind the wave_stream socket anyway, re-run with --open.
+board 'zybo' matches zybo-classic-1, zybo-classic-2, zybo-z7-20; using zybo-classic-1: it is the one your lease holds.
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+ trigger: value_match value=0x100 mask=0x100 pre=1024 post=3071
+ arming...
+ armed; waiting for trigger (value=0x100 mask=0x100 mode=0x1)...
+ reading dpram (4096 cells, one block read)...
+ capture+read in 2096 ms; start_ptr=2695; trigger at idx 1024; shipping to viewer...
+✅ Captured window written to 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.down.csv (4096 samples — 
+replay with rr ila replay 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.down.csv)
+ RouteWave not launched (--no-open) — the capture is on disk.
+  Open it with rr ila replay 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/zybo_classic/zybo_classic-210279539777.down.csv.
+  To bind the wave_stream socket anyway, re-run with --open.

@@ -1,0 +1,52 @@
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+🚀 Starting hardware deployment...
+  🛡 RAM guard: system memory kill limit off (opt in with RR_MEM_LIMIT_GB or hardware.monitor.mem_limit_gb), stall-guardian on, max_jobs=auto
+— tune via RR_MEM_LIMIT_GB / RR_MAX_JOBS (rr_synth_monitor)
+   cable: serial TRWKK6LR → quartus cable name DE25-Standard
+🚀 Programming FPGA device...
+   RAM estimate: agilex5/quartus_sh/program: 2198 MB; measured history [1414, 1704, 1705, 1707, 1689] MB; confidence=high
+   → /opt/altera_pro/25.3/quartus/bin/quartus_sh -t /home/dmazure/git_repo/tich-super/routertl/tcl/altera/gen_program.tcl 
+/home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25…
+   🛡 cgroup MemoryMax (per-process hard-cap, stage=program, part_class=large): 2857 MB ≈ 2.8 GB (peak est 2198 MB × 1.3)
+   🛡 stage stall-guardian memory limit: none (set RR_MEM_LIMIT_GB or hardware.monitor.mem_limit_gb to enable)
+[monitor] Total RAM: 125.7 GB | Memory kill threshold: disabled (opt-in)
+Info: *******************************************************************
+Info: Running Quartus Prime Shell
+    Info: Version 25.3.1 Build 100 12/19/2025 Patches 1.02 SC Pro Edition
+    Info: Copyright (C) 2025  Altera Corporation. All rights reserved.
+    Info: Your use of Altera Corporation's design tools, logic functions 
+    Info: and other software and tools, and any partner logic 
+    Info: functions, and any output files from any of the foregoing 
+    Info: (including device programming or simulation files), and any 
+    Info: associated documentation or information are expressly subject 
+    Info: to the terms and conditions of the Altera Program License 
+    Info: Subscription Agreement, the Altera Quartus Prime License Agreement,
+    Info: the Altera IP License Agreement, or other applicable license
+    Info: agreement, including, without limitation, that your use is for
+    Info: the sole purpose of programming logic devices manufactured by
+    Info: Altera and sold by Altera or its authorized distributors.  Please
+    Info: refer to the Altera Software License Subscription Agreements 
+    Info: on the Quartus Prime software download page.
+    Info: Processing started: Sat Sep 26 13:46:55 2026
+    Info: System process ID: 3867673
+Info: Command: quartus_sh -t /home/dmazure/git_repo/tich-super/routertl/tcl/altera/gen_program.tcl /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25 /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25/bitstream/de25_rea_source.sof DE25-Standard 
+Info: Quartus(args): /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25 /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25/bitstream/de25_rea_source.sof DE25-Standard {}
+Sourcing Project YAML environment from build_env.tcl
+Altera environment loaded for part: A5ED013BB32AE4SCS (edition: pro)
+⚡ Programming Altera FPGA...
+   Cable: DE25-Standard
+   File:  /home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25/bitstream/de25_rea_source.sof
+   Executing: quartus_pgm -c "DE25-Standard" -m jtag -o "p;/home/dmazure/.agent-wt/claude-d4/rtl-rea-p2-14/examples/rea_source_demo/de25/bitstream/de25_rea_source.sof@1"
+Error (213013): Programming hardware cable not detected
+child process exited abnormally
+❌ Programming failed.
+[monitor] DONE | exit=1 | peak_sys=0.0 GB | peak_proc=0.0 GB | duration=2s | killed=False
+❌ Bitstream programming failed.
+💡 JTAG chain is empty, but an Altera blaster is still enumerated on USB.
+   That is BOTH the wedged-cable signature and the board-powered-off
+   signature — a chain probe cannot tell them apart. To find out:
+     1. routertl/.agents/skills/bench-host-bench-inventory/unwedge.sh
+        → chain returns ⇒ it was a wedged cable; re-run your command.
+     2. still empty ⇒ the board is off, power it from software:
+        anel_power.sh on <outlet>   # the board's own ANEL outlet

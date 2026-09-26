@@ -1,0 +1,2 @@
+2026-09-26T11:39:42.661Z board=de25-standard outlet=5 action=on state=on holder=claude-opus-5-5/rea-p2-14 source=anel_power.sh
+2026-09-26T11:50:29.426Z board=de25-standard outlet=5 action=off state=off holder=claude-opus-5-5/rea-p2-14 source=anel_power.sh

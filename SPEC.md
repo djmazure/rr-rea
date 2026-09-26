@@ -6,9 +6,8 @@ Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships three
 ## Per-family support matrix (REA-P3.9)
 
 What has actually been witnessed on each FPGA family, as opposed to what the
-wrappers are written for. Facts verified against rr-rea `74f088e` (ip 1.10.0)
-and the tickets cited, on 2026-09-26. The gap columns were re-checked after
-RTL-P2.1395 closed (routertl `a42862ad`), also on 2026-09-26.
+wrappers are written for. Updated from the REA-P2.14 re-witness
+(`docs/evidence/REA-P2.14/`), with its tickets checked, on 2026-09-26.
 
 Status values:
 
@@ -18,66 +17,76 @@ Status values:
 - **untested**: no build and no capture on record.
 
 A status changes only on a cited witness. **Re-verify this table whenever a
-silicon witness lands, starting with REA-P2.14**: that ticket re-runs the
-bench battery on the current RTL for every bench family.
+silicon witness lands** (the next is REA-P2.16, the P3.7 sequencer).
 
 <!-- rea-support-matrix:begin -->
 | Family | Wrapper (JTAG path) | Status | Evidence | rr-rea witnessed | Open gaps |
 |---|---|---|---|---|---|
-| Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097 | 0.8 | REA-P2.14 |
-| Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | works-with-gaps | RTL-P2.1097, OPN-P2.20 | 1.3.0 | RTL-P2.1383, REA-P2.14 |
-| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P3.1528, REA-P3.11, REA-P2.14 |
-| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1838, RTL-P3.1528 |
+| Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, REA-P2.14 | 1.9.0 | REA-P2.16 |
+| Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | works-with-gaps | RTL-P2.1097, OPN-P2.20, REA-P2.14 | 1.9.0 | RTL-P2.1383 |
+| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407, REA-P3.11 |
+| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1528 |
 | Intel Cyclone V | `rr_rea_jtag_intel` (`sld_virtual_jtag`) | untested | — | — | — |
 | Microchip PolarFire | `rr_rea_jtag_microchip` (UJTAG) | untested | — | — | — |
-| Microchip PolarFire SoC | `rr_rea_jtag_microchip` (UJTAG); `rr_rea_axi4lite` (Linux MMIO) | works-with-gaps | DS-P2.132, DS-P2.128 | 0.9 | RTL-P2.1393, RTL-P2.1278, REA-P2.14 |
+| Microchip PolarFire SoC | `rr_rea_jtag_microchip` (UJTAG); `rr_rea_axi4lite` (Linux MMIO) | works-with-gaps | DS-P2.132, DS-P2.128, REA-P2.14 | 1.9.0 | RTL-P2.1278 |
 <!-- rea-support-matrix:end -->
 
-**No family has been witnessed on rr-rea 1.5.x or later.** Everything since
-then is proven in simulation and, where named, in vendor place-and-route
-(the resource tables below), but not in a silicon capture. That includes the
-REA-P2.10 CDC rework, the constraints of REA-P2.8/P2.12/P2.13 and the P3.7
-sequencer. REA-P2.14 closes this on the bench families.
+**The four bench families are witnessed on rr-rea 1.9.0** (REA-P2.14,
+2026-09-26). Each was built through `rr queue` from the demo pinned to
+`0e30ea5`. Each passed the battery:
+- canonical register readback: VERSION `0x5245410D`, BUILD_ID `0x903A93E9`; <!-- rea-magic:historical -->
+- one trigger marker at the configured pretrigger index;
+- a live, direction-checked (or counter-checked) window;
+- a word-exact `rr ila selftest`.
+
+That covers the REA-P2.10 CDC rework and the shipped constraints of
+REA-P2.8/P2.12/P2.13 on silicon. **Not yet witnessed:** anything added in 1.10.0,
+i.e. the P3.7 sequencer (REA-P2.16), and Arria 10, which is not on the bench.
 
 Per family:
 
-- **Xilinx 7-series.** RTL-P2.1097 (2026-08-04) ran the full on-silicon
-  battery on a Zybo Z7-20 (xc7z020) and two Zybo-Classic boards (xc7z010):
-  canonical register readback, `rr ila selftest` readback integrity, a SOURCE →
-  design → capture round trip, and 4096 samples with exactly one trigger marker
-  at pretrigger index 1024.
-- **Xilinx UltraScale+.** The same RTL-P2.1097 battery passed on a KV260
-  (xck26). OPN-P2.20 (2026-09-25) later ran rr-rea 1.3.0 (VERSION
-  `0x5245410B`) on the KV260 with storage qualification. <!-- rea-magic:historical -->
+- **Xilinx 7-series.**
+  - REA-P2.14 ran on a Zybo Classic (xc7z010; the Z7-20 had no power that
+    day): bit-sha MATCH, all checks passed.
+  - RTL-P2.1097 (2026-08-04) had run the same battery at 0.8 on a Zybo Z7-20
+    (xc7z020) and two Zybo Classics. That battery covers canonical register
+    readback, readback integrity, a SOURCE → design → capture round trip, and
+    4096 samples with exactly one trigger marker at pretrigger index 1024.
+- **Xilinx UltraScale+.**
+  - REA-P2.14 on a KV260 (xck26): bit-sha MATCH, all checks passed.
+  - Earlier witnesses: RTL-P2.1097 at 0.8, and OPN-P2.20 (2026-09-25) at 1.3.0
+    with storage qualification.
   - Gap RTL-P2.1383: the host's UltraScale USER-chain IR table does not match
     the BSDLs, so a second core on USER2 reads back the USER1 core. **Only one
     core per UltraScale+ device is usable until it lands.**
   - Plain UltraScale (non-plus) has no witness and shares the same wrong
     table.
-- **Intel Agilex 5.** RTL-P2.1097 passed the same battery on a DE25-Standard,
-  over System Console / SLD virtual JTAG. Gaps:
-  - The RTL-P2.1097 witness was built before RTL-P2.1395 was fixed, when a
-    project's own SDC was not applied on Altera builds, so the demo's JTAG
-    domain ran untimed. Since routertl `a42862ad` the DE25 demo applies its
-    `constraints/timing.sdc`: `altera_reserved_tck` is constrained at 30 MHz
-    and the bitstream meets timing (+1.621 ns). No capture has been taken on
-    a constrained build yet (REA-P2.14).
-  - RTL-P3.1528: there is no bitstream-identity readback on Altera, so the
-    witnessed image is UNCONFIRMED.
-  - REA-P3.11: Quartus builds the capture RAM as two M20K copies.
+- **Intel Agilex 5.**
+  - REA-P2.14 on a DE25-Standard, built on routertl `ed08f52a`. It passes
+    signoff with `altera_reserved_tck` constrained at 30 MHz (CLOCK0_50
+    +16.346 ns, tck +11.960 ns). That is the first capture on a constrained
+    Altera build: RTL-P2.1395 applied the demo SDC, and RTL-P2.1404 stopped it
+    timing the SDM JTAG pins as board I/O.
+  - Gap RTL-P3.1528: there is no bitstream-identity readback on Altera, so the
+    witnessed image is UNCONFIRMED. The evidence records the `.sof` sha256
+    instead.
+  - Gap RTL-P2.1407: `rr` resolves Quartus from PATH, not the project's Pro
+    `tool_path`. On a bench whose PATH carries Quartus Std, the DE25's
+    USB-Blaster III is then "not detected"; the witness ran with the Pro bin
+    first on PATH.
+  - Gap REA-P3.11: Quartus builds the capture RAM as two M20K copies.
 - **Intel Arria 10.**
   - Witnesses: first live Altera capture under RTL-P3.427 (2026-05-13), and
-    the rea 0.7.2 hold-safe DR fix silicon-confirmed under RTL-P1.96.
+    the rea 0.7.2 hold-safe DR fix silicon-confirmed under RTL-P1.96. Both
+    were unconstrained builds.
+  - Timing: since routertl `ed08f52a` (RTL-P2.1404/RTL-P3.1838) the demo
+    builds with its SDC applied and meets timing (clk_50 +14.830 ns). No
+    capture has been taken on a constrained Arria 10 build.
   - Gap RTL-P2.901: Quartus Pro physically miscompiles wide readback chains on
     this family. **Accept every Arria 10 build with `rr ila selftest`** (and
     the odd-VERSION probe, REA-REQ-806) before trusting a capture.
-  - Gap RTL-P3.1838: now that RTL-P2.1395 applies the demo's SDC, the
-    Arria 10 demo **fails timing**. Setup WNS is −2.763 ns on one `clk_50`
-    endpoint and `rr bitstream run` exits 2; the endpoint cannot be named
-    until rr has a Quartus timing-path report (RTL-P3.1839). Every earlier
-    Arria 10 witness was built unconstrained.
-  - Also open: RTL-P3.1528, as for Agilex 5.
-  - No Arria 10 board is on the bench, so REA-P2.14 does not re-witness it.
+  - Gap RTL-P3.1528, as for Agilex 5.
+  - No Arria 10 board is on the bench.
 - **Intel Cyclone V.** `rr_rea_jtag_intel` uses `sld_virtual_jtag`, which
   Cyclone V has, but no build or capture is on record and no board is on the
   bench.
@@ -85,16 +94,17 @@ Per family:
   PolarFire SoC, but every Libero build and capture on record is on an MPFS
   (PolarFire SoC) part. Nothing has run on a plain PolarFire (MPF) device.
 - **Microchip PolarFire SoC.** On the Discovery Kit (MPFS095T):
-  - DS-P2.132 (2026-09-06) took a word-exact UJTAG capture through the
-    FlashPro5, reading VERSION `0x52454104`. <!-- rea-magic:historical -->
-  - DS-P2.128 (2026-09-24) captured over the Linux MMIO path through
-    `rr_rea_axi4lite` on FIC0, reading VERSION `0x52454109`, and rendered the <!-- rea-magic:historical -->
-    result in RouteWave.
-  - **Both witnesses predate REA-P2.13.** They used a copy of the UJTAG wrapper
-    kept outside this package, so the package-shipped wrapper (ip 1.9.0) has
-    not been on silicon.
-  - RTL-P2.1393 re-locks the board demo onto the package.
-  - RTL-P2.1278: `rr ila` cannot see the FlashPro5 while FPExpress holds it.
+  - REA-P2.14 is the **first capture through the package-shipped
+    `rr_rea_jtag_microchip`**. The wrapper Libero compiled is byte-identical to
+    this repo's at `0e30ea5`. The counter profile passed (4095/4095 +1 steps,
+    selftest word-exact). The programming job writes the fabric plus Libero's
+    sNVM init clients, never eNVM; a fabric-only export is RTL-P3.1844.
+  - Earlier witnesses, both with a copy of the wrapper kept outside the
+    package: DS-P2.132 (2026-09-06), a UJTAG capture (VERSION `0x52454104`); <!-- rea-magic:historical -->
+    and DS-P2.128 (2026-09-24), a Linux MMIO capture through `rr_rea_axi4lite`
+    on FIC0 (VERSION `0x52454109`), rendered in RouteWave. <!-- rea-magic:historical -->
+  - Gap RTL-P2.1278: `rr ila` cannot see the FlashPro5 while FPExpress holds
+    it.
 
 ## Why first-party
 - **Sliding-window from day one**: the dpram records continuously from reset deassertion. The naive approach gates the dpram write on `armed`, leaving uninit BRAM cells when the trigger fires before `pretrig_len` cycles have elapsed. We don't ship that bug.

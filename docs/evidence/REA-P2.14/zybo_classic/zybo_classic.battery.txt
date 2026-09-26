@@ -1,0 +1,16 @@
+══ REA battery: zybo_classic-210279539777 (profile: source) ══
+  ⚠️  bit-sha not confirmed (expected on Altera and Microchip — Xilinx USR_ACCESS only)
+  ✅ identity:  VERSION 0x00 0x5245410D
+       FEATURES  0xD0  0x00080B04  (trig_conds=4, num_source=11, readback_integrity)
+  ✅ SOURCE reset default is all-zero (counter powers up HELD)
+  ✅ two captures returned 4096/4096 samples over JTAG
+  ✅ direction=0: exactly one trigger marker (sample 1024)
+  ✅ direction=0: post-trigger window strictly INCREMENTING (3071/3071) — SOURCE write landed
+  ✅ direction=0: direction_q reads back 0 — the registered copy the counter SAW
+  ✅ direction=1: exactly one trigger marker (sample 1024)
+  ✅ direction=1: post-trigger window strictly DECREMENTING (3071/3071) — SOURCE write landed
+  ✅ direction=1: direction_q reads back 1 — the registered copy the counter SAW
+  ✅ the two captures DIFFER — not a replayed or constant buffer
+  ✅ free_tick toggles across the window (capture is LIVE, not frozen)
+  ✅ ✅ REA selftest passed — full window word-exact, CRC 0xbd3bcf60
+══ zybo_classic-210279539777: ALL CHECKS PASSED ══

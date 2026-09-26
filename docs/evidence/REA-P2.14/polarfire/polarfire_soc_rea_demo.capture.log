@@ -1,0 +1,13 @@
+💡 cable confinement is installed but not active for this lease — run `rr lease confine setup` (then re-acquire the lease to confine it). 
+Until then the board is advisory-locked only.
+ arming...
+ armed; waiting for trigger (auto-trigger (mask=0))...
+ reading dpram (4096 cells, one block read)...
+ capture+read in 1751 ms; start_ptr=1174; trigger at idx 0; shipping to viewer...
+✅ Captured window written to 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/polarfire/polarfire_soc_rea_demo.counter.csv (4096 samples — replay 
+with rr ila replay /home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/polarfire/polarfire_soc_rea_demo.counter.csv)
+ RouteWave not launched (--no-open) — the capture is on disk.
+  Open it with rr ila replay 
+/home/dmazure/.agent-wt/claude-d4/rr-rea-p2-14/docs/evidence/REA-/polarfire/polarfire_soc_rea_demo.counter.csv.
+  To bind the wave_stream socket anyway, re-run with --open.

@@ -1,0 +1,3 @@
+# Verbatim tool output captured on silicon (REA-P2.14): kept byte-exact.
+* -whitespace
+*.csv -text
