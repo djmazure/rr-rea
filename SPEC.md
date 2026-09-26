@@ -7,7 +7,8 @@ Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships three
 
 What has actually been witnessed on each FPGA family, as opposed to what the
 wrappers are written for. Facts verified against rr-rea `74f088e` (ip 1.10.0)
-and the tickets cited, on 2026-09-26.
+and the tickets cited, on 2026-09-26. The gap columns were re-checked after
+RTL-P2.1395 closed (routertl `a42862ad`), also on 2026-09-26.
 
 Status values:
 
@@ -25,8 +26,8 @@ bench battery on the current RTL for every bench family.
 |---|---|---|---|---|---|
 | Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097 | 0.8 | REA-P2.14 |
 | Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | works-with-gaps | RTL-P2.1097, OPN-P2.20 | 1.3.0 | RTL-P2.1383, REA-P2.14 |
-| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P2.1395, RTL-P3.1528, REA-P3.11, REA-P2.14 |
-| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P2.1395, RTL-P3.1528 |
+| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P3.1528, REA-P3.11, REA-P2.14 |
+| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1838, RTL-P3.1528 |
 | Intel Cyclone V | `rr_rea_jtag_intel` (`sld_virtual_jtag`) | untested | — | — | — |
 | Microchip PolarFire | `rr_rea_jtag_microchip` (UJTAG) | untested | — | — | — |
 | Microchip PolarFire SoC | `rr_rea_jtag_microchip` (UJTAG); `rr_rea_axi4lite` (Linux MMIO) | works-with-gaps | DS-P2.132, DS-P2.128 | 0.9 | RTL-P2.1393, RTL-P2.1278, REA-P2.14 |
@@ -55,9 +56,12 @@ Per family:
     table.
 - **Intel Agilex 5.** RTL-P2.1097 passed the same battery on a DE25-Standard,
   over System Console / SLD virtual JTAG. Gaps:
-  - RTL-P2.1395: a project's own SDC is not applied on Altera builds, so demo
-    builds ran the JTAG domain untimed. The package-shipped
-    `rr_rea_scoped.sdc` (REA-P2.12) is applied.
+  - The RTL-P2.1097 witness was built before RTL-P2.1395 was fixed, when a
+    project's own SDC was not applied on Altera builds, so the demo's JTAG
+    domain ran untimed. Since routertl `a42862ad` the DE25 demo applies its
+    `constraints/timing.sdc`: `altera_reserved_tck` is constrained at 30 MHz
+    and the bitstream meets timing (+1.621 ns). No capture has been taken on
+    a constrained build yet (REA-P2.14).
   - RTL-P3.1528: there is no bitstream-identity readback on Altera, so the
     witnessed image is UNCONFIRMED.
   - REA-P3.11: Quartus builds the capture RAM as two M20K copies.
@@ -67,7 +71,12 @@ Per family:
   - Gap RTL-P2.901: Quartus Pro physically miscompiles wide readback chains on
     this family. **Accept every Arria 10 build with `rr ila selftest`** (and
     the odd-VERSION probe, REA-REQ-806) before trusting a capture.
-  - Also open: RTL-P2.1395 and RTL-P3.1528, as for Agilex 5.
+  - Gap RTL-P3.1838: now that RTL-P2.1395 applies the demo's SDC, the
+    Arria 10 demo **fails timing**. Setup WNS is −2.763 ns on one `clk_50`
+    endpoint and `rr bitstream run` exits 2; the endpoint cannot be named
+    until rr has a Quartus timing-path report (RTL-P3.1839). Every earlier
+    Arria 10 witness was built unconstrained.
+  - Also open: RTL-P3.1528, as for Agilex 5.
   - No Arria 10 board is on the bench, so REA-P2.14 does not re-witness it.
 - **Intel Cyclone V.** `rr_rea_jtag_intel` uses `sld_virtual_jtag`, which
   Cyclone V has, but no build or capture is on record and no board is on the

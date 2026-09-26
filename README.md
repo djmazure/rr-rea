@@ -55,8 +55,8 @@ yet** (REA-P2.14 re-runs the bench battery).
 |---|---|---|---|---|
 | Xilinx 7-series | parity | RTL-P2.1097 | 0.8 | REA-P2.14 |
 | Xilinx UltraScale+ | works-with-gaps | RTL-P2.1097, OPN-P2.20 | 1.3.0 | RTL-P2.1383, REA-P2.14 |
-| Intel Agilex 5 | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P2.1395, RTL-P3.1528, REA-P3.11, REA-P2.14 |
-| Intel Arria 10 | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P2.1395, RTL-P3.1528 |
+| Intel Agilex 5 | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P3.1528, REA-P3.11, REA-P2.14 |
+| Intel Arria 10 | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1838, RTL-P3.1528 |
 | Intel Cyclone V | untested | — | — | — |
 | Microchip PolarFire | untested | — | — | — |
 | Microchip PolarFire SoC | works-with-gaps | DS-P2.132, DS-P2.128 | 0.9 | RTL-P2.1393, RTL-P2.1278, REA-P2.14 |
