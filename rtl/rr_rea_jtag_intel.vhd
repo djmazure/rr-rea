@@ -33,12 +33,22 @@ entity rr_rea_intel is
         G_CTRL_CHAIN  : positive := 1;  -- sld_instance_index (1-based)
         -- REA-P2.7: storage-qualifier slots, passed to rr_rea_top (0 = none;
         -- > 0 needs G_TIMESTAMP_W > 0 — REA-REQ-957).
-        G_QUAL_CONDS  : natural  := 0
+        G_QUAL_CONDS  : natural  := 0;
+        -- REA-P3.6: comparator-array slots, passed to rr_rea_top (default 4,
+        -- rr_rea_top's own default, so existing builds are unchanged). The
+        -- lean profile (SPEC "Lean profile") sets 1.
+        G_TRIG_CONDS  : positive := 4
     );
     port (
         sample_clk_i  : in  std_logic;
         sample_rst_i  : in  std_logic;
         probe_i    : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
+        -- REA-P3.6: external board-pin trigger (TRIG_MODE ext_en / ext_and),
+        -- synchronized inside rr_rea_top. Defaults to '0', so a design that
+        -- leaves it unconnected is unchanged. Before 1.8.0 only
+        -- rr_rea_xilinx7 had it, so the host could set ext_en on Intel and
+        -- nothing reached the core.
+        ext_trigger_i : in  std_logic := '0';
         -- RTL-P2.837: write-side source bit(s) — JTAG-writable control lines
         -- into the design (sample_clk_i domain, crossed via rr_rea_sync_word).
         -- Wire so bit=0 holds the gated DUT signal safe; the host raises it
@@ -121,12 +131,14 @@ begin
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
             G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_QUAL_CONDS  => G_QUAL_CONDS
+            G_QUAL_CONDS  => G_QUAL_CONDS,
+            G_TRIG_CONDS  => G_TRIG_CONDS
         )
         port map (
             sample_clk_i  => sample_clk_i,
             sample_rst_i  => sample_rst_i,
             probe_i    => probe_i,
+            ext_trigger_i => ext_trigger_i,
             source_o  => source_o,
             trigger_o => trigger_o,
             arst_i        => arst_i,

@@ -48,7 +48,12 @@ entity rr_rea_microchip is
         G_TIMESTAMP_W : natural  := 32;
         G_NUM_CHAN    : positive := 1;
         G_NUM_SOURCE  : positive := 1;  -- RTL-P2.837 write-side source bits
-        G_CTRL_CHAIN  : integer  := 1   -- UJTAG user IR opcode or chain index
+        G_CTRL_CHAIN  : integer  := 1;  -- UJTAG user IR opcode or chain index
+        -- REA-P3.6: passed to rr_rea_top, defaults unchanged. G_QUAL_CONDS > 0
+        -- needs G_TIMESTAMP_W > 0 (REA-REQ-957); G_TRIG_CONDS = 1 is the lean
+        -- profile. Before 1.8.0 this wrapper passed neither.
+        G_QUAL_CONDS  : natural  := 0;
+        G_TRIG_CONDS  : positive := 4
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -92,7 +97,9 @@ architecture rtl of rr_rea_microchip is
             G_DEPTH       : positive := 4096;
             G_TIMESTAMP_W : natural  := 32;
             G_NUM_CHAN    : positive := 1;
-            G_NUM_SOURCE  : positive := 1
+            G_TRIG_CONDS  : positive := 4;
+            G_NUM_SOURCE  : positive := 1;
+            G_QUAL_CONDS  : natural  := 0
         );
         port (
             sample_clk_i  : in  std_logic;
@@ -177,7 +184,9 @@ begin
             G_DEPTH       => G_DEPTH,
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
-            G_NUM_SOURCE  => G_NUM_SOURCE
+            G_TRIG_CONDS  => G_TRIG_CONDS,
+            G_NUM_SOURCE  => G_NUM_SOURCE,
+            G_QUAL_CONDS  => G_QUAL_CONDS
         )
         port map (
             sample_clk_i  => sample_clk_i,
@@ -209,7 +218,9 @@ entity rr_rea_jtag_microchip is
         G_TIMESTAMP_W : natural  := 32;
         G_NUM_CHAN    : positive := 1;
         G_NUM_SOURCE  : positive := 1;
-        G_CTRL_CHAIN  : integer  := 1
+        G_CTRL_CHAIN  : integer  := 1;
+        G_QUAL_CONDS  : natural  := 0;
+        G_TRIG_CONDS  : positive := 4
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -235,7 +246,9 @@ begin
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
             G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_CTRL_CHAIN  => G_CTRL_CHAIN
+            G_CTRL_CHAIN  => G_CTRL_CHAIN,
+            G_QUAL_CONDS  => G_QUAL_CONDS,
+            G_TRIG_CONDS  => G_TRIG_CONDS
         )
         port map (
             sample_clk_i  => sample_clk_i,

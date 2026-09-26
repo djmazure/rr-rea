@@ -25,7 +25,11 @@ entity rr_rea_xilinx7 is
         G_CTRL_CHAIN  : integer  := 1;  -- BSCANE2 USER1
         -- REA-P2.7: storage-qualifier slots, passed to rr_rea_top (0 = none;
         -- > 0 needs G_TIMESTAMP_W > 0 — REA-REQ-957).
-        G_QUAL_CONDS  : natural  := 0
+        G_QUAL_CONDS  : natural  := 0;
+        -- REA-P3.6: comparator-array slots, passed to rr_rea_top (default 4,
+        -- rr_rea_top's own default, so existing builds are unchanged). The
+        -- lean profile (SPEC "Lean profile") sets 1.
+        G_TRIG_CONDS  : positive := 4
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -101,7 +105,8 @@ begin
             G_TIMESTAMP_W => G_TIMESTAMP_W,
             G_NUM_CHAN    => G_NUM_CHAN,
             G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_QUAL_CONDS  => G_QUAL_CONDS
+            G_QUAL_CONDS  => G_QUAL_CONDS,
+            G_TRIG_CONDS  => G_TRIG_CONDS
         )
         port map (
             sample_clk_i  => sample_clk_i,

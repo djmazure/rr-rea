@@ -307,7 +307,8 @@ signal-named trigger conditions.
 
 ### External board-pin trigger (`TRIG_MODE` bit[3]/bit[8], RTL-P3.266)
 
-A package-pin input `ext_trigger_in` (exposed on `rr_rea_jtag_xilinx7`, synced
+A package-pin input `ext_trigger_i` (exposed on every vendor wrapper since 1.8.0,
+REA-P3.6; before that only on `rr_rea_jtag_xilinx7`; synced
 into the sample-clock domain in `rr_rea_top`) lets a **board pin** participate
 in the fire decision — an oscilloscope trigger-out, another FPGA's
 `trigger_out` (cross-board sync), or a button. The user routes the pin in their
@@ -827,7 +828,9 @@ odd, REA-REQ-806).
 
 A **configuration**, not a variant core: `G_SAMPLE_W = 8`, `G_DEPTH = 512`,
 `G_TRIG_CONDS = 1`, `G_NUM_CHAN = 1`, `G_NUM_SOURCE = 1`, `G_TIMESTAMP_W = 0`
-(REA-REQ-908). No logic is conditionally deleted to make it fit — the sample
+(REA-REQ-908). Every vendor wrapper passes `G_TRIG_CONDS` since 1.8.0
+(REA-P3.6), so the profile is reachable without instantiating `rr_rea_top`
+and a vendor primitive yourself. No logic is conditionally deleted to make it fit — the sample
 buffer is already BRAM-inferred and costs no fabric, so the size lever is the
 generic set, dominated by the comparator array.
 

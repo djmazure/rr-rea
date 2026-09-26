@@ -11,9 +11,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.7.0
+#   version: below        the PACKAGE version the registry pins   -> 1.8.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.8.0 (REA-P3.6) is a MINOR bump: every vendor wrapper now passes
+# G_TRIG_CONDS (default 4) and G_QUAL_CONDS (default 0) to rr_rea_top and has
+# ext_trigger_i (default '0'). Before this rr_rea_xilinx7 and rr_rea_intel
+# pinned the comparator array at 4 slots (the lean profile was unreachable
+# through them), rr_rea_intel had no external-trigger port, and
+# rr_rea_microchip passed neither generic (util_field could not be built on
+# PolarFire). Defaults are unchanged, so existing instantiations elaborate
+# the same core.
 #
 # 1.7.0 (REA-P2.12) is a MINOR bump: the package now ships its Quartus timing
 # constraints, constraints/rr_rea_scoped.sdc (build.sources.sdc -> ip.lock
@@ -143,7 +152,7 @@
 
 name: rea
 namespace: routertl
-version: 1.7.0
+version: 1.8.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

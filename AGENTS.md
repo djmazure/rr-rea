@@ -28,7 +28,7 @@ vendor ILA / SignalTap in a RouteRTL project.
 |---|---|---|
 | Single comparator: `==` `!=` `<` `>` rising falling on one masked field, or an all-`==` AND | always | `rr ila capture --trigger 'state == 3'`, `'rising(irq)'` |
 | Mixed-op AND of up to `G_TRIG_CONDS` conditions | always | the host picks the array automatically; each condition value ≤ 32 bits |
-| External board-pin trigger (OR / AND) | `ext_trigger_i` | only `rr_rea_xilinx7` exposes the port (REA-P3.6) |
+| External board-pin trigger (OR / AND) | `ext_trigger_i` | on every vendor wrapper since 1.8.0 (REA-P3.6) |
 | Cross-core trigger | `trigger_o` + `rr_rea_trig_xbar` | freeze several clock domains together |
 | Decimation | `DECIM` | `--decim N`: store 1 in N+1; windows count stored cells |
 | Storage qualification | `G_QUAL_CONDS` 1..15 **and** `G_TIMESTAMP_W > 0` | store only when EQ/NE/RISE/FALL slots hold (AND/OR); `--qualify 'EXPR'`, `--qualify-any`, or `storage_qualifier:` in the yml |
@@ -47,8 +47,9 @@ vendor ILA / SignalTap in a RouteRTL project.
 **Vendor wrappers.** `rr_rea_xilinx7` (BSCANE2, `G_CTRL_CHAIN` = USERn) and
 `rr_rea_intel` (`sld_virtual_jtag`, `G_CTRL_CHAIN` = `sld_instance_index`),
 and since 1.6.0 `rr_rea_jtag_microchip` (UJTAG, `G_CTRL_CHAIN` 1..4 = user
-opcode 0x55..0x58, or a raw opcode 16..127). None passes `G_TRIG_CONDS` through
-(always 4; REA-P3.6). On PolarFire, instantiate it as
+opcode 0x55..0x58, or a raw opcode 16..127). Since 1.8.0 all three pass
+`G_TRIG_CONDS` (default 4) and `G_QUAL_CONDS` (default 0) to the core, and all
+three have `ext_trigger_i` (REA-P3.6). On PolarFire, instantiate it as
 `entity rr_rea.rr_rea_jtag_microchip`: a `component` in your `work` library
 does not bind to the package's `rr_rea` library under Libero.
 Connect `trigger_o`: with no observable output the hierarchy can be pruned.

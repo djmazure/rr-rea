@@ -1048,6 +1048,19 @@ functional_contract:
       captures correctly. It is a CONFIGURATION, not a variant core: the size
       lever is the generic set — the sample buffer is already BRAM-inferred and
       costs no fabric — so no logic may be conditionally deleted to make it fit.
+  - id: REA-REQ-966
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Lean profile" }]
+    desc: >-
+      Every shipped vendor wrapper (rr_rea_xilinx7, rr_rea_intel,
+      rr_rea_microchip / rr_rea_jtag_microchip) SHALL pass G_TRIG_CONDS and
+      G_QUAL_CONDS through to rr_rea_top with rr_rea_top's defaults (4 and 0),
+      and SHALL expose ext_trigger_i (default '0') wired to rr_rea_top, so a
+      configuration or trigger mode the core supports is reachable through the
+      wrapper (REA-P3.6). Scanned through each wrapper with G_TRIG_CONDS = 1
+      and G_QUAL_CONDS = 1, FEATURES[7:0] SHALL read 1 and FEATURES[22] and
+      [27:24] SHALL read 1; with TRIG_MODE ext_en|ext_and the core SHALL NOT
+      trigger while ext_trigger_i is low and SHALL trigger once it is high.
 
   # ── Dump-path transport contract (REA-P2.4, docs/DUMP_PATH_STRATEGY.md) ──
   #
