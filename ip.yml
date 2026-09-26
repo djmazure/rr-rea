@@ -11,9 +11,19 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.8.1
+#   version: below        the PACKAGE version the registry pins   -> 1.9.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.12.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410D
+#
+# 1.9.0 (REA-P2.13) is a MINOR bump: the package now ships its Libero SmartTime
+# constraints, constraints/rr_rea_scoped_microchip.sdc, under
+# build.sources.sdc_per_vendor.microchip (applied on Libero builds only,
+# routertl RTL-P2.1392). Measured on MPFS095T, Libero 2025.2: without it the
+# UJTAG UDRCK domain was unclocked (2754 of 5033 checks unconstrained) and rr's
+# gate still said met; with it, 0 unconstrained and no setup or hold violation.
+# Its synchronizer selector reaches generate-nested instances
+# (g_qual_cdc.u_cdc_qual_*), which a first cut missed (hold -1.262 ns at
+# G_QUAL_CONDS 1). No RTL change.
 #
 # 1.8.1 (REA-P3.8) is a PATCH: rr_rea_sync_word and rr_rea_pulse_xfer add
 # syn_safe_cdc on their first stage, so Synplify (Libero) forwards every REA
@@ -160,7 +170,7 @@
 
 name: rea
 namespace: routertl
-version: 1.8.1
+version: 1.9.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
@@ -244,9 +254,17 @@ build:
     # clocks that port, and bounds every crossing with set_net_delay at half
     # the faster period after removing the default inter-clock relationship.
     # Quartus-only: rr feeds a bare build.sources.sdc to intel/altera builds
-    # alone (Microchip needs its own dialect, routertl RTL-P2.1392).
+    # alone. It stays a bare `sdc` (not sdc_per_vendor.altera) so an rr older
+    # than RTL-P2.1392 still applies it.
     sdc:
       - constraints/rr_rea_scoped.sdc
+    # REA-P2.13: the Libero SmartTime twin (restricted SDC, no Tcl). rr applies
+    # sdc_per_vendor.microchip on Libero builds only (routertl RTL-P2.1392). It
+    # clocks the UJTAG UDRCK output and bounds + hold-waives every crossing into
+    # a synchronizer first stage (*/u_top/*u_cdc_*/s1*).
+    sdc_per_vendor:
+      microchip:
+        - constraints/rr_rea_scoped_microchip.sdc
   simulation:
     sources: []
     test_dir: sim/cocotb/tests

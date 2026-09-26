@@ -61,8 +61,10 @@ package ships `constraints/rr_rea_scoped.xdc` (TCK clock plus
 synchronizer first stage), so the consumer adds no REA timing constraints. On
 Intel, since 1.7.0, `constraints/rr_rea_scoped.sdc` does the same
 (`altera_reserved_tck` clock plus `set_net_delay` at half the faster period;
-REA-P2.12). On Microchip the UJTAG constraints are not shipped yet: rr cannot
-feed a package SDC to Libero (routertl RTL-P2.1392, REA-P2.13). Never waive the crossings with
+REA-P2.12). On Microchip, since 1.9.0, `constraints/rr_rea_scoped_microchip.sdc`
+(UJTAG UDRCK clock plus a 5 ns `set_max_delay` and a hold waiver on every
+first stage; REA-P2.13) ships under `sdc_per_vendor.microchip`, which needs an
+rr with RTL-P2.1392. Never waive the crossings with
 `set_clock_groups -asynchronous`. Write all configuration while disarmed, then
 arm.
 

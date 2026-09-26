@@ -459,6 +459,19 @@ The routertl DE25 and Arria 10 demos carry a `set_clock_groups -asynchronous`
 in their own `constraints/timing.sdc`, but that file never reached their
 Quartus project (only the board `master.sdc` did), so it was not in force.
 
+**Libero (REA-P2.13).** `constraints/rr_rea_scoped_microchip.sdc` is the
+SmartTime twin, declared in `ip.yml` `build.sources.sdc_per_vendor.microchip`
+so rr applies it on Libero builds only (routertl RTL-P2.1392; with an older rr,
+list it under your project.yml `sources.sdc`). SmartTime's SDC has no Tcl, so the file is three literal
+commands: a 33.333 ns clock on `*/u_ujtag/UDRCK`, `set_max_delay 5.000` into
+every `*/u_top/*u_cdc_*/s1*` (half the faster period for sample clocks up to
+100 MHz; the inner `*` reaches synchronizers inside a generate, such as
+`g_qual_cdc.u_cdc_qual_mode`), and `set_min_delay -33.333` on the same cells, because SmartTime
+times hold across the two unrelated clocks where Vivado's `-datapath_only`
+does not. On a PolarFire SoC Discovery build (MPFS095T, Libero 2025.2): without
+it 2754 of 5033 checks were unconstrained (the whole 2524-check JTAG domain);
+with it 0 of 7557, and no setup or hold violation.
+
 Outside RouteRTL, add the same file with `read_xdc -ref rr_rea_top
 rr_rea_scoped.xdc` after your own clocks are defined (Vivado), or
 `set_global_assignment -name SDC_FILE rr_rea_scoped.sdc` after your own SDC
