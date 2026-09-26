@@ -24,6 +24,15 @@ against this repo at `c2a63b3` and the RouteRTL SDK at `a9013711`,
 `rr ila identity` → `rr ila selftest` → `rr ila capture --core <name>`. Never a
 vendor ILA / SignalTap in a RouteRTL project.
 
+**Which FPGA families it is proven on** is `SPEC.md` "Per-family support
+matrix" (REA-P3.9): a status, an evidence ticket, the version witnessed and
+the open gaps for each family. Read it before promising REA on a part.
+- **When a silicon witness lands** (REA-P2.14 first), update that row in SPEC
+  and README in the same change, then refresh the "verified against" line.
+  `tests/test_support_matrix_p3_9.py` keeps the two tables in agreement and
+  refuses a silicon status that cites no evidence.
+- A status only moves on a cited witness, never on a build or a sim.
+
 | Feature | Enable | Notes |
 |---|---|---|
 | Single comparator: `==` `!=` `<` `>` rising falling on one masked field, or an all-`==` AND | always | `rr ila capture --trigger 'state == 3'`, `'rising(irq)'` |

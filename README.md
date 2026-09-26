@@ -26,8 +26,8 @@ This repository is the public home of the `routertl/rea` package on
 - Vendor JTAG wrappers for Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2),
   Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`) and Microchip
   PolarFire / PolarFire SoC (`rr_rea_jtag_microchip`, UJTAG), selected
-  per-vendor by the package manifest. Silicon-proven on Zybo Z7-20 (Zynq-7000),
-  DE25-Standard (Agilex 5) and the PolarFire SoC Discovery Kit (MPFS095T).
+  per-vendor by the package manifest. What is proven on silicon, per family,
+  is in the support matrix below.
 - Host side lives in the [RouteRTL](https://pypi.org/project/routertl/) SDK:
   `rr ila capture --core <name>`, `rr ila identity`, RouteWave wave viewer.
 
@@ -42,6 +42,25 @@ The manifest carries an `ip.yml build.hooks` contract: the consumer build
 auto-generates `rr_rea_build_id_pkg.vhd` (a hash of the declared sources) into
 your project's `generated/` dir and places it in library `rr_rea` — no manual
 wiring. See `SPEC.md` for the register map and integration contract.
+
+## Support by FPGA family (REA-P3.9)
+
+What has been captured on silicon, per family. The authoritative table,
+with the witness details and what each gap means, is `SPEC.md` "Per-family
+support matrix". **No family has been witnessed on rr-rea 1.5.x or later
+yet** (REA-P2.14 re-runs the bench battery).
+
+<!-- rea-support-matrix:begin -->
+| Family | Status | Evidence | rr-rea witnessed | Open gaps |
+|---|---|---|---|---|
+| Xilinx 7-series | parity | RTL-P2.1097 | 0.8 | REA-P2.14 |
+| Xilinx UltraScale+ | works-with-gaps | RTL-P2.1097, OPN-P2.20 | 1.3.0 | RTL-P2.1383, REA-P2.14 |
+| Intel Agilex 5 | works-with-gaps | RTL-P2.1097 | 0.8 | RTL-P2.1395, RTL-P3.1528, REA-P3.11, REA-P2.14 |
+| Intel Arria 10 | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P2.1395, RTL-P3.1528 |
+| Intel Cyclone V | untested | — | — | — |
+| Microchip PolarFire | untested | — | — | — |
+| Microchip PolarFire SoC | works-with-gaps | DS-P2.132, DS-P2.128 | 0.9 | RTL-P2.1393, RTL-P2.1278, REA-P2.14 |
+<!-- rea-support-matrix:end -->
 
 ## Status of storage qualification (REA-P2.7)
 
