@@ -74,7 +74,9 @@ Per family:
     `tool_path`. On a bench whose PATH carries Quartus Std, the DE25's
     USB-Blaster III is then "not detected"; the witness ran with the Pro bin
     first on PATH.
-  - Gap REA-P3.11: Quartus builds the capture RAM as two M20K copies.
+  - Device limit (REA-P3.11): Quartus builds each capture plane as two M20K
+    copies. Agilex 5 has no dual-clock true-dual-port RAM mode, so no coding
+    avoids it (measured; see the per-vendor cost section).
 - **Intel Arria 10.**
   - Witnesses: first live Altera capture under RTL-P3.427 (2026-05-13), and
     the rea 0.7.2 hold-safe DR fix silicon-confirmed under RTL-P1.96. Both
@@ -723,12 +725,41 @@ Generics as in `targets/util_default.yml` and `targets/util_field.yml`.
   is 4K x 5, so a plane costs ceil(width / 5): 3 + 7 = 10, and 16 + 7 = 23 at
   80 bits. The Libero LUT and FF counts include the LSRAM interface logic
   (360 / 360 at util_default, 828 / 828 at util_field).
-- **Quartus builds every plane twice** (REA-P3.11). Each `rr_rea_dpram`
-  appears as two RAMs, `mem_rtl_0` (single clock) and `mem_rtl_1` (dual
-  clock): port A writes and reads on the sample clock (the CRC sweep) while
-  port B reads on TCK, and Quartus keeps one copy per read port. So
+- **Quartus builds every plane twice on Agilex 5, and that is a device
+  limit** (REA-P3.11). Each `rr_rea_dpram` appears as two RAMs, `mem_rtl_0`
+  (single clock) and `mem_rtl_1` (dual clock). Port A writes and reads on the
+  sample clock (the CRC sweep reads through `dout_a_o`), and port B reads on
+  TCK, so Quartus keeps one copy per read port. That makes
   360,448 = 2 x (49,152 + 131,072) bits, and 24 M20K where one copy per plane
   would need about 10.
+  - **Why no coding fixes it on Agilex 5.** One array with a read/write
+    port A on one clock and a read port B on another is a dual-clock
+    true-dual-port RAM, and the Agilex 5 M20K has no such mode. Quartus Pro
+    25.3 rejects the Intel TDP template with a live port-B write: "Error
+    (22556): Cannot synthesize dual-clock dual-port RAM logic ... not
+    supported by the selected device family". The other three codings
+    synthesize as two Simple Dual Port copies each: the shipped signal form,
+    the same TDP template with the port-B write tied to '0', and a signal
+    form that reads port A only when it does not write.
+  - **Arria 10 class.** On 10AX115S2F45I1SG with Quartus 23.1 Std, the TDP
+    template (a `shared variable`) infers ONE "True Dual Port" RAM per
+    plane, whether the port-B write is tied to '0' or live, and so halves
+    the RAM. The signal forms still build two copies there. It is not
+    shipped: a non-protected `shared variable` is what RTL-P2.888 removed,
+    because it fails strict GHDL under the esa-vhdl-strict profile, and the
+    saving exists only on that family class. Reopen it only if a consumer
+    needs the M20Ks.
+  - **The redesign alternative does not work.** Removing the port-A read by
+    moving the CRC sweep onto port B fails, because port B is clocked by
+    TCK, and TCK only runs while the host is shifting.
+  - **How it was measured (re-run it on a new family).** A scratch rr
+    project instantiates the four codings side by side, each 4096 x 32 (the
+    timestamp plane). Addresses and data come from LFSRs, and every output
+    bit is XOR-reduced to a pin so nothing is pruned. It runs synthesis only
+    through `rr queue`, and the result is read from the synthesis RAM
+    Summary. The runs, all on 2026-09-27: Agilex 5 jobs `b20d2c557b32` (the
+    live-port-B error) and `1cf43ae3e51b` (the other three); Arria 10 job
+    `efef25b0ccdc` (all four).
 - **What the Fmax numbers mean.** Quartus: the "Fmax Summary" (restricted
   Fmax, slow 0 C model). The fitter stops optimising once the 2.5 ns request
   is met or nearly met (setup slack +0.018 / -0.031 ns), so 403 and 395 MHz
