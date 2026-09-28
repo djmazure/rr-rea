@@ -17,14 +17,15 @@ Status values:
 - **untested**: no build and no capture on record.
 
 A status changes only on a cited witness. **Re-verify this table whenever a
-silicon witness lands** (the next is REA-P2.16, the P3.7 sequencer).
+silicon witness lands** (the latest: REA-P2.16, the 1.10.0 sequencer, and
+RTL-P2.1383, two cores on one UltraScale+ device).
 
 <!-- rea-support-matrix:begin -->
 | Family | Wrapper (JTAG path) | Status | Evidence | rr-rea witnessed | Open gaps |
 |---|---|---|---|---|---|
-| Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, REA-P2.14 | 1.9.0 | REA-P2.16 |
-| Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | works-with-gaps | RTL-P2.1097, OPN-P2.20, REA-P2.14 | 1.9.0 | RTL-P2.1383 |
-| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407, REA-P3.11 |
+| Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, REA-P2.14, REA-P2.16 | 1.9.0 | — |
+| Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, OPN-P2.20, REA-P2.14, RTL-P2.1383 | 1.9.0 | — |
+| Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407 |
 | Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1528 |
 | Intel Cyclone V | `rr_rea_jtag_intel` (`sld_virtual_jtag`) | untested | — | — | — |
 | Microchip PolarFire | `rr_rea_jtag_microchip` (UJTAG) | untested | — | — | — |
@@ -40,8 +41,11 @@ silicon witness lands** (the next is REA-P2.16, the P3.7 sequencer).
 - a word-exact `rr ila selftest`.
 
 That covers the REA-P2.10 CDC rework and the shipped constraints of
-REA-P2.8/P2.12/P2.13 on silicon. **Not yet witnessed:** anything added in 1.10.0,
-i.e. the P3.7 sequencer (REA-P2.16), and Arria 10, which is not on the bench.
+REA-P2.8/P2.12/P2.13 on silicon. **The 1.10.0 sequencer** was witnessed separately by
+REA-P2.16 (2026-09-26) on a Zybo Classic (xc7z010), with `G_TRIG_STAGES=3` and rr-rea
+1.10.0 (`42c5503`). All six checkpoints passed word-exact. The run was inside the SDH-P2.27
+session (rr-sdh-toh `d3df271`). **Not yet witnessed:** Arria 10 at any version after 0.7.2,
+because it is not on the bench.
 
 Per family:
 
@@ -56,11 +60,18 @@ Per family:
   - REA-P2.14 on a KV260 (xck26): bit-sha MATCH, all checks passed.
   - Earlier witnesses: RTL-P2.1097 at 0.8, and OPN-P2.20 (2026-09-25) at 1.3.0
     with storage qualification.
-  - Gap RTL-P2.1383: the host's UltraScale USER-chain IR table does not match
-    the BSDLs, so a second core on USER2 reads back the USER1 core. **Only one
-    core per UltraScale+ device is usable until it lands.**
-  - Plain UltraScale (non-plus) has no witness and shares the same wrong
-    table.
+  - **Two cores on one device (RTL-P2.1383, 2026-09-28).** Before routertl
+    `9f558a527`, a second core on USER2 read back the USER1 core. The host
+    sent USER opcodes that xsdb decoded as the wrong instruction.
+  - Routertl `9f558a527` sends the BSDL opcodes and `5c3b01e9b` calibrates
+    the ZynqMP DR pad. With both, a KV260 image holding a 184-bit core on
+    USER1 and an 80-bit core on USER2 passes `identity` and `selftest` on
+    each, with default settings and each core's own CRC.
+  - The fix is on the host side, so any rr-rea version benefits. The
+    witness image pinned rr-rea `8143a30`, VERSION `0x5245410B`. <!-- rea-magic:historical -->
+  - Details: routertl `docs/reference/REA_XILINX_JTAG.md`.
+  - Plain UltraScale (non-plus) has no witness. Its USER opcodes come from
+    the xcku040 BSDL and have not been measured.
 - **Intel Agilex 5.**
   - REA-P2.14 on a DE25-Standard, built on routertl `ed08f52a`. It passes
     signoff with `altera_reserved_tck` constrained at 30 MHz (CLOCK0_50
@@ -807,8 +818,9 @@ Host side: declare the matching chain in the debug-core yml with
 capture --core <name>` calls `transport.select_jtag_chain()` before
 arm/read so **every** JTAG access (control writes, status polls, and the
 data-window block read) targets that core's USER IR — from the
-part-specific table (7-series USER1=`0x02`/USER2=`0x03`; UltraScale
-USER1=`0x24`/USER2=`0x25`). Before RTL-P3.642 the data-window read was
+part-specific table, taken from the BSDL (7-series and plain UltraScale
+USER1=`0x02`/USER2=`0x03`; Zynq UltraScale+ USER1=`0x902`/USER2=`0x903`, which
+xsdb receives as the little-endian bytes `0209`/`0309`; RTL-P2.1383). Before RTL-P3.642 the data-window read was
 hard-pinned to USER1, so a second core on USER2+ was uncapturable.
 
 > The wide USER1-control + USER2-burst read optimization (`read_block`

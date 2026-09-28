@@ -48,14 +48,15 @@ wiring. See `SPEC.md` for the register map and integration contract.
 What has been captured on silicon, per family. The authoritative table,
 with the witness details and what each gap means, is `SPEC.md` "Per-family
 support matrix". The four bench families are witnessed on rr-rea 1.9.0
-(REA-P2.14); the 1.10.0 sequencer is not yet (REA-P2.16).
+(REA-P2.14), and the 1.10.0 sequencer on a Zybo Classic (REA-P2.16). Two cores on one
+UltraScale+ device work since routertl `5c3b01e9b` (RTL-P2.1383).
 
 <!-- rea-support-matrix:begin -->
 | Family | Status | Evidence | rr-rea witnessed | Open gaps |
 |---|---|---|---|---|
-| Xilinx 7-series | parity | RTL-P2.1097, REA-P2.14 | 1.9.0 | REA-P2.16 |
-| Xilinx UltraScale+ | works-with-gaps | RTL-P2.1097, OPN-P2.20, REA-P2.14 | 1.9.0 | RTL-P2.1383 |
-| Intel Agilex 5 | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407, REA-P3.11 |
+| Xilinx 7-series | parity | RTL-P2.1097, REA-P2.14, REA-P2.16 | 1.9.0 | — |
+| Xilinx UltraScale+ | parity | RTL-P2.1097, OPN-P2.20, REA-P2.14, RTL-P2.1383 | 1.9.0 | — |
+| Intel Agilex 5 | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407 |
 | Intel Arria 10 | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1528 |
 | Intel Cyclone V | untested | — | — | — |
 | Microchip PolarFire | untested | — | — | — |
