@@ -12,9 +12,19 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.10.0
+#   version: below        the PACKAGE version the registry pins   -> 1.10.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.10.1 (REA-P2.17) is a PATCH: no host-visible change (register map and
+# runtime tier unchanged). REA-T3.2 retimes two compares out of the capture
+# FSM's store/fire path, each now a register kept in step with its counter
+# (the decimation tick and every sequencer stage's count-target reach), with
+# sim-only equivalence guards: OOC Fmax util_seq3 155 -> 214 MHz, util_field
+# 197 -> 213 MHz, and no configuration slower. REA-T3.1 / REA-T3.3 key the
+# requirements.yml resource budgets and the sample_clk_i Fmax floor per util
+# build point (routertl RTL-P2.1374 / RTL-P3.1878). It is also the first
+# publish since 1.2.0: 1.9.0 and 1.10.0 were tagged but never published.
 #
 # 1.10.0 (REA-P3.7) is a MINOR bump: the multi-stage trigger sequencer, which
 # lived only in rr_rea_capture_fsm, is reachable. rr_rea_top and all three
@@ -182,7 +192,7 @@
 
 name: rea
 namespace: routertl
-version: 1.10.0
+version: 1.10.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
