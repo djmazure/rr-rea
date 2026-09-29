@@ -13,22 +13,55 @@ ip: rr_rea_top
 version: 0.1
 hdl_file: rtl/rr_rea_top.vhd
 
-# REA-P2.9: resource contract for the DEFAULT elaboration (G_SAMPLE_W 12,
-# G_DEPTH 4096, G_TIMESTAMP_W 32, G_TRIG_CONDS 4, no qualifier). rr can hold one
-# static cap only (RTL-P2.1374 per-configuration budgets, RTL-P2.1375 no
-# minimum), so the other configurations are measured, not capped: see SPEC
-# "Resources and Fmax per configuration". Measured OOC routed, Vivado 2024.1,
-# xc7z020clg400-1 (targets/util_default.yml): 1600 LUT, 2525 FF, 5.5 RAMB36
-# tiles, 0 DSP, 179 MHz (214 MHz since 1.4.2, REA-P2.11). Caps carry ~15 % headroom. Fmax is a declared target,
-# not yet a hard gate: rr does not check technical: at synth (RTL-P2.1351).
+# REA-P2.9 / REA-T3.1: resource budgets, one per build point (RTL-P2.1374).
+# rr judges technical.resources at synth and impl (RTL-P2.1351), so ONE flat cap
+# judged every util target against the default elaboration's budget:
+# util_field_noqual synth failed "5259 vs Bound: 1850" (REA-T3.1). Each
+# targets/util_*.yml now binds its own `target:` point; the selector-less entry
+# is the fallback and binds only a build no point names (util_default, and any
+# consumer elaboration), exactly the old default contract.
+# Caps: ~15 % over the larger of the OOC synth (rr-rea 1.10.0, Vivado 2024.1,
+# xc7z020clg400-1) and the routed row in SPEC "Resources and Fmax per
+# configuration"; BRAM in whole RAMB36 tiles. A new util target needs a point
+# here AND a SPEC row: tests/test_resource_budget_points_t3_1.py enforces both.
+# Fmax is ONE floor for every build (technical.clocks has no build points), so
+# util_big (130 MHz routed) is below it by design; see SPEC.
 technical:
   clocks:
     - { name: sample_clk_i, fmax_mhz: 200.0 }
   resources:
-    lut:  { max: 1850 }
-    ff:   { max: 2900 }
-    bram: { max: 6 }
-    dsp:  { max: 0 }
+    - target: util_min
+      lut:  { max: 1200 }
+      ff:   { max: 1800 }
+      bram: { max: 1 }
+      dsp:  { max: 0 }
+    - target: util_field_noqual
+      lut:  { max: 6200 }
+      ff:   { max: 6400 }
+      bram: { max: 15 }
+      dsp:  { max: 0 }
+    - target: util_field
+      lut:  { max: 7150 }
+      ff:   { max: 7450 }
+      bram: { max: 15 }
+      dsp:  { max: 0 }
+    - target: util_seq3
+      lut:  { max: 2400 }
+      ff:   { max: 3700 }
+      bram: { max: 7 }
+      dsp:  { max: 0 }
+    - target: util_big
+      lut:  { max: 41750 }
+      ff:   { max: 36850 }
+      bram: { max: 83 }
+      dsp:  { max: 0 }
+    # Fallback: the default elaboration (G_SAMPLE_W 12, G_DEPTH 4096,
+    # G_TIMESTAMP_W 32, G_TRIG_CONDS 4, no qualifier), routed 1586 LUT /
+    # 2538 FF / 5.5 RAMB36 / 0 DSP / 214 MHz.
+    - lut:  { max: 1850 }
+      ff:   { max: 2900 }
+      bram: { max: 6 }
+      dsp:  { max: 0 }
   policy:
     hard: [resources]
     priority: [resources, fmax]

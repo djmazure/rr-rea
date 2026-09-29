@@ -660,7 +660,7 @@ from timing: the scoped constraints bound it as above.
 
 Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 `sample_clk_i` constrained at 2.5 ns so the reported slack gives Fmax
-(1000 / (2.5 - WNS)), rr-rea 1.4.2 (util_field, util_big: 1.5.1). Targets live in `targets/util_*.yml`
+(1000 / (2.5 - WNS)), rr-rea 1.4.2 (util_field, util_big: 1.5.1; util_seq3: 1.10.0, REA-T3.1). Targets live in `targets/util_*.yml`
 (`rr queue submit synth --ooc --target targets/<name>.yml`, then `impl`);
 `constraints/rea_fmax_ooc.xdc` adds only the sample clock, the shipped
 `rr_rea_scoped.xdc` supplies TCK and every crossing bound.
@@ -672,6 +672,7 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 | util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5396 | 5561 | 49 | 13 | 0 | 219 MHz |
 | util_field | util_field_noqual + QUAL_CONDS 1 | 6197 | 6485 | 50 | 13 | 0 | 201 MHz |
 | util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 36310 | 32033 | 72 | 72 | 0 | 130 MHz |
+| util_seq3 | defaults + TRIG_STAGES 3 | 2142 | 3194 | 0 | 5.5 | 0 | 155 MHz |
 
 - **BRAM follows the block's aspect ratios, not the bit count.** Each capture
   plane (samples, and timestamps when `G_TIMESTAMP_W > 0`) is one
@@ -685,11 +686,23 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   corner: at 8K depth a tile holds 4 bits of each sample. The `memories:`
   ratchet in project.yml pins both planes to block RAM. The SRLs are the
   capture FSM's probe delay lines, not RAM.
-- **The contract caps the default elaboration only** (`technical:` in
-  requirements.yml, ~15 % over the util_default row). rr has one static cap
-  per IP: per-configuration budgets are RTL-P2.1374, a minimum is RTL-P2.1375,
-  and synth does not check `technical:` yet (RTL-P2.1351). Size a non-default
-  build from this table.
+- **Every row has its own resource budget** (REA-T3.1). `technical.resources`
+  in requirements.yml is a list of build points (RTL-P2.1374): each
+  `targets/util_*.yml` binds a `target:` point sized ~15 % over the larger of
+  its routed row here and its OOC synth, and a selector-less fallback (the
+  util_default row + ~15 %: 1850 LUT, 2900 FF, 6 RAMB36, 0 DSP) binds any
+  build no point names, including a consumer's own elaboration. rr checks the
+  bound point at synth and impl (RTL-P2.1351) and names it in the log
+  (`budget target=util_field_noqual binds this build`); `rr contract report`
+  lists every point. A new util target needs a point AND a row in this table,
+  and `tests/test_resource_budget_points_t3_1.py` fails until it has both.
+  Two limits remain. The one `technical.clocks` floor (200 MHz) applies to
+  every build, because fmax has no build points yet (RTL-P3.1878). At 1.10.0
+  the OOC impl gate therefore fails util_seq3 (155.4 MHz) and util_field
+  (197.1 MHz) on fmax with their resources inside budget (REA-T3.2), and
+  util_big (130 MHz) cannot pass it. An OOC **synth** of any row also still
+  exits 1 on "fmax 0.0 MHz" until RTL-T2.299, because synth reports carry no
+  timing. The resource verdict in that log is still the real one.
 - **Fmax is set by the store decision.** Since 1.4.2 (REA-P2.11) the
   window-full flag is a register kept in step with `post_count`, so the
   compare no longer sits between `post_count` and the store strobe: 1.4.1 gave
