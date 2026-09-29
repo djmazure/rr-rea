@@ -24,11 +24,17 @@ hdl_file: rtl/rr_rea_top.vhd
 # xc7z020clg400-1) and the routed row in SPEC "Resources and Fmax per
 # configuration"; BRAM in whole RAMB36 tiles. A new util target needs a point
 # here AND a SPEC row: tests/test_resource_budget_points_t3_1.py enforces both.
-# Fmax is ONE floor for every build (technical.clocks has no build points), so
-# util_big (130 MHz routed) is below it by design; see SPEC.
+# Fmax floors are build points too (REA-T3.3, RTL-P3.1878): util_big's
+# 256-bit x 4-condition qualifier compare routes at 133.5 MHz by construction
+# (OOC impl, rr-rea 1.10.0 + REA-T3.2), so it binds its own floor, ~15 % under
+# that measurement; every other build keeps the 200 MHz fallback. Fmax is
+# judged at impl (deferred at synth, RTL-D.356).
 technical:
   clocks:
-    - { name: sample_clk_i, fmax_mhz: 200.0 }
+    - name: sample_clk_i
+      fmax_mhz:
+        - { target: util_big, min: 115.0 }
+        - { min: 200.0 }
   resources:
     - target: util_min
       lut:  { max: 1200 }

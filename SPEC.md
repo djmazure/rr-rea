@@ -660,7 +660,7 @@ from timing: the scoped constraints bound it as above.
 
 Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 `sample_clk_i` constrained at 2.5 ns so the reported slack gives Fmax
-(1000 / (2.5 - WNS)). Rows re-measured after REA-T3.2 (rr-rea 1.10.0 + the T3.2 retime); util_big is rr-rea 1.5.1. Targets live in `targets/util_*.yml`
+(1000 / (2.5 - WNS)). Rows re-measured after REA-T3.2 (rr-rea 1.10.0 + the T3.2 retime). Targets live in `targets/util_*.yml`
 (`rr queue submit synth --ooc --target targets/<name>.yml`, then `impl`);
 `constraints/rea_fmax_ooc.xdc` adds only the sample clock, the shipped
 `rr_rea_scoped.xdc` supplies TCK and every crossing bound.
@@ -671,7 +671,7 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 | util_default | defaults (SAMPLE_W 12, DEPTH 4096, TIMESTAMP_W 32, TRIG_CONDS 4) | 1611 | 2529 | 0 | 5.5 | 0 | 213 MHz |
 | util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5385 | 5552 | 50 | 13 | 0 | 223 MHz |
 | util_field | util_field_noqual + QUAL_CONDS 1 | 6246 | 6570 | 50 | 13 | 0 | 213 MHz |
-| util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 36310 | 32033 | 72 | 72 | 0 | 130 MHz |
+| util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 35766 | 32187 | 72 | 72 | 0 | 134 MHz |
 | util_seq3 | defaults + TRIG_STAGES 3 | 2130 | 3214 | 0 | 5.5 | 0 | 214 MHz |
 
 - **BRAM follows the block's aspect ratios, not the bit count.** Each capture
@@ -696,12 +696,12 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   (`budget target=util_field_noqual binds this build`); `rr contract report`
   lists every point. A new util target needs a point AND a row in this table,
   and `tests/test_resource_budget_points_t3_1.py` fails until it has both.
-  Two limits remain. The one `technical.clocks` floor (200 MHz) applies to
-  every build, because fmax has no build points yet (RTL-P3.1878), so
-  util_big (130 MHz) cannot pass it (REA-T3.3); every other row passes its OOC
-  impl gate since REA-T3.2. An OOC **synth** of any row also still
-  exits 1 on "fmax 0.0 MHz" until RTL-T2.299, because synth reports carry no
-  timing. The resource verdict in that log is still the real one.
+  The Fmax floor is keyed the same way (REA-T3.3, RTL-P3.1878): util_big
+  binds its own `sample_clk_i` floor of 115 MHz (~15 % under its routed
+  134 MHz, which its qualifier compare sets by construction), and every other
+  row keeps the 200 MHz fallback; `rr contract report` lists both tables.
+  Fmax is judged at impl: an OOC synth reports no timing and defers it
+  (RTL-D.356), so every row's synth exits 0 on resources alone.
 - **Fmax is set by the store decision.** Since 1.4.2 (REA-P2.11) the
   window-full flag is a register kept in step with `post_count`, so the
   compare no longer sits between `post_count` and the store strobe: 1.4.1 gave
