@@ -660,19 +660,19 @@ from timing: the scoped constraints bound it as above.
 
 Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
 `sample_clk_i` constrained at 2.5 ns so the reported slack gives Fmax
-(1000 / (2.5 - WNS)), rr-rea 1.4.2 (util_field, util_big: 1.5.1; util_seq3: 1.10.0, REA-T3.1). Targets live in `targets/util_*.yml`
+(1000 / (2.5 - WNS)). Rows re-measured after REA-T3.2 (rr-rea 1.10.0 + the T3.2 retime); util_big is rr-rea 1.5.1. Targets live in `targets/util_*.yml`
 (`rr queue submit synth --ooc --target targets/<name>.yml`, then `impl`);
 `constraints/rea_fmax_ooc.xdc` adds only the sample clock, the shipped
 `rr_rea_scoped.xdc` supplies TCK and every crossing bound.
 
 | Config | Generics (others default) | LUT | FF | SRL | BRAM (RAMB36 tiles) | DSP | Fmax |
 |---|---|---|---|---|---|---|---|
-| util_min | SAMPLE_W 8, DEPTH 1024, TIMESTAMP_W 0, TRIG_CONDS 1 | 1038 | 1553 | 0 | 0.5 | 0 | 241 MHz |
-| util_default | defaults (SAMPLE_W 12, DEPTH 4096, TIMESTAMP_W 32, TRIG_CONDS 4) | 1586 | 2538 | 0 | 5.5 | 0 | 214 MHz |
-| util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5396 | 5561 | 49 | 13 | 0 | 219 MHz |
-| util_field | util_field_noqual + QUAL_CONDS 1 | 6197 | 6485 | 50 | 13 | 0 | 201 MHz |
+| util_min | SAMPLE_W 8, DEPTH 1024, TIMESTAMP_W 0, TRIG_CONDS 1 | 1021 | 1556 | 0 | 0.5 | 0 | 243 MHz |
+| util_default | defaults (SAMPLE_W 12, DEPTH 4096, TIMESTAMP_W 32, TRIG_CONDS 4) | 1611 | 2529 | 0 | 5.5 | 0 | 213 MHz |
+| util_field_noqual | SAMPLE_W 80, DEPTH 4096, TIMESTAMP_W 32 | 5385 | 5552 | 50 | 13 | 0 | 223 MHz |
+| util_field | util_field_noqual + QUAL_CONDS 1 | 6246 | 6570 | 50 | 13 | 0 | 213 MHz |
 | util_big | SAMPLE_W 256, DEPTH 8192, TIMESTAMP_W 32, TRIG_CONDS 8, QUAL_CONDS 4 | 36310 | 32033 | 72 | 72 | 0 | 130 MHz |
-| util_seq3 | defaults + TRIG_STAGES 3 | 2142 | 3194 | 0 | 5.5 | 0 | 155 MHz |
+| util_seq3 | defaults + TRIG_STAGES 3 | 2130 | 3214 | 0 | 5.5 | 0 | 214 MHz |
 
 - **BRAM follows the block's aspect ratios, not the bit count.** Each capture
   plane (samples, and timestamps when `G_TIMESTAMP_W > 0`) is one
@@ -697,10 +697,9 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   lists every point. A new util target needs a point AND a row in this table,
   and `tests/test_resource_budget_points_t3_1.py` fails until it has both.
   Two limits remain. The one `technical.clocks` floor (200 MHz) applies to
-  every build, because fmax has no build points yet (RTL-P3.1878). At 1.10.0
-  the OOC impl gate therefore fails util_seq3 (155.4 MHz) and util_field
-  (197.1 MHz) on fmax with their resources inside budget (REA-T3.2), and
-  util_big (130 MHz) cannot pass it. An OOC **synth** of any row also still
+  every build, because fmax has no build points yet (RTL-P3.1878), so
+  util_big (130 MHz) cannot pass it (REA-T3.3); every other row passes its OOC
+  impl gate since REA-T3.2. An OOC **synth** of any row also still
   exits 1 on "fmax 0.0 MHz" until RTL-T2.299, because synth reports carry no
   timing. The resource verdict in that log is still the real one.
 - **Fmax is set by the store decision.** Since 1.4.2 (REA-P2.11) the
@@ -715,6 +714,13 @@ Measured out-of-context, placed and routed: Vivado 2024.1, xc7z020clg400-1,
   limited by the qualifier compare itself (value/mask registers into the
   `qual_ok` flop), which grows with `G_SAMPLE_W x G_QUAL_CONDS`. Before REA-T2.5 (1.4.1) the
   PRETRIG_VALID chain capped util_min at 136 MHz and util_default at 145 MHz.
+  REA-T3.2 took two more compares out of that logic, each now a register
+  kept in step with its counter (sim-only guards check the equivalence every
+  cycle): the decimation tick (`decim_count = 0`, a 24-bit zero-detect in
+  front of the store strobe: util_field 197 -> 213 MHz) and each sequencer
+  stage's `counter + 1 >= target` (in the fire path and the stage-advance
+  logic: util_seq3 155 -> 214 MHz). Every row but util_big is now limited by
+  the fire-lag load of `post_count` (`wr_ptr - fire_ptr`).
 
 ## Resources and Fmax on Quartus and Libero (REA-P3.10)
 

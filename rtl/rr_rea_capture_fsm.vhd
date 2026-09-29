@@ -521,6 +521,10 @@ architecture rtl of rr_rea_capture_fsm is
     signal posttrig_len_r: unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal decim_ratio_r : unsigned(23 downto 0)         := (others => '0');
     signal decim_count_r : unsigned(23 downto 0)         := (others => '0');
+    -- REA-T3.2: decim_count_r = 0 as a REGISTER kept in step with the
+    -- counter, so the 24-bit zero-detect no longer sits in front of the
+    -- store strobe (it limited util_default/util_field Fmax).
+    signal decim_zero_r  : std_logic := '1';
     signal decim_tick    : std_logic;
     signal store_sample  : std_logic;
 
@@ -556,6 +560,23 @@ architecture rtl of rr_rea_capture_fsm is
     signal seq_state_r   : unsigned(C_SEQ_STATE_W - 1 downto 0)
                               := (others => '0');
     signal seq_enable_r  : std_logic := '0';
+    -- REA-T3.2: per stage, "the next match reaches the count target"
+    -- (counter + 1 >= target) as a REGISTER kept in step with that stage's
+    -- counter and target. The 16-bit add/compare sat in the fire path
+    -- (seq_final_fire -> trigger_hit -> post_count, util_seq3 155 MHz) and in
+    -- the stage advance/count next-state (190 MHz once the fire path was
+    -- retimed). A counter only increments while counter + 1 < target, so it
+    -- stays <= target - 1 and never wraps; that makes the flag's own update a
+    -- plain compare against target - 2, latched with the target on arm.
+    -- Reset: counter 0, target 0 -> 1 >= 0.
+    signal seq_reach_r : std_logic_vector(G_TRIG_STAGES - 1 downto 0)
+                            := (others => '1');
+    -- target <= 1: the flag's value whenever the counter returns to 0.
+    signal seq_tle1_r  : std_logic_vector(G_TRIG_STAGES - 1 downto 0)
+                            := (others => '1');
+    -- target - 2 (mod 2^16); consulted only while target >= 2.
+    signal seq_tm2_r_flat : std_logic_vector(
+        G_TRIG_STAGES * 16 - 1 downto 0) := (others => '0');
 
     -- ── Comparator-array state (v0.5, RTL-P3.647) ────────────────
     -- Latched on arm like the seq/legacy config. Flat vectors (same
@@ -1018,7 +1039,7 @@ begin
     -- v0.3 decimation tick: '1' every (decim_ratio + 1) cycles.
     -- decim_ratio = 0 → tick always high (no decimation, store every
     -- cycle — matches v0.1/v0.2 behavior).
-    decim_tick <= '1' when decim_count_r = 0 else '0';
+    decim_tick <= decim_zero_r;
 
     -- ── REA-P2.7 storage qualifier (REA-REQ-951..953) ────────────
     -- Combinational on purpose: it must decide in the cycle the sample is
@@ -1188,6 +1209,35 @@ begin
             end if;
         end if;
     end process;
+
+    -- REA-T3.2 equivalence guards (simulation only), every cycle out of
+    -- reset: each retimed flag must equal the combinational definition it
+    -- replaced, so every sim that decimates or sequences checks the retiming.
+    p_t3_2_equiv : process (sample_clk_i)
+        variable v_seq : std_logic;
+    begin
+        if rising_edge(sample_clk_i) then
+            if sample_rst_i = '0' then
+                assert decim_zero_r = '1' xnor decim_count_r = 0
+                    report "REA-T3.2: registered decim_zero diverged from "
+                           & "decim_count = 0"
+                    severity failure;
+                for k in 0 to G_TRIG_STAGES - 1 loop
+                    if seq_counter_view(k) + 1
+                       >= seq_count_target_view(k) then
+                        v_seq := '1';
+                    else
+                        v_seq := '0';
+                    end if;
+                    assert seq_reach_r(k) = v_seq
+                        report "REA-T3.2: registered seq_reach("
+                               & integer'image(k) & ") diverged from "
+                               & "counter + 1 >= target"
+                        severity failure;
+                end loop;
+            end if;
+        end if;
+    end process;
     -- pragma translate_on
 
     fire_lag <= wr_ptr_r - local_fire_ptr when local_fire_pipe = '1'
@@ -1239,8 +1289,7 @@ begin
         pipeline_final_valid = '1' and
         seq_state_r = to_unsigned(G_TRIG_STAGES - 1, C_SEQ_STATE_W) and
         seq_final_match(G_TRIG_STAGES - 1) = '1' and
-        seq_counter_view(G_TRIG_STAGES - 1) + 1
-            >= seq_count_target_view(G_TRIG_STAGES - 1)
+        seq_reach_r(G_TRIG_STAGES - 1) = '1'
     ) else '0';
 
     -- ── Status outputs ───────────────────────────────────────────
@@ -1311,10 +1360,14 @@ begin
             trig_mode_r    <= (others => '0');
             decim_ratio_r  <= (others => '0');
             decim_count_r  <= (others => '0');
+            decim_zero_r   <= '1';
             seq_enable_r   <= '0';
             seq_state_r    <= (others => '0');
             seq_count_target_r_flat <= (others => '0');
             seq_counter_r_flat      <= (others => '0');
+            seq_reach_r             <= (others => '1');
+            seq_tle1_r              <= (others => '1');
+            seq_tm2_r_flat          <= (others => '0');
             array_enable_r <= '0';
             -- Wide comparator configuration is loaded atomically on arm and
             -- ignored while its reset control enables remain low.
@@ -1355,10 +1408,20 @@ begin
             -- qualifying cycles, so decimation keeps every (N+1)-th QUALIFIED
             -- sample (REA-REQ-954). qual_ok is '1' when it is off.
             if done_r = '0' and qual_ok = '1' then
-                if decim_count_r = 0 then
+                if decim_zero_r = '1' then
                     decim_count_r <= decim_ratio_r;
+                    if decim_ratio_r = 0 then
+                        decim_zero_r <= '1';
+                    else
+                        decim_zero_r <= '0';
+                    end if;
                 else
                     decim_count_r <= decim_count_r - 1;
+                    if decim_count_r = 1 then
+                        decim_zero_r <= '1';
+                    else
+                        decim_zero_r <= '0';
+                    end if;
                 end if;
             end if;
 
@@ -1439,6 +1502,22 @@ begin
                 seq_state_r    <= (others => '0');
                 seq_count_target_r_flat <= seq_counts_i;
                 seq_counter_r_flat      <= (others => '0');
+                -- Counters restart at 0, so each stage's next match
+                -- reaches iff target <= 1.
+                for k in 0 to G_TRIG_STAGES - 1 loop
+                    if unsigned(seq_counts_i(k * 16 + 15 downto k * 16))
+                       <= 1 then
+                        seq_reach_r(k) <= '1';
+                        seq_tle1_r(k)  <= '1';
+                    else
+                        seq_reach_r(k) <= '0';
+                        seq_tle1_r(k)  <= '0';
+                    end if;
+                    seq_tm2_r_flat(k * 16 + 15 downto k * 16) <=
+                        std_logic_vector(
+                            unsigned(seq_counts_i(k * 16 + 15 downto k * 16))
+                            - 2);
+                end loop;
                 -- RTL-P3.647: latch the comparator-array config on arm too.
                 array_enable_r <= array_enable_i;
                 cond_ops_r     <= cond_ops_i;
@@ -1453,6 +1532,7 @@ begin
                 -- counter reloads to 0 every cycle → tick every
                 -- cycle (no decimation, matches v0.1/v0.2).
                 decim_count_r  <= (others => '0');
+                decim_zero_r   <= '1';
                 -- Overflow check: window doesn't fit in DEPTH.
                 -- REA-T2.6 / REA-REQ-107: the up-to-C_PIPE_STAGES samples
                 -- stored while the trigger pipeline catches up land past the
@@ -1480,8 +1560,7 @@ begin
                 for k in 0 to G_TRIG_STAGES - 1 loop
                     if seq_state_r = to_unsigned(k, C_SEQ_STATE_W)
                        and seq_final_match(k) = '1' then
-                        if seq_counter_view(k) + 1
-                           >= seq_count_target_view(k) then
+                        if seq_reach_r(k) = '1' then
                             -- Reached the count target on this match.
                             -- Final stage → drive seq_final_fire (the
                             -- combinational signal feeding trigger_hit
@@ -1498,11 +1577,22 @@ begin
                                 seq_counter_r_flat(
                                     k * 16 + 15 downto k * 16
                                 ) <= (others => '0');
+                                seq_reach_r(k) <= seq_tle1_r(k);
                             end if;
                         else
                             seq_counter_r_flat(
                                 k * 16 + 15 downto k * 16
                             ) <= std_logic_vector(seq_counter_view(k) + 1);
+                            -- Here counter + 1 < target, so target >= 2 and
+                            -- the new counter c + 1 reaches on the next
+                            -- match iff c + 2 >= target, i.e. c >= target - 2.
+                            if seq_counter_view(k)
+                               >= unsigned(seq_tm2_r_flat(
+                                      k * 16 + 15 downto k * 16)) then
+                                seq_reach_r(k) <= '1';
+                            else
+                                seq_reach_r(k) <= '0';
+                            end if;
                         end if;
                     end if;
                 end loop;

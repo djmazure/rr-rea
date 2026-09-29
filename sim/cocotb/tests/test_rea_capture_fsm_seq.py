@@ -273,6 +273,45 @@ async def test_rea_req_603_count_target_gates_advance(dut):
     dut._log.info("REA-REQ-603 PASS — count_target gates advance per stage")
 
 
+@cocotb.test()
+@requires("REA-REQ-603")
+async def test_rea_req_603_final_stage_count_target_gates_fire(dut):
+    """The FINAL stage's count_target gates the fire itself: with N = 3 the
+    capture fires on the third final-stage match, not the first or second.
+
+    REA-T3.2: the final stage's "counter + 1 >= target" is a register kept in
+    step with its counter. Every other test uses a final count of 1, which
+    never increments that counter, so neither the fire nor the RTL's
+    equivalence guard saw the increment path."""
+    await _start_clk(dut)
+    await _reset(dut)
+
+    await _arm_with_sequence(
+        dut,
+        values=[0x51, 0x52, 0x53, 0x54],
+        masks =[0xFFF] * NUM_STAGES,
+        counts=[1, 1, 1, 3],
+    )
+    await ClockCycles(dut.sample_clk_i, 2)
+
+    for value in [0x51, 0x52, 0x53]:
+        await _drive_probe(dut, value)
+    for match in (1, 2):
+        await _drive_probe(dut, 0x54)
+        await _drive_probe(dut, 0x00)
+        await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+        assert int(dut.triggered_o.value) == 0, (
+            f"final stage needs 3 matches; fired after {match}"
+        )
+
+    await _drive_probe(dut, 0x54)
+    await _drive_probe(dut, 0x00)
+    await ClockCycles(dut.sample_clk_i, DERIVED_PIPE_STAGES + 1)
+    assert int(dut.triggered_o.value) == 1, (
+        "final stage reached its count target (3 matches) but did not fire"
+    )
+
+
 # ── REA-REQ-604: non-final match does NOT trigger ───────────────
 
 
