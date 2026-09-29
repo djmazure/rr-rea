@@ -58,8 +58,9 @@ architecture rtl of rr_rea_dpram is
 begin
 
     -- Port A: synchronous write (sole driver of `mem`) + synchronous
-    -- read on clk_a_i. dout_a_o is `open` in rr_rea_top; it exists only for
-    -- the dpram self-inspection unit tests.
+    -- read on clk_a_i. rr_rea_top feeds dout_a_o to the CRC sweep
+    -- (sweep_mem_dout, and ts_mem_dout for the timestamp plane), which is
+    -- why port A reads on the sample clock (SPEC device-limit note, REA-P3.11).
     process (clk_a_i)
     begin
         if rising_edge(clk_a_i) then
