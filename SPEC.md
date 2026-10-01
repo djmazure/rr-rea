@@ -15,6 +15,8 @@ Status values:
 - **works-with-gaps**: captures on silicon, with the named gaps open.
 - **sim-only**: elaborates and simulates, with no silicon capture.
 - **untested**: no build and no capture on record.
+- **blocked**: reaches silicon, but the acceptance gate fails on the latest witness;
+  do not trust a capture until the named gap closes.
 
 A status changes only on a cited witness. **Re-verify this table whenever a
 silicon witness lands** (the latest: REA-P2.16, the 1.10.0 sequencer, and
@@ -26,7 +28,7 @@ RTL-P2.1383, two cores on one UltraScale+ device).
 | Xilinx 7-series | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, REA-P2.14, REA-P2.16 | 1.9.0 | — |
 | Xilinx UltraScale+ | `rr_rea_jtag_xilinx7` (BSCANE2) | parity | RTL-P2.1097, OPN-P2.20, REA-P2.14, RTL-P2.1383 | 1.9.0 | — |
 | Intel Agilex 5 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, System Console) | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407 |
-| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd) | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1528 |
+| Intel Arria 10 | `rr_rea_jtag_intel` (`sld_virtual_jtag`, openocd or System Console) | blocked | RTL-P3.427, RTL-P1.96, RTL-P2.901 | 1.10.1 | RTL-P2.901, RTL-P3.1528, RTL-P3.1895 |
 | Intel Cyclone V | `rr_rea_jtag_intel` (`sld_virtual_jtag`) | untested | — | — | — |
 | Microchip PolarFire | `rr_rea_jtag_microchip` (UJTAG) | untested | — | — | — |
 | Microchip PolarFire SoC | `rr_rea_jtag_microchip` (UJTAG); `rr_rea_axi4lite` (Linux MMIO) | works-with-gaps | DS-P2.132, DS-P2.128, REA-P2.14 | 1.9.0 | RTL-P2.1278 |
@@ -44,8 +46,8 @@ That covers the REA-P2.10 CDC rework and the shipped constraints of
 REA-P2.8/P2.12/P2.13 on silicon. **The 1.10.0 sequencer** was witnessed separately by
 REA-P2.16 (2026-09-26) on a Zybo Classic (xc7z010), with `G_TRIG_STAGES=3` and rr-rea
 1.10.0 (`42c5503`). All six checkpoints passed word-exact. The run was inside the SDH-P2.27
-session (rr-sdh-toh `d3df271`). **Not yet witnessed:** Arria 10 at any version after 0.7.2,
-because it is not on the bench.
+session (rr-sdh-toh `d3df271`). **Arria 10 on 1.10.1 is blocked** (field bench, 2026-10-01): the identity gate
+fails, see the per-family notes below.
 
 Per family:
 
@@ -95,11 +97,24 @@ Per family:
   - Timing: since routertl `ed08f52a` (RTL-P2.1404/RTL-P3.1838) the demo
     builds with its SDC applied and meets timing (clk_50 +14.830 ns). No
     capture has been taken on a constrained Arria 10 build.
-  - Gap RTL-P2.901: Quartus Pro physically miscompiles wide readback chains on
-    this family. **Accept every Arria 10 build with `rr ila selftest`** (and
-    the odd-VERSION probe, REA-REQ-806) before trusting a capture.
+  - **Blocked on rr-rea 1.10.1 (2026-10-01, field bench, RTL-P2.901).** Arria 10
+    compiled with Quartus Std 23.1, 256-bit sample width, STA met including
+    the core's own hold paths. The identity gate FAILS: control readback
+    returns all-ones for every value with bit0=1 (VERSION `0x5245410F` and
+    BUILD_ID read `0xFFFFFFFF`, FEATURES reads exact, and a read/write register
+    holds odd values but reads them back as all-ones). Reproduced identically
+    through the Std 23.1 and the Pro 26.1 System Console. The REAClient
+    selftest fails and reports `unclassified` (RTL-P3.1895). Host: Windows JTAG server
+    and USB-Blaster; Linux jtagd not yet tested. Not usable pending
+    RTL-P2.901. The trust tier refused to capture, as designed.
+  - Gap RTL-P2.901: wide readback chains on this family return corrupted
+    values: Quartus Pro builds showed it in 2026-07 (whole-DR shift-left-1 at
+    256 bits, bit0 all-ones at 704), and the Std 23.1 build above shows it
+    too. **Accept every Arria 10 build with `rr ila selftest`** (and the
+    odd-VERSION probe, REA-REQ-806) before trusting a capture.
   - Gap RTL-P3.1528, as for Agilex 5.
-  - No Arria 10 board is on the bench.
+  - No Arria 10 board is on the routertl bench; the 1.10.1 witness is from a
+    field bench.
 - **Intel Cyclone V.** `rr_rea_jtag_intel` uses `sld_virtual_jtag`, which
   Cyclone V has, but no build or capture is on record and no board is on the
   bench.

@@ -5,7 +5,7 @@
 SPEC.md holds the authoritative matrix and README.md a summary of it, both
 between `rea-support-matrix` markers. This pins the ticket's done-when:
 - every family is listed;
-- each row has one of the four statuses;
+- each row has one of the five statuses;
 - a row that claims silicon cites its evidence ticket and the rr-rea version
   witnessed;
 - Cyclone V and plain PolarFire stay untested until a witness says otherwise;
@@ -23,7 +23,7 @@ FAMILIES = [
     "Xilinx 7-series", "Xilinx UltraScale+", "Intel Agilex 5", "Intel Arria 10",
     "Intel Cyclone V", "Microchip PolarFire", "Microchip PolarFire SoC",
 ]
-STATUSES = {"parity", "works-with-gaps", "sim-only", "untested"}
+STATUSES = {"parity", "works-with-gaps", "blocked", "sim-only", "untested"}
 TICKET = re.compile(r"^[A-Z0-9]+-[PT][0-9]\.[0-9]+$")
 VERSION = re.compile(r"^[0-9]+\.[0-9]+(\.[0-9]+)?$")
 SUMMARY_COLUMNS = ["Family", "Status", "Evidence", "rr-rea witnessed", "Open gaps"]
@@ -57,7 +57,7 @@ def test_every_family_is_listed_once_in_order(rows):
     assert [r["Family"] for r in rows] == FAMILIES
 
 
-def test_status_is_one_of_the_four(rows):
+def test_status_is_one_of_the_five(rows):
     for r in rows:
         assert r["Status"] in STATUSES, r
 
@@ -65,13 +65,21 @@ def test_status_is_one_of_the_four(rows):
 def test_a_silicon_claim_cites_evidence_and_version(rows):
     for r in rows:
         evidence, version = _ids(r["Evidence"]), r["rr-rea witnessed"]
-        if r["Status"] in {"parity", "works-with-gaps"}:
+        if r["Status"] in {"parity", "works-with-gaps", "blocked"}:
             assert evidence and all(TICKET.match(t) for t in evidence), r
             assert VERSION.match(version), r
         else:
             # sim-only / untested: no silicon witness exists to cite
             assert not evidence and version == "—", r
         assert all(TICKET.match(t) for t in _ids(r["Open gaps"])), r
+
+
+def test_a_blocked_row_names_the_gap_that_blocks_it(rows):
+    # "blocked" means "do not trust a capture until the named gap closes",
+    # so a blocked row without an open gap would tell the reader nothing.
+    for r in rows:
+        if r["Status"] == "blocked":
+            assert _ids(r["Open gaps"]), r
 
 
 def test_cyclone_v_and_plain_polarfire_are_untested(rows):

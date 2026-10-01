@@ -57,7 +57,7 @@ UltraScale+ device work since routertl `5c3b01e9b` (RTL-P2.1383).
 | Xilinx 7-series | parity | RTL-P2.1097, REA-P2.14, REA-P2.16 | 1.9.0 | — |
 | Xilinx UltraScale+ | parity | RTL-P2.1097, OPN-P2.20, REA-P2.14, RTL-P2.1383 | 1.9.0 | — |
 | Intel Agilex 5 | works-with-gaps | RTL-P2.1097, REA-P2.14 | 1.9.0 | RTL-P3.1528, RTL-P2.1407 |
-| Intel Arria 10 | works-with-gaps | RTL-P3.427, RTL-P1.96 | 0.7.2 | RTL-P2.901, RTL-P3.1528 |
+| Intel Arria 10 | blocked | RTL-P3.427, RTL-P1.96, RTL-P2.901 | 1.10.1 | RTL-P2.901, RTL-P3.1528, RTL-P3.1895 |
 | Intel Cyclone V | untested | — | — | — |
 | Microchip PolarFire | untested | — | — | — |
 | Microchip PolarFire SoC | works-with-gaps | DS-P2.132, DS-P2.128, REA-P2.14 | 1.9.0 | RTL-P2.1278 |
