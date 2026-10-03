@@ -230,7 +230,7 @@ async def test_rea_req_607_seq_window_decodes_through_the_top(dut):
     assert (features >> 28) & 0x7 == STAGES, (
         f"FEATURES=0x{features:08X}: [30:28] should carry G_TRIG_STAGES={STAGES}")
     assert (features >> 31) & 1 == 0 and (features >> 23) & 1 == 0, (
-        f"FEATURES=0x{features:08X}: reserved bit set")
+        f"FEATURES=0x{features:08X}: guard [31] or reserved [23] set")
 
     await _jtag_write(dut, ADDR_PRETRIG, 0x0000_0007)
     await _jtag_write(dut, ADDR_CHAN_SEL, 0x0000_0000)

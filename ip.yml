@@ -12,9 +12,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.11.0
+#   version: below        the PACKAGE version the registry pins   -> 1.11.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.11.1 (REA-P1.1) is a PATCH that fixes a contract defect in 1.11.0:
+# FEATURES[23], which 1.11.0 gave to the guarded DR, was already the routertl
+# host's sample-liveness bit (RTL-P2.1377), so a G_DR_GUARD core made the host
+# decode unrelated STATUS bits when diagnosing a selftest/capture timeout. The
+# guard bit moves to FEATURES[31]; [23] is now reserved in rr_rea_pkg
+# (C_FEAT_SAMPLE_LIVENESS_BIT, never set) so it cannot be allocated twice
+# again. Builds without G_DR_GUARD are bit-identical to 1.11.0. Do not use
+# 1.11.0 with G_DR_GUARD = true: the host (RTL-P2.1527) refuses it.
 #
 # 1.11.0 (REA-P2.20) is a MINOR bump: the opt-in guarded 50-bit JTAG DR.
 # G_DR_GUARD on rr_rea_jtag_iface / rr_rea_top / rr_rea_intel (default false =
@@ -203,7 +212,7 @@
 
 name: rea
 namespace: routertl
-version: 1.11.0
+version: 1.11.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

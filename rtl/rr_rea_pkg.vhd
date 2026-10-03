@@ -227,10 +227,14 @@ package rr_rea_pkg is
     --          burst transport only when this bit reads 1.
     --   [21]   UDP_WINDOW reserved 0 (Icebox, REA-ICE.1) — never set today.
     --   [22]   STORAGE_QUAL = '1' iff G_QUAL_CONDS > 0 (REA-P2.7, REQ-958).
-    --   [23]   DR_GUARD = '1' iff the JTAG register door uses the 50-bit guarded DR
-    --          (G_DR_GUARD and G_REG_IFACE = "jtag"; REA-P2.20, REA-REQ-969).
+    --   [23]   SAMPLE_LIVENESS reserved 0: the routertl host already reads it as
+    --          STATUS[8] in-reset + STATUS[23:16] heartbeat (RTL-P2.1377). Never
+    --          set until that RTL exists; never reuse it (REA-P1.1).
     --   [27:24] QUAL_CONDS = G_QUAL_CONDS (storage-qualifier slots, <= 15)
-    --   [31:28] reserved (0)
+    --   [30:28] TRIG_STAGES = G_TRIG_STAGES (REA-P3.7)
+    --   [31]   DR_GUARD = '1' iff the JTAG register door uses the 50-bit guarded DR
+    --          (G_DR_GUARD and G_REG_IFACE = "jtag"; REA-P2.20, REA-REQ-969).
+    --          1.11.0 put it at [23]; 1.11.1 moved it here (REA-P1.1).
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
     constant C_FEAT_NUM_SOURCE_LSB : natural := 8;
     constant C_FEAT_WIDE_SAMPLE_BIT : natural := 16;
@@ -243,13 +247,17 @@ package rr_rea_pkg is
     constant C_FEAT_AXIS_WINDOW_BIT : natural := 20;
     constant C_FEAT_UDP_WINDOW_BIT  : natural := 21;
     constant C_FEAT_STORAGE_QUAL_BIT : natural := 22;
-    -- REA-P2.20: [23] advertises the guarded 50-bit DR. FEATURES is even-valued
-    -- on every build, so it reads exact even on a part with the RTL-P2.901 fault.
-    constant C_FEAT_DR_GUARD_BIT     : natural := 23;
+    -- REA-P1.1: [23] is the host's sample-liveness bit (RTL-P2.1377), reserved
+    -- here so it can never be allocated twice again. Nothing sets it today.
+    constant C_FEAT_SAMPLE_LIVENESS_BIT : natural := 23;
     constant C_FEAT_QUAL_CONDS_LSB   : natural := 24;
     -- REA-P3.7: [30:28] = G_TRIG_STAGES (0..4, 0 = none), the sequencer depth. Read it
     -- only from a core whose VERSION is >= 0x5245410F; older cores read 0.
     constant C_FEAT_TRIG_STAGES_LSB  : natural := 28;
+    -- REA-P2.20 / REA-P1.1: [31] advertises the guarded 50-bit DR. FEATURES is
+    -- even whenever G_TRIG_CONDS is even (its LSB is bit 0; default 4), and
+    -- then reads exact even on a part with the RTL-P2.901 odd-value fault.
+    constant C_FEAT_DR_GUARD_BIT     : natural := 31;
     -- FEATURES[19] must derive from this elaboration constant, never be hand-set,
     -- so the generic-derived fingerprint cannot advertise absent logic (FDD §2.3).
     -- REA-P2.3: the tier is complete (sweep + publication + selftest fill), so

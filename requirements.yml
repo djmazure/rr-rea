@@ -1480,7 +1480,7 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Guarded DR (G_DR_GUARD, REA-P2.20)" }]
     desc: >-
-      rr_rea_intel SHALL pass G_DR_GUARD to rr_rea_top, and FEATURES[23]
+      rr_rea_intel SHALL pass G_DR_GUARD to rr_rea_top, and FEATURES[31]
       SHALL read 1 iff the register door is the guarded JTAG DR (G_DR_GUARD
       and G_REG_IFACE = "jtag"), else 0. Read through the wrapper with
       50-bit guarded frames, VERSION SHALL read exactly 0x5245410F, and an

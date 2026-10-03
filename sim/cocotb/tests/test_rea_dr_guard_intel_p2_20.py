@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """REA-P2.20 (REA-REQ-969): rr_rea_intel with G_DR_GUARD = true, scanned
 through the sld_virtual_jtag mock with 50-bit guarded frames. VERSION (odd)
-reads exact, FEATURES[23] advertises the guard, and an odd value written to
+reads exact, FEATURES[31] advertises the guard, and an odd value written to
 PRETRIG reads back exact. Proves the generic reaches the core through the
 wrapper the Arria 10 build instantiates."""
 from __future__ import annotations
@@ -59,10 +59,10 @@ async def test_guarded_intel_reads_odd_values_exact(dut):
         f"REA-REQ-969: guarded VERSION read gave guard={guard} "
         f"value=0x{version:08X}, expected guard=0 value=0x{VERSION:08X}")
     _, features = await _gread(dut, rwg.ADDR_FEATURES)
-    assert (features >> 23) & 1 == 1, (
-        f"REA-REQ-969: FEATURES=0x{features:08X} [23]=0 — the wrapper did not "
+    assert (features >> 31) & 1 == 1, (
+        f"REA-REQ-969: FEATURES=0x{features:08X} [31]=0 — the wrapper did not "
         "pass G_DR_GUARD to rr_rea_top")
-    rwg.check_features(features & ~(1 << 23))
+    rwg.check_features(features & ~(1 << 31))
     for value in (0x2B, 0x11, 0x2A):
         await _gwrite(dut, ADDR_PRETRIG, value)
         await ClockCycles(dut.tck_i, 4)

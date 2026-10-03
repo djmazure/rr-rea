@@ -112,7 +112,7 @@ async def test_rea_req_958_qualifier_registers_features_and_version(dut):
     assert (features >> 24) & 0xF == GENERICS["G_QUAL_CONDS"], (
         f"FEATURES[27:24]={(features >> 24) & 0xF}, want G_QUAL_CONDS")
     assert (features >> 23) & 1 == 0 and features >> 28 == 0, (
-        f"FEATURES=0x{features:08X}: reserved bits set")
+        f"FEATURES=0x{features:08X}: [23] reserved / [31:28] (no stages, no guard) set")
 
     # Reset values: qualification off.
     for addr in (ADDR_QUAL_MODE, ADDR_QUAL_SEL, ADDR_QUAL_CFG, ADDR_QUAL_VAL):

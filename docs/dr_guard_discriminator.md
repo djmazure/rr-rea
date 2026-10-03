@@ -37,7 +37,7 @@ A consuming target declares only the board facts. The `rr schema` keys:
 
 - `project.top_module: rr_rea_dr_guard_discriminator_top`, or the consumer's
   own thin wrapper (below).
-- `packages: {"routertl/rea": "^1.11.0"}`, or `commit:<sha>` before the tag is
+- `packages: {"routertl/rea": "^1.11.1"}`, or `commit:<sha>` before the tag is
   published.
 - `hardware.vendor` / `hardware.part` / the tool version, as for any target.
 - `hardware.pins`, or pins inferred from the top's port names through the
@@ -62,7 +62,7 @@ No hand Tcl and no vendor IP catalog.
 Through `rr ila`, never a standalone System Console script:
 
 - core B needs the guard flag (`dr_guard: true` in its `debug/<core>.yml`,
-  RTL-P2.1527); FEATURES[23] reads 1 on B and 0 on A and C, and the host
+  RTL-P2.1527); FEATURES[31] reads 1 on B and 0 on A and C, and the host
   refuses a flag that disagrees;
 - the sweep is `rr ila readback-map` (RTL-P2.1528): 32 VERSION reads, FEATURES,
   and a write/read-back of every value 0x00..0xFF plus the VERSION magic and

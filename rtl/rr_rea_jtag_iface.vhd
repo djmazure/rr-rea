@@ -37,7 +37,7 @@
 -- It exists to discriminate the Arria 10 SLD readback fault (RTL-P2.901:
 -- every captured value with bit0=1 returns an all-ones DR) — a HYPOTHESIS
 -- that the trigger is TDO=1 at the CDR->SDR boundary, not a named mechanism.
--- The host must be told (REA host flag); FEATURES[23] advertises the build.
+-- The host must be told (REA host flag); FEATURES[31] advertises the build.
 
 library ieee;
     use ieee.std_logic_1164.all;

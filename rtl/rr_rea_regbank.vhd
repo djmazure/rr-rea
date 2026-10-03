@@ -69,7 +69,7 @@ entity rr_rea_regbank is
         G_TRIG_STAGES : natural  := 0;
         -- REA-P2.20: true iff the JTAG door uses the 50-bit guarded DR
         -- (rr_rea_top passes G_DR_GUARD and G_REG_IFACE = "jtag"). Only
-        -- FEATURES[23] reads it (REA-REQ-969).
+        -- FEATURES[31] reads it (REA-REQ-969).
         G_DR_GUARD    : boolean  := false
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
@@ -331,7 +331,7 @@ architecture rtl of rr_rea_regbank is
             v(C_FEAT_QUAL_CONDS_LSB + 3 downto C_FEAT_QUAL_CONDS_LSB) :=
                 std_logic_vector(to_unsigned(G_QUAL_CONDS, 4));
         end if;
-        -- REA-P2.20/REQ-969: [23] tracks the guarded DR.
+        -- REA-P2.20/REQ-969: [31] tracks the guarded DR (REA-P1.1).
         if G_DR_GUARD then
             v(C_FEAT_DR_GUARD_BIT) := '1';
         end if;

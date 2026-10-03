@@ -69,7 +69,7 @@ entity rr_rea_top is
         -- REA-P2.20: opt-in 50-bit JTAG DR with a constant-0 guard bit at the
         -- TDO end, to discriminate the Arria 10 readback fault (RTL-P2.901).
         -- false (the default) = the frozen 49-bit protocol. Only meaningful
-        -- with G_REG_IFACE = "jtag"; FEATURES[23] reads 1 iff both hold.
+        -- with G_REG_IFACE = "jtag"; FEATURES[31] reads 1 iff both hold.
         G_DR_GUARD    : boolean  := false
     );
     port (
