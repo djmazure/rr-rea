@@ -252,6 +252,10 @@ synthesis:
       - rtl/rr_rea_jtag_xilinx7.vhd
     altera:
       - rtl/rr_rea_jtag_intel.vhd
+      # REA-P2.20: debug-only reference top for the guarded-DR discriminator
+      # image (three rr_rea_intel cores, no design logic). Unused unless a
+      # target names it as top_module; see docs/dr_guard_discriminator.md.
+      - rtl/rr_rea_dr_guard_discriminator_top.vhd
     microchip:
       - rtl/rr_rea_jtag_microchip.vhd
 

@@ -134,6 +134,10 @@ def check_features(features: int):
         f"FEATURES=0x{features:08X}: [30:28] (G_TRIG_STAGES) = "
         f"{(features >> 28) & 0x7}, expected 2 — the wrapper did not pass "
         "G_TRIG_STAGES to rr_rea_top (REA-P3.7)")
+    assert (features >> 23) & 1 == 0, (
+        f"FEATURES=0x{features:08X}: [23] (guarded DR, REA-P2.20) reads 1 on a "
+        "build that did not set G_DR_GUARD — the default must stay the frozen "
+        "49-bit DR (REA-REQ-969)")
 
 
 async def ext_trigger_fires_only_on_the_pin(dut):

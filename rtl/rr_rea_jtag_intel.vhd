@@ -40,7 +40,11 @@ entity rr_rea_intel is
         G_TRIG_CONDS  : positive := 4;
         -- REA-P3.7: trigger-sequencer depth 0..4, passed to rr_rea_top
         -- (default 0 = no sequencer, rr_rea_top's own default).
-        G_TRIG_STAGES : natural  := 0
+        G_TRIG_STAGES : natural  := 0;
+        -- REA-P2.20: opt-in 50-bit guarded DR, passed to rr_rea_top (default
+        -- false = the frozen 49-bit protocol). For the RTL-P2.901 Arria 10
+        -- readback fault; the host must read with the matching guard flag.
+        G_DR_GUARD    : boolean  := false
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -136,7 +140,8 @@ begin
             G_NUM_SOURCE  => G_NUM_SOURCE,
             G_QUAL_CONDS  => G_QUAL_CONDS,
             G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES
+            G_TRIG_STAGES => G_TRIG_STAGES,
+            G_DR_GUARD    => G_DR_GUARD
         )
         port map (
             sample_clk_i  => sample_clk_i,

@@ -21,7 +21,10 @@ entity rr_rea_wrapper_harness is
         G_TIMESTAMP_W : natural  := 32;
         G_TRIG_CONDS  : positive := 4;
         G_QUAL_CONDS  : natural  := 0;
-        G_TRIG_STAGES : natural  := 0
+        G_TRIG_STAGES : natural  := 0;
+        -- REA-P2.20: passed to rr_rea_intel only (the guarded DR is an
+        -- Intel-wrapper option today).
+        G_DR_GUARD    : boolean  := false
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -80,7 +83,8 @@ begin
                 G_TIMESTAMP_W => G_TIMESTAMP_W,
                 G_QUAL_CONDS  => G_QUAL_CONDS,
                 G_TRIG_CONDS  => G_TRIG_CONDS,
-                G_TRIG_STAGES => G_TRIG_STAGES
+                G_TRIG_STAGES => G_TRIG_STAGES,
+                G_DR_GUARD    => G_DR_GUARD
             )
             port map (
                 sample_clk_i  => sample_clk_i,

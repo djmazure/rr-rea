@@ -227,7 +227,8 @@ package rr_rea_pkg is
     --          burst transport only when this bit reads 1.
     --   [21]   UDP_WINDOW reserved 0 (Icebox, REA-ICE.1) — never set today.
     --   [22]   STORAGE_QUAL = '1' iff G_QUAL_CONDS > 0 (REA-P2.7, REQ-958).
-    --   [23]   reserved (0)
+    --   [23]   DR_GUARD = '1' iff the JTAG register door uses the 50-bit guarded DR
+    --          (G_DR_GUARD and G_REG_IFACE = "jtag"; REA-P2.20, REA-REQ-969).
     --   [27:24] QUAL_CONDS = G_QUAL_CONDS (storage-qualifier slots, <= 15)
     --   [31:28] reserved (0)
     constant C_FEAT_TRIG_CONDS_LSB : natural := 0;
@@ -242,6 +243,9 @@ package rr_rea_pkg is
     constant C_FEAT_AXIS_WINDOW_BIT : natural := 20;
     constant C_FEAT_UDP_WINDOW_BIT  : natural := 21;
     constant C_FEAT_STORAGE_QUAL_BIT : natural := 22;
+    -- REA-P2.20: [23] advertises the guarded 50-bit DR. FEATURES is even-valued
+    -- on every build, so it reads exact even on a part with the RTL-P2.901 fault.
+    constant C_FEAT_DR_GUARD_BIT     : natural := 23;
     constant C_FEAT_QUAL_CONDS_LSB   : natural := 24;
     -- REA-P3.7: [30:28] = G_TRIG_STAGES (0..4, 0 = none), the sequencer depth. Read it
     -- only from a core whose VERSION is >= 0x5245410F; older cores read 0.

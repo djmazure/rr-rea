@@ -1462,3 +1462,26 @@ functional_contract:
       with or without decimation or qualification. Above that bound it MAY
       under-count by at most C_PIPE_STAGES. The value SHALL be final in the
       cycle `done` rises (no added latency).
+  # ── Guarded JTAG DR (REA-P2.20, RTL-P2.901 discriminator) ─────────
+  - id: REA-REQ-968
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Guarded DR (G_DR_GUARD, REA-P2.20)" }]
+    desc: >-
+      With G_DR_GUARD = true, rr_rea_jtag_iface SHALL use a 50-bit DR whose
+      bit 0 is a guard bit: every CAPTURE SHALL load '0' into bit 0 and
+      reg_rdata into bits [32:1], so the first bit shifted out on TDO after
+      any CAPTURE is 0 for EVERY register value, odd ones included. UPDATE
+      SHALL decode rnw from bit 49, addr from bits [48:33] and wdata from bits
+      [32:1]. A write SHALL produce exactly one reg_wr_en pulse carrying the
+      shifted addr and wdata, odd wdata included. With G_DR_GUARD = false
+      (the default) the DR SHALL be the frozen 49-bit protocol, unchanged
+      (REA-REQ-001..003).
+  - id: REA-REQ-969
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Guarded DR (G_DR_GUARD, REA-P2.20)" }]
+    desc: >-
+      rr_rea_intel SHALL pass G_DR_GUARD to rr_rea_top, and FEATURES[23]
+      SHALL read 1 iff the register door is the guarded JTAG DR (G_DR_GUARD
+      and G_REG_IFACE = "jtag"), else 0. Read through the wrapper with
+      50-bit guarded frames, VERSION SHALL read exactly 0x5245410F, and an
+      odd value written to a RW register SHALL read back exactly.

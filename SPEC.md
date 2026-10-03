@@ -184,7 +184,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0xC4` | RO  | TIMESTAMP_W | Exact `G_TIMESTAMP_W`; zero means no timestamp plane |
 | `0xC8` | RO  | START_PTR   | Address of oldest sample after `done` |
 | `0xCC` | RW  | DATA_WORD_SEL | Bank index for wide captured samples; resets to 0 (RTL-P1.91) |
-| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity, `[20]`=`axi_stream_window` dump engine elaborated (reserved 0 until REA-P2.5), `[21]`=`udp_window` (Icebox, reserved 0), `[22]`=storage qualifier elaborated (`G_QUAL_CONDS>0`), `[23]` reserved 0, `[27:24]`=`G_QUAL_CONDS`; `[31:28]` reserved 0 |
+| `0xD0` | RO  | FEATURES    | Generic-derived config fingerprint: `[7:0]`=G_TRIG_CONDS, `[15:8]`=G_NUM_SOURCE, `[16]`=wide-sample, `[17]`=wide-cond, `[18]`=timestamp plane (`G_TIMESTAMP_W>0`), `[19]`=readback integrity, `[20]`=`axi_stream_window` dump engine elaborated (reserved 0 until REA-P2.5), `[21]`=`udp_window` (Icebox, reserved 0), `[22]`=storage qualifier elaborated (`G_QUAL_CONDS>0`), `[23]`=guarded 50-bit JTAG DR (`G_DR_GUARD` on a JTAG door, REA-P2.20), `[27:24]`=`G_QUAL_CONDS`; `[31:28]` reserved 0 |
 | `0xD4` | RO  | BUILD_ID    | 32-bit source/content hash (`C_REA_BUILD_ID`, build-generated pkg); 0 = not injected by the build flow (RTL-P3.1198/T2.119) |
 | `0xD8` | RW  | DATA_PLANE_SEL | Capture read plane: 0=sample, 1=timestamp; resets to 0 |
 | `0xDC` | RW  | SELFTEST_CTRL | bit[0]=fill_toggle; inverse writes request a readback selftest fill |
@@ -554,6 +554,34 @@ then assert the source bit to release.
   bounding it. `rr_rea_top.vhd`'s `source_out` port comment restates this.
 
 ---
+
+### Guarded DR (G_DR_GUARD, REA-P2.20)
+
+An opt-in variant of the JTAG register DR, built to test one hypothesis about
+the Arria 10 readback fault (RTL-P2.901). On that fault, every register value
+with bit0 = 1 reads back as an all-ones DR while even values read exactly. The
+hypothesis is that the trigger is the first bit shifted out after CAPTURE being
+1. It is a hypothesis, not a named mechanism.
+
+- **Default `false`:** the frozen 49-bit DR above, unchanged bit for bit. Every
+  existing build and host is unaffected.
+- **`true`** (`rr_rea_top`, `rr_rea_intel`; REA-REQ-968): the DR is 50 bits,
+  LSB first: `[0]` guard, `[32:1]` data, `[48:33]` addr, `[49]` rnw. CAPTURE
+  loads `0` into the guard and the register value into `[32:1]`, so the first
+  bit out is 0 for every value. The host shifts 0 into the guard.
+- **Discovery** (REA-REQ-969): `FEATURES[23]` reads 1 iff the guard is built on
+  a JTAG door. FEATURES is even-valued on every build, so it reads exact even
+  on a part with the fault. The host must be told the framing (routertl
+  RTL-P2.1527); it refuses a flag that disagrees with `FEATURES[23]`, never
+  infers the framing from trial reads.
+- **Only on `rr_rea_intel`** today, because the fault is on the Intel SLD path.
+  `rr_rea_xilinx7` and `rr_rea_jtag_microchip` do not expose it.
+- `VERSION` stays `0x5245410F`; the tier byte stays odd (REA-REQ-806). The
+  guard is a FEATURES bit, not a VERSION bump.
+
+The discriminator image (`rtl/rr_rea_dr_guard_discriminator_top.vhd`, an Altera-only synth source; see `docs/dr_guard_discriminator.md`) puts a guarded and
+an unguarded 256-bit core on one Arria 10 bitstream. The verdict table is fixed
+in REA-P2.20 before the run.
 
 ## Clock-domain crossings (REA-P2.10)
 

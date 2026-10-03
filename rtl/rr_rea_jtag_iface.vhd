@@ -25,12 +25,30 @@
 --
 -- Tested via REA-REQ-001..003. The TAP signals are driven directly
 -- by the cocotb testbench, mocking the BSCAN hard macro.
+--
+-- REA-P2.20 (REA-REQ-968/969): G_DR_GUARD (default false = the frozen 49-bit
+-- DR above, unchanged) widens the DR to 50 bits with a constant-0 GUARD bit at
+-- the TDO end:
+--     bit[0]      — guard: CAPTURE loads '0'; the host shifts '0' in
+--     bits[32:1]  — wdata / rdata
+--     bits[48:33] — addr[15:0]
+--     bit[49]     — rnw
+-- so the first bit out after every CAPTURE is 0 whatever the register value.
+-- It exists to discriminate the Arria 10 SLD readback fault (RTL-P2.901:
+-- every captured value with bit0=1 returns an all-ones DR) — a HYPOTHESIS
+-- that the trigger is TDO=1 at the CDR->SDR boundary, not a named mechanism.
+-- The host must be told (REA host flag); FEATURES[23] advertises the build.
 
 library ieee;
     use ieee.std_logic_1164.all;
     use ieee.numeric_std.all;
 
 entity rr_rea_jtag_iface is
+    generic (
+        -- REA-P2.20: opt-in 50-bit DR with a constant-0 guard bit at the TDO
+        -- end (see the header). false = the frozen 49-bit protocol.
+        G_DR_GUARD : boolean := false
+    );
     port (
         arst_i       : in  std_logic;
 
@@ -56,7 +74,20 @@ end entity;
 
 architecture rtl of rr_rea_jtag_iface is
 
-    signal sr        : std_logic_vector(48 downto 0) := (others => '0');
+    -- REA-P2.20: C_G is the guard width (0 or 1); every DR field sits C_G
+    -- bits above its 49-bit-protocol position.
+    function guard_w return natural is
+    begin
+        if G_DR_GUARD then
+            return 1;
+        end if;
+        return 0;
+    end function;
+
+    constant C_G    : natural := guard_w;
+    constant C_DR_W : natural := 49 + C_G;
+
+    signal sr        : std_logic_vector(C_DR_W - 1 downto 0) := (others => '0');
 
     -- RTL-P1.96: keep vendor synthesis away from the DR shift register.
     -- Quartus Pro 26.1 (Arria 10, wide G_SAMPLE_W) restructured the ~100:1
@@ -81,7 +112,7 @@ architecture rtl of rr_rea_jtag_iface is
     -- goes FF -> LUT buffer -> FF, carrying a guaranteed cell+routing delay
     -- on every family. 49 LUTs in a debug core — free; the DR runs at JTAG
     -- rates so the added setup delay is irrelevant.
-    signal sr_shift_buf : std_logic_vector(48 downto 0);
+    signal sr_shift_buf : std_logic_vector(C_DR_W - 1 downto 0);
     attribute keep       of sr_shift_buf : signal is true;
     attribute preserve   of sr_shift_buf : signal is true;
     attribute dont_merge of sr_shift_buf : signal is true;
@@ -133,20 +164,25 @@ begin
 
             if sel_i = '1' then
                 if capture_i = '1' then
-                    -- CAPTURE: load current rdata into low half of sr.
-                    sr(31 downto 0) <= reg_rdata_i;
+                    -- CAPTURE: load current rdata into low half of sr
+                    -- (above the guard bit, which captures '0', when
+                    -- G_DR_GUARD — REA-REQ-968).
+                    sr(31 + C_G downto C_G) <= reg_rdata_i;
+                    if G_DR_GUARD then
+                        sr(0) <= '0';
+                    end if;
                 elsif shift_en_i = '1' then
                     -- SHIFT: shift LSB-first toward TDO (via the kept
                     -- LUT-buffer stage — see sr_shift_buf above).
-                    sr <= tdi_i & sr_shift_buf(48 downto 1);
+                    sr <= tdi_i & sr_shift_buf(C_DR_W - 1 downto 1);
                 elsif update_i = '1' then
                     -- UPDATE: decode rnw bit and pulse the bus.
-                    if sr(48) = '1' then
-                        reg_addr_r  <= sr(47 downto 32);
-                        reg_wdata_r <= sr(31 downto 0);
+                    if sr(48 + C_G) = '1' then
+                        reg_addr_r  <= sr(47 + C_G downto 32 + C_G);
+                        reg_wdata_r <= sr(31 + C_G downto C_G);
                         reg_wr_en_r <= '1';
                     else
-                        reg_addr_r  <= sr(47 downto 32);
+                        reg_addr_r  <= sr(47 + C_G downto 32 + C_G);
                         reg_rd_en_r <= '1';
                     end if;
                 end if;

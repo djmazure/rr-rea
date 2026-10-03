@@ -66,7 +66,11 @@ entity rr_rea_regbank is
         -- REA-P3.7: sequencer depth (0..C_MAX_TRIG_STAGES); decodes the SEQ
         -- window for stages 0..G_TRIG_STAGES-1 (REA-REQ-607). 0 (the default)
         -- decodes nothing: the pre-P3.7 register bank, byte for byte.
-        G_TRIG_STAGES : natural  := 0
+        G_TRIG_STAGES : natural  := 0;
+        -- REA-P2.20: true iff the JTAG door uses the 50-bit guarded DR
+        -- (rr_rea_top passes G_DR_GUARD and G_REG_IFACE = "jtag"). Only
+        -- FEATURES[23] reads it (REA-REQ-969).
+        G_DR_GUARD    : boolean  := false
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
         -- generic didn't survive Vivado synthesis).
@@ -326,6 +330,10 @@ architecture rtl of rr_rea_regbank is
             v(C_FEAT_STORAGE_QUAL_BIT) := '1';
             v(C_FEAT_QUAL_CONDS_LSB + 3 downto C_FEAT_QUAL_CONDS_LSB) :=
                 std_logic_vector(to_unsigned(G_QUAL_CONDS, 4));
+        end if;
+        -- REA-P2.20/REQ-969: [23] tracks the guarded DR.
+        if G_DR_GUARD then
+            v(C_FEAT_DR_GUARD_BIT) := '1';
         end if;
         -- REA-P3.7: [30:28] = G_TRIG_STAGES, the sequencer depth.
         v(C_FEAT_TRIG_STAGES_LSB + 2 downto C_FEAT_TRIG_STAGES_LSB) :=

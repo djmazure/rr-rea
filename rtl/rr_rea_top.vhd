@@ -65,7 +65,12 @@ entity rr_rea_top is
         -- REA-REQ-967). 0 (the default) elaborates no sequencer — the
         -- pre-P3.7 core byte for byte, TRIG_MODE bit[1] ignored. The SEQ
         -- window holds four stages.
-        G_TRIG_STAGES : natural  := 0
+        G_TRIG_STAGES : natural  := 0;
+        -- REA-P2.20: opt-in 50-bit JTAG DR with a constant-0 guard bit at the
+        -- TDO end, to discriminate the Arria 10 readback fault (RTL-P2.901).
+        -- false (the default) = the frozen 49-bit protocol. Only meaningful
+        -- with G_REG_IFACE = "jtag"; FEATURES[23] reads 1 iff both hold.
+        G_DR_GUARD    : boolean  := false
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
@@ -431,6 +436,9 @@ begin
     -- tied low (REA-REQ-901).
     g_jtag_iface : if G_REG_IFACE = "jtag" generate
         u_jtag : entity work.rr_rea_jtag_iface
+            generic map (
+                G_DR_GUARD => G_DR_GUARD
+            )
             port map (
                 arst_i      => arst_i,
                 tck_i       => tck_i,
@@ -476,7 +484,8 @@ begin
             G_NUM_SOURCE  => G_NUM_SOURCE,
             G_AXIS_WINDOW => G_AXIS_WINDOW,
             G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES
+            G_TRIG_STAGES => G_TRIG_STAGES,
+            G_DR_GUARD    => G_DR_GUARD and G_REG_IFACE = "jtag"
         )
         port map (
             jtag_clk_i => reg_clk_o,
