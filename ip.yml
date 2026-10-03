@@ -12,9 +12,20 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.10.1
+#   version: below        the PACKAGE version the registry pins   -> 1.11.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.11.0 (REA-P2.20) is a MINOR bump: the opt-in guarded 50-bit JTAG DR.
+# G_DR_GUARD on rr_rea_jtag_iface / rr_rea_top / rr_rea_intel (default false =
+# the frozen 49-bit DR, bit for bit, so existing builds are unchanged) puts a
+# constant-0 guard bit at the TDO end of the DR. FEATURES[23] (was reserved 0)
+# advertises it. It exists to discriminate the Arria 10 odd-value readback
+# fault (RTL-P2.901). Also ships rtl/rr_rea_dr_guard_discriminator_top.vhd, a
+# debug-only Altera reference top (three cores, no design logic), as an
+# Altera-only synth source that is unused unless a target names it. Register
+# map 0.13.0 and runtime tier 0x5245410F are unchanged: no address moved, and
+# FEATURES is generic-derived. Host framing is routertl RTL-P2.1527.
 #
 # 1.10.1 (REA-P2.17) is a PATCH: no host-visible change (register map and
 # runtime tier unchanged). REA-T3.2 retimes two compares out of the capture
@@ -192,7 +203,7 @@
 
 name: rea
 namespace: routertl
-version: 1.10.1
+version: 1.11.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
