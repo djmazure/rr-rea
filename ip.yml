@@ -293,6 +293,11 @@ build:
   sources:
     xdc:
       - constraints/rr_rea_scoped.xdc
+      # REA-P2.19: the BSCANE2 output bound lives in the Xilinx wrapper, above
+      # rr_rea_top, so it names its own scope (RTL-P2.1532; needs an rr that
+      # reads {path, ref} entries).
+      - path: constraints/rr_rea_xilinx7_scoped.xdc
+        ref: rr_rea_xilinx7
     # REA-P2.12: the Quartus twin. Quartus has no `read_xdc -ref`, so rr applies
     # this file GLOBALLY and it scopes itself by REA's own entity names
     # (*|rr_rea_sync_word:*|s1*, *|rr_rea_pulse_xfer:*|s1*). It declares the
