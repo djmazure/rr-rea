@@ -12,9 +12,19 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.11.1
+#   version: below        the PACKAGE version the registry pins   -> 1.11.2
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.11.2 (REA-P2.19) is a PATCH: Xilinx timing coverage, no RTL change.
+# BSCANE2's CAPTURE/SHIFT/UPDATE/SEL/TDI outputs are unclocked startpoints,
+# so Vivado timed none of the paths from them into the TAP logic (Slack inf,
+# Path Group (none)). constraints/rr_rea_xilinx7_scoped.xdc bounds each at
+# half the TCK period (16.667 ns, -datapath_only), declared below as a
+# {path, ref: rr_rea_xilinx7} entry because the primitive lives in the
+# wrapper, above rr_rea_top. It needs an rr that reads {path, ref} entries
+# (routertl RTL-P2.1532); an older rr skips the entry and builds as before.
+# Register map 0.13.0 and runtime tier 0x5245410F are unchanged.
 #
 # 1.11.1 (REA-P1.1) is a PATCH that fixes a contract defect in 1.11.0:
 # FEATURES[23], which 1.11.0 gave to the guarded DR, was already the routertl
@@ -212,7 +222,7 @@
 
 name: rea
 namespace: routertl
-version: 1.11.1
+version: 1.11.2
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
