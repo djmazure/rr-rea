@@ -1485,3 +1485,12 @@ functional_contract:
       and G_REG_IFACE = "jtag"), else 0. Read through the wrapper with
       50-bit guarded frames, VERSION SHALL read exactly 0x5245410F, and an
       odd value written to a RW register SHALL read back exactly.
+  - id: REA-REQ-970
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "TAP mirror outputs (rr_rea_xilinx7, REA-P2.22)" }]
+    desc: >-
+      rr_rea_xilinx7 SHALL drive tap_tck, tap_tms and tap_tdi from the BSCANE2
+      TCK, TMS and TDI outputs and tap_tdo from the TDO the core returns to
+      BSCANE2, at all times, including during a register scan, while the scan
+      still returns the correct register value. The four ports are outputs
+      that MAY be left open; every other wrapper port is unchanged.

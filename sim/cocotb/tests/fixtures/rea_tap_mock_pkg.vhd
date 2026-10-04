@@ -13,6 +13,8 @@ library ieee;
 package rea_tap_mock_pkg is
     signal tap_tck     : std_logic := '0';
     signal tap_tdi     : std_logic := '0';
+    -- REA-P2.22: BSCANE2 TMS, so a wrapper's TMS mirror is observable.
+    signal tap_tms     : std_logic := '0';
     signal tap_tdo     : std_logic := '0';
     signal tap_capture : std_logic := '0';
     signal tap_shift   : std_logic := '0';

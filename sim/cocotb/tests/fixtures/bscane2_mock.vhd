@@ -38,7 +38,7 @@ begin
     SHIFT   <= tap_shift;
     TCK     <= tap_tck;
     TDI     <= tap_tdi;
-    TMS     <= '0';
+    TMS     <= tap_tms;
     UPDATE  <= tap_update;
     tap_tdo <= TDO;
 end architecture;

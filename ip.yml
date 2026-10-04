@@ -12,15 +12,22 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.11.2
+#   version: below        the PACKAGE version the registry pins   -> 1.12.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
 #
-# Unreleased, next PATCH (REA-P3.14): 1.11.0-1.11.2 declared
+# 1.12.0 (REA-P2.22) is a MINOR: rr_rea_xilinx7 gains four optional OUTPUT
+# ports, tap_tck/tap_tms/tap_tdi (BSCANE2's TCK/TMS/TDI) and tap_tdo (this
+# core's TDO drive), for a consumer that needs the raw TAP signals. They may
+# be left open, so 1.11.x instantiations elaborate unchanged. BSCANE2 TMS is
+# now connected, so constraints/rr_rea_xilinx7_scoped.xdc bounds it with the
+# other BSCANE2 outputs (16.667 ns, -datapath_only). Also in this release
+# (REA-P3.14): 1.11.0-1.11.2 declared
 # rtl/rr_rea_dr_guard_discriminator_top.vhd as an Altera synth source, so
 # every Altera consumer compiled a debug-only experiment top it never
-# instantiated. It moved to examples/dr_guard_discriminator/ and is no longer
-# in the package source set. No RTL in the shipped cores changed.
+# instantiated; it moved to examples/dr_guard_discriminator/ and is no longer
+# in the package source set. Register map 0.13.0 and runtime tier 0x5245410F
+# are unchanged; rr_rea_top and the other core RTL are unchanged.
 #
 # 1.11.2 (REA-P2.19) is a PATCH: Xilinx timing coverage, no RTL change.
 # BSCANE2's CAPTURE/SHIFT/UPDATE/SEL/TDI outputs are unclocked startpoints,
@@ -228,7 +235,7 @@
 
 name: rea
 namespace: routertl
-version: 1.11.2
+version: 1.12.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

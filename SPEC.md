@@ -587,6 +587,28 @@ The discriminator image (`examples/dr_guard_discriminator/rr_rea_dr_guard_discri
 an unguarded 256-bit core on one Arria 10 bitstream. The verdict table is fixed
 in REA-P2.20 before the run.
 
+### TAP mirror outputs (rr_rea_xilinx7, REA-P2.22)
+
+`rr_rea_xilinx7` drives four optional outputs for a consumer that needs the raw
+TAP signals of the REA's BSCANE2, for example to observe the live USER-chain
+scan with its own logic (REA-REQ-970):
+
+| Port | Driven from |
+|---|---|
+| `tap_tck` | BSCANE2 `TCK` |
+| `tap_tms` | BSCANE2 `TMS` |
+| `tap_tdi` | BSCANE2 `TDI` |
+| `tap_tdo` | the `TDO` this core returns to BSCANE2 |
+
+They are plain wires, may be left `open`, and change nothing for a design that
+does not use them. `TCK`/`TMS`/`TDI` are the global JTAG passthroughs, so they
+carry the whole scan, IR loads included; `tap_tdo` is only this core's
+response. BSCANE2 `TMS` is connected for the mirror, which makes it an
+unclocked primitive-output startpoint like `CAPTURE`/`SHIFT`/`UPDATE`/`SEL`/
+`TDI`; `constraints/rr_rea_xilinx7_scoped.xdc` bounds all six at half the TCK
+period. A consumer that samples the mirrors on its own clock owns that
+crossing and constrains it in its own XDC.
+
 ## Clock-domain crossings (REA-P2.10)
 
 REA has two clock domains: `sample_clk_i` (the probed design's clock) and the

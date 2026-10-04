@@ -51,7 +51,19 @@ entity rr_rea_xilinx7 is
         -- bounded with set_max_delay -datapath_only (half the faster period),
         -- never an async clock group — SPEC.md "Clock-domain crossings".
         source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
-        trigger_o : out std_logic
+        trigger_o : out std_logic;
+        -- REA-P2.22: optional TAP mirror outputs, for a consumer that needs
+        -- the raw TAP signals of this BSCANE2 (e.g. to observe the live
+        -- USER-chain scan with its own logic). tap_tck/tap_tms/tap_tdi are
+        -- BSCANE2's TCK/TMS/TDI outputs (the whole scan, IR loads included);
+        -- tap_tdo is this core's TDO drive into BSCANE2. Leave `open` if
+        -- unused. TMS is bounded in rr_rea_xilinx7_scoped.xdc like the other
+        -- BSCANE2 outputs; a consumer sampling these on its own clock owns
+        -- that crossing.
+        tap_tck   : out std_logic;
+        tap_tms   : out std_logic;
+        tap_tdi   : out std_logic;
+        tap_tdo   : out std_logic
     );
 end entity;
 
@@ -63,6 +75,7 @@ architecture rtl of rr_rea_xilinx7 is
     signal shift_en_i: std_logic;
     signal update_i  : std_logic;
     signal sel_i     : std_logic;
+    signal tms_i     : std_logic;    -- REA-P2.22: mirrored on tap_tms
     -- Power-on tied-low reset for the JTAG domain — BSCANE2 does not
     -- expose a reset, so we rely on the iface FSM's natural init via
     -- `arst_i='0'` in normal operation.
@@ -96,10 +109,16 @@ begin
             SHIFT   => shift_en_i,
             TCK     => tck_i,
             TDI     => tdi_i,
-            TMS     => open,
+            TMS     => tms_i,
             UPDATE  => update_i,
             TDO     => tdo_o
         );
+
+    -- REA-P2.22: TAP mirror outputs.
+    tap_tck <= tck_i;
+    tap_tms <= tms_i;
+    tap_tdi <= tdi_i;
+    tap_tdo <= tdo_o;
 
     u_top : entity work.rr_rea_top
         generic map (

@@ -55,7 +55,8 @@ def test_every_named_pin_is_a_mapped_bscane2_output():
     cmds = _commands(XDC_REL)
     assert len(cmds) == 1 and cmds[0].startswith("set_max_delay -datapath_only")
     pins = re.findall(r"u_bscane2/(\w+)", cmds[0])
-    assert sorted(pins) == ["CAPTURE", "SEL", "SHIFT", "TDI", "UPDATE"], pins
+    # REA-P2.22 connected BSCANE2 TMS (the tap_tms mirror), so it is bounded too.
+    assert sorted(pins) == ["CAPTURE", "SEL", "SHIFT", "TDI", "TMS", "UPDATE"], pins
     port_map = re.search(r"u_bscane2\s*:\s*BSCANE2.*?port\s+map\s*\((.*?)\);",
                          _wrapper(), re.I | re.S).group(1)
     mapped = {m.group(1).upper() for m in

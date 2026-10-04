@@ -9,5 +9,7 @@
 # Vivado timed none of the paths from them into the TAP logic (Slack inf,
 # Path Group (none); REA-P2.19 baseline). They change on TCK, so each path
 # is bounded at half the TCK period declared in rr_rea_scoped.xdc (33.333 ns).
+# REA-P2.22 connected TMS (the tap_tms mirror output), so it is listed too;
+# TMS also changes on TCK and takes the same bound.
 set_max_delay -datapath_only 16.667 \
-  -from [get_pins {u_bscane2/CAPTURE u_bscane2/SHIFT u_bscane2/UPDATE u_bscane2/SEL u_bscane2/TDI}]
+  -from [get_pins {u_bscane2/CAPTURE u_bscane2/SHIFT u_bscane2/UPDATE u_bscane2/SEL u_bscane2/TDI u_bscane2/TMS}]
