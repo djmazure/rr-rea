@@ -49,7 +49,8 @@ def test_discriminator_cores_have_an_even_features():
     # host cannot identify it there (rr ila readback-map refuses an all-ones
     # FEATURES).
     assert all(lsb != 0 for n, lsb in _fields().items() if n != "TRIG_CONDS")
-    top = (PKG.parent / "rr_rea_dr_guard_discriminator_top.vhd").read_text(
+    top = (PKG.parents[1] / "examples" / "dr_guard_discriminator"
+           / "rr_rea_dr_guard_discriminator_top.vhd").read_text(
         encoding="utf-8")
     assert "G_TRIG_CONDS" not in top, "override must stay even; re-check"
     wrapper = (PKG.parent / "rr_rea_jtag_intel.vhd").read_text(encoding="utf-8")

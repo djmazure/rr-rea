@@ -11,9 +11,11 @@ confirm it.
 
 ## What it contains
 
-`rtl/rr_rea_dr_guard_discriminator_top.vhd` instantiates three `rr_rea_intel`
-cores and no design logic. The package ships it as an Altera-only synthesis
-source, so it is unused unless a target names it as its top.
+`examples/dr_guard_discriminator/rr_rea_dr_guard_discriminator_top.vhd`
+instantiates three `rr_rea_intel` cores and no design logic. It is NOT a
+package source (REA-P3.14): 1.11.0-1.11.2 declared it as an Altera synth
+source, which compiled it into every Altera consumer. A discriminator build
+copies it into its own source tree and lists it there.
 
 | Core | `G_SAMPLE_W` | `G_DR_GUARD` | Role |
 |---|---|---|---|
@@ -36,7 +38,9 @@ placement-dependent.
 A consuming target declares only the board facts. The `rr schema` keys:
 
 - `project.top_module: rr_rea_dr_guard_discriminator_top`, or the consumer's
-  own thin wrapper (below).
+  own thin wrapper (below), with this file copied into the consumer's own
+  sources (autodiscovery picks it up from `src/`). The package supplies only
+  `rr_rea_intel` and the rest of the core.
 - `packages: {"routertl/rea": "^1.11.1"}`, or `commit:<sha>` before the tag is
   published.
 - `hardware.vendor` / `hardware.part` / the tool version, as for any target.

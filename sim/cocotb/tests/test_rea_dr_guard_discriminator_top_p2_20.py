@@ -23,7 +23,7 @@ from cocotb.triggers import ClockCycles, ReadOnly  # noqa: E402
 import rea_wrapper_generics as rwg  # noqa: E402
 from engine.simulation import run_simulation  # noqa: E402
 
-_TOP = (_Path(__file__).resolve().parents[3] / "rtl"
+_TOP = (_Path(__file__).resolve().parents[3] / "examples" / "dr_guard_discriminator"
         / "rr_rea_dr_guard_discriminator_top.vhd")
 
 

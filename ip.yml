@@ -16,6 +16,12 @@
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
 #
+# Unreleased, next PATCH (REA-P3.14): 1.11.0-1.11.2 declared
+# rtl/rr_rea_dr_guard_discriminator_top.vhd as an Altera synth source, so
+# every Altera consumer compiled a debug-only experiment top it never
+# instantiated. It moved to examples/dr_guard_discriminator/ and is no longer
+# in the package source set. No RTL in the shipped cores changed.
+#
 # 1.11.2 (REA-P2.19) is a PATCH: Xilinx timing coverage, no RTL change.
 # BSCANE2's CAPTURE/SHIFT/UPDATE/SEL/TDI outputs are unclocked startpoints,
 # so Vivado timed none of the paths from them into the TAP logic (Slack inf,
@@ -282,10 +288,9 @@ synthesis:
       - rtl/rr_rea_jtag_xilinx7.vhd
     altera:
       - rtl/rr_rea_jtag_intel.vhd
-      # REA-P2.20: debug-only reference top for the guarded-DR discriminator
-      # image (three rr_rea_intel cores, no design logic). Unused unless a
-      # target names it as top_module; see docs/dr_guard_discriminator.md.
-      - rtl/rr_rea_dr_guard_discriminator_top.vhd
+      # REA-P3.14: the REA-P2.20 discriminator top is NOT a package source.
+      # It lives in examples/dr_guard_discriminator/ and a discriminator
+      # build lists it as its own source (docs/dr_guard_discriminator.md).
     microchip:
       - rtl/rr_rea_jtag_microchip.vhd
 

@@ -583,7 +583,7 @@ hypothesis is that the trigger is the first bit shifted out after CAPTURE being
 - `VERSION` stays `0x5245410F`; the tier byte stays odd (REA-REQ-806). The
   guard is a FEATURES bit, not a VERSION bump.
 
-The discriminator image (`rtl/rr_rea_dr_guard_discriminator_top.vhd`, an Altera-only synth source; see `docs/dr_guard_discriminator.md`) puts a guarded and
+The discriminator image (`examples/dr_guard_discriminator/rr_rea_dr_guard_discriminator_top.vhd`, a reference top outside the package source set; see `docs/dr_guard_discriminator.md`) puts a guarded and
 an unguarded 256-bit core on one Arria 10 bitstream. The verdict table is fixed
 in REA-P2.20 before the run.
 
