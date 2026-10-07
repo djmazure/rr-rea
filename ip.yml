@@ -12,9 +12,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.12.0
+#   version: below        the PACKAGE version the registry pins   -> 1.12.1
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.12.1 (REA-P3.13) is a PATCH: constraints only, no RTL change. At consumer
+# synthesis Vivado parses constraints/rr_rea_scoped.xdc before the consumer
+# has created its sample clock, so the period lookup left rr_rea_t_sample
+# unset and every Xilinx consumer carried CRITICAL WARNING Common 17-1548.
+# The lookups are now -quiet with a TCK-period fallback. The tck <-> sample
+# clock bound is unchanged at implementation: zybo_rea_demo routed
+# clock_interaction shows Max Delay Datapath Only 4.000 ns both ways, as on
+# 1.12.0. Register map 0.13.0 and runtime tier 0x5245410F are unchanged.
 #
 # 1.12.0 (REA-P2.22) is a MINOR: rr_rea_xilinx7 gains four optional OUTPUT
 # ports, tap_tck/tap_tms/tap_tdi (BSCANE2's TCK/TMS/TDI) and tap_tdo (this
@@ -235,7 +244,7 @@
 
 name: rea
 namespace: routertl
-version: 1.12.0
+version: 1.12.1
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
