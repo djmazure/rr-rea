@@ -17,7 +17,17 @@ create_clock -period 33.333 [get_ports tck_i]
 #    clock's period, datapath only. NOT set_clock_groups -asynchronous: a
 #    clock group waives the crossing and would hide an unsafe one (REA-P2.10's
 #    CDC-10). The bound is derived from the live sample clock, never a literal.
-set rr_rea_t_sample [get_property PERIOD [get_clocks -of_objects [get_ports sample_clk_i]]]
+#    The sample clock is the CONSUMER's, and at synthesis Vivado parses this
+#    file before the consumer's create_clock exists. A plain lookup then
+#    left the variable unset and raised CRITICAL WARNING Common 17-1548 in
+#    every Xilinx consumer (REA-P3.13). The set_max_delay is implementation-
+#    only (Project 1-236), so that pass only has to parse cleanly: both
+#    lookups are -quiet and an absent period falls back to the TCK period.
+#    XDC accepts no `if` (Designutils 20-1307), hence the expr ternary. At
+#    implementation the consumer clock exists and the bound is derived from
+#    it as before.
+set rr_rea_t_sample [get_property -quiet PERIOD [get_clocks -quiet -of_objects [get_ports sample_clk_i]]]
+set rr_rea_t_sample [expr {$rr_rea_t_sample eq "" ? 33.333 : $rr_rea_t_sample}]
 set rr_rea_bound [expr {0.5 * min(33.333, $rr_rea_t_sample)}]
 set_max_delay -datapath_only $rr_rea_bound \
   -from [get_cells -hierarchical -filter {IS_SEQUENTIAL}] \
