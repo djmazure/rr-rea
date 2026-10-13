@@ -123,7 +123,7 @@ async def _read(dut, addr: int) -> int:
     return int(dut.rd_data_o.value)
 
 
-# ── REA-REQ-010: every RW addr round-trips arbitrary 32-bit values ──
+# ── REA-REQ-010: every RW addr (except DECIM, REA-REQ-971) round-trips arbitrary 32-bit values ──
 
 
 @cocotb.test()

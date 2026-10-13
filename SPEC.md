@@ -176,7 +176,7 @@ JTAG register map at the burst slave (32-bit words). v0.1 implements the registe
 | `0x3C` | RW  | SOURCE      | Write-side control bits INTO the design; low `G_NUM_SOURCE` bits → `source_out` (sample_clk). Resets to 0 = gated/safe (RTL-P2.837) |
 | `0xA0` | RW  | CHAN_SEL    | Must be 0 in v0.1 |
 | `0xA4` | RO  | NUM_CHAN    | = 1 in v0.1 |
-| `0xB0` | RW  | DECIM       | Decimation ratio — store every (N+1)th sample (24-bit, v0.3) |
+| `0xB0` | RW  | DECIM       | Decimation ratio — store every (N+1)th sample (24-bit applied, bits [31:24] read 0, v0.3, REA-P2.23, REA-REQ-971) |
 | `0xB4` | RW  | QUAL_MODE   | Storage qualification: bit[0]=enable, bit[1]=OR-combine (0=AND); resets to 0 = store every sample (REA-P2.7) |
 | `0xB8` | RW  | QUAL_SEL    | Qualifier slot select (paged, 8-bit); resets to 0 |
 | `0xBC` | RW  | QUAL_CFG    | Slot `QUAL_SEL`: the `COND_CFG` encoding; op EQ/NE/RISE/FALL only |

@@ -12,9 +12,16 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.12.1
+#   version: below        the PACKAGE version the registry pins   -> 1.12.2
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.12.2 (REA-P2.23) is a PATCH: DECIM register (0x00B0) stores and reads back
+# only the applied 24-bit decimation ratio (bits [31:24] read 0 and are not
+# stored), matching decim_ratio_o and what the capture decimator uses
+# (REA-REQ-971). Every other RW register continues to round-trip arbitrary
+# 32-bit values (REA-REQ-010). Register map 0.13.0 and runtime tier
+# 0x5245410F are unchanged.
 #
 # 1.12.1 (REA-P3.13) is a PATCH: constraints only, no RTL change. At consumer
 # synthesis Vivado parses constraints/rr_rea_scoped.xdc before the consumer
@@ -244,7 +251,7 @@
 
 name: rea
 namespace: routertl
-version: 1.12.1
+version: 1.12.2
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

@@ -123,8 +123,9 @@ functional_contract:
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
-      Every RW register address round-trips an arbitrary 32-bit value
-      (write then read returns the same value).
+      Every RW register address except DECIM (0x00B0, 24-bit applied ratio,
+      REA-REQ-971) round-trips an arbitrary 32-bit value (write then read
+      returns the same value).
   - id: REA-REQ-011
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
