@@ -5,7 +5,7 @@
 --
 -- Sits between the JTAG protocol decoder (rr_rea_jtag_iface) and the
 -- capture_i FSM (rr_rea_capture_fsm). Implements the SW-interface
--- contract from SPEC.md (REA-REQ-010..012). Synchronous to jtag_clk_i;
+-- contract from SPEC.md (REA-REQ-010..012, REA-REQ-971). Synchronous to jtag_clk_i;
 -- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
@@ -23,6 +23,7 @@
 --   0x28 RW  TRIG_MASK
 --   0xA0 RW  CHAN_SEL      v0.1: must be 0
 --   0xA4 RO  NUM_CHAN      v0.1: =1
+--   0xB0 RW  DECIM         decimation ratio (24-bit, bits 31:24 read 0, REA-P2.23)
 --   0xC4 RO  TIMESTAMP_W   synth-time generic
 --   0xD8 RW  DATA_PLANE_SEL 0=sample, 1=timestamp
 --   0xC8 RO  START_PTR     captured address of oldest sample (post-done_o)
@@ -211,7 +212,8 @@ architecture rtl of rr_rea_regbank is
     signal selftest_ctrl_r  : std_logic := '0';
     signal selftest_seed_r  : std_logic_vector(31 downto 0) := (others => '0');
     signal chan_sel_r   : std_logic_vector(31 downto 0) := (others => '0');
-    signal decim_r      : std_logic_vector(31 downto 0) := (others => '0');
+    -- REA-P2.23: DECIM is 24-bit (bits 31:24 read 0 and are not stored).
+    signal decim_r      : std_logic_vector(23 downto 0) := (others => '0');
     -- RTL-P2.837: write-side source storage. Resets to 0 so the low
     -- G_NUM_SOURCE bits (source_o) power up holding the gated DUT signal
     -- in its safe/inactive state until the host writes SOURCE (0x3C).
@@ -372,7 +374,7 @@ begin
     trig_mask_o    <= trig_mask_flat(G_SAMPLE_W - 1 downto 0);
     trig_mode_o    <= trig_mode_r;
     chan_sel_o     <= chan_sel_r(7 downto 0);
-    decim_ratio_o  <= decim_r(23 downto 0);
+    decim_ratio_o  <= decim_r;
     data_word_sel_o <= std_logic_vector(data_word_sel_r);
     -- RTL-P2.837: low G_NUM_SOURCE bits of the SOURCE register drive the
     -- write-side control bits (still jtag_clk_i domain; CDC'd in rr_rea_top).
@@ -626,7 +628,9 @@ begin
                     when C_ADDR_CHAN_SEL =>
                         chan_sel_r <= wr_data_i;
                     when C_ADDR_DECIM =>
-                        decim_r <= wr_data_i;
+                        -- REA-P2.23: store only the applied 24 bits so readback
+                        -- matches what the capture decimator uses.
+                        decim_r <= wr_data_i(23 downto 0);
                     -- REA-P2.7 (REA-REQ-958): on a G_QUAL_CONDS=0 core these
                     -- decode nowhere, exactly like any unmapped address.
                     when C_ADDR_QUAL_MODE =>
@@ -771,7 +775,7 @@ begin
             when C_ADDR_SOURCE      => rd_data_o <= source_r;
             when C_ADDR_CHAN_SEL    => rd_data_o <= chan_sel_r;
             when C_ADDR_NUM_CHAN    => rd_data_o <= C_REG_NUM_CHAN;
-            when C_ADDR_DECIM       => rd_data_o <= decim_r;
+            when C_ADDR_DECIM       => rd_data_o <= x"00" & decim_r;
             when C_ADDR_QUAL_MODE   => rd_data_o <= qual_mode_r;
             when C_ADDR_QUAL_SEL =>
                 rd_data_o <= (others => '0');

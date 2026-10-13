@@ -952,6 +952,10 @@ window lengths count **stored** cells, never cycles:
   and POSTTRIG stored cells after it. `done` rises on the cycle after the last
   of them is written, so every cell a host reads from `START_PTR` belongs to
   this capture (REA-REQ-960).
+- `DECIM` is 24-bit (`decim_ratio_o(23 downto 0)`): writing values with bits set
+  in [31:24] masks off the upper byte, and readback returns zero for bits
+  [31:24], matching what the capture decimator uses (REA-P2.23, REA-REQ-971).
+  Hosts refuse decimation values exceeding 24 bits.
 - `PRETRIG_VALID` counts the samples stored after the arm and before the
   trigger cell, capped at PRETRIG, and never covers a cell the ring has
   overwritten (REA-REQ-963). The samples stored while the trigger pipeline

@@ -47,6 +47,7 @@ ADDR_TRIG_VALUE  = 0x24
 ADDR_TRIG_MASK   = 0x28
 ADDR_CHAN_SEL    = 0xA0
 ADDR_NUM_CHAN    = 0xA4
+ADDR_DECIM       = 0xB0
 ADDR_TIMESTAMP_W = 0xC4
 ADDR_TRIG_LATENCY = 0xF4
 ADDR_START_PTR   = 0xC8
@@ -399,6 +400,35 @@ async def test_rea_req_015_identity_fingerprint(dut):
     )
 
     dut._log.info("REA-REQ-015 PASS — FEATURES/BUILD_ID identity registers")
+
+
+# ── REA-REQ-971: DECIM readback reflects applied 24-bit value (REA-P2.23) ──
+
+
+@cocotb.test()
+@requires("REA-REQ-971")
+async def test_rea_req_971_decim_readback_reflects_applied_ratio(dut):
+    """Writing a decimation ratio with bits set in [31:24] must reflect the
+    applied value on readback (bits 31:24 read 0), matching decim_ratio_o
+    (REA-P2.23)."""
+    await _start_clk(dut)
+    await _reset(dut)
+
+    # REA-P2.23: write 0x01000005, assert readback equals what the decimator uses
+    await _write(dut, ADDR_DECIM, 0x0100_0005)
+    observed = await _read(dut, ADDR_DECIM)
+    applied = int(dut.decim_ratio_o.value)
+    rd_val = int(dut.rd_data_o.value)
+    assert applied == 0x0000_0005, (
+        f"decim_ratio_o = 0x{applied:08X}, expected 0x00000005"
+    )
+    assert observed == applied, (
+        f"DECIM readback 0x{observed:08X} does not match applied ratio 0x{applied:08X}"
+    )
+    assert rd_val == applied, (
+        f"rd_data_o 0x{rd_val:08X} does not match applied ratio 0x{applied:08X}"
+    )
+    assert (observed >> 24) == 0, f"DECIM upper bits not zero: 0x{observed:08X}"
 
 
 if __name__ == "__main__":

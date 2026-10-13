@@ -1500,3 +1500,11 @@ functional_contract:
       BSCANE2, at all times, including during a register scan, while the scan
       still returns the correct register value. The four ports are outputs
       that MAY be left open; every other wrapper port is unchanged.
+  - id: REA-REQ-971
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Decimation (DECIM)" }]
+    desc: >-
+      DECIM register (0x00B0) SHALL store and read back only the 24-bit applied
+      decimation ratio: bits [31:24] of `rd_data_o` SHALL always read '0' (the
+      upper byte is not stored), and `decim_ratio_o` SHALL equal the low 24 bits
+      of the written value, matching what the capture decimator uses.
