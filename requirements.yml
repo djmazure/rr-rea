@@ -1158,6 +1158,9 @@ functional_contract:
       ports SHALL NOT act as a second door — a well-formed write on them
       SHALL leave every register unchanged (REA-REQ-902) — and no transport
       may add a MAC, ARP or TCP stack inside rr_rea.
+    delegated_to:
+      - ref: REA-P3.4
+        obligation: two live masters on one register bus stay forbidden until the dual-door arbiter
 
   - id: REA-REQ-911
     kind: behavioral
@@ -1259,6 +1262,9 @@ functional_contract:
       is one consumer of the window at a time. A busy/dump-in-progress status
       bit would be a register-map semantic addition (a VERSION bump, REA-REQ-806/
       913) and is deferred with the dual-door arbiter (REA-P3.4).
+    delegated_to:
+      - ref: REA-P3.4
+        obligation: register-map semantic addition deferred with the dual-door arbiter
 
   # ── Storage qualification (REA-P2.7, v0.11 tier) ──────────────────
   # Field need (OPN-T2.1): a 16550 sees one AXI-lite write every ~0.6 ms;
