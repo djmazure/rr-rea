@@ -27,6 +27,7 @@ exemption list is the record of every place this constant is allowed to differ.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -117,6 +118,33 @@ def _candidate_files() -> list[Path]:
             continue
         out.append(path)
     return out
+
+
+def test_regbank_elaborates_latch_free_with_ghdl_yosys_frontend(tmp_path):
+    """REA-P2.24: exercise the synthesis surface used by rr cdc check."""
+    sources = [
+        REPO / "rtl" / "rr_rea_pkg.vhd",
+        REPO / "sim" / "cocotb" / "tests" / "fixtures" / "rr_rea_build_id_stub.vhd",
+        REPO / "rtl" / "rr_rea_regbank.vhd",
+    ]
+    analyze = subprocess.run(
+        ["ghdl", "-a", "--std=08", f"--workdir={tmp_path}", *map(str, sources)],
+        cwd=REPO, text=True, capture_output=True, check=False,
+    )
+    assert analyze.returncode == 0, (
+        "regbank GHDL analysis failed before synthesis:\n"
+        + analyze.stdout + analyze.stderr
+    )
+    synth = subprocess.run(
+        ["ghdl", "--synth", "--std=08", f"--workdir={tmp_path}",
+         "rr_rea_regbank"],
+        cwd=REPO, text=True, capture_output=True, check=False,
+    )
+    diagnostics = synth.stdout + synth.stderr
+    assert synth.returncode == 0 and "latch infer" not in diagnostics.lower(), (
+        "latch-free GHDL synthesis failed; rr cdc check cannot elaborate "
+        "REA consumers:\n" + diagnostics
+    )
 
 
 def test_c_rea_version_is_parseable_and_odd():
