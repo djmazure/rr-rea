@@ -125,7 +125,9 @@ functional_contract:
     desc: >-
       Every RW register address except DECIM (0x00B0, 24-bit applied ratio,
       REA-REQ-971) round-trips an arbitrary 32-bit value (write then read
-      returns the same value).
+      returns the same value). The register bank SHALL also
+      elaborate without inferred latches in the GHDL-to-Yosys synthesis flow;
+      disabled optional register banks receive an explicit clock-edge assignment.
   - id: REA-REQ-011
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]

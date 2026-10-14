@@ -545,6 +545,21 @@ begin
             reset_toggle_r <= '0';
 
         elsif rising_edge(jtag_clk_i) then
+            -- REA-P2.24: when an optional bank is disabled, its write loops
+            -- are statically empty. Explicit clocked-zero assignments keep GHDL from
+            -- interpreting async-reset-only storage as transparent latches.
+            if G_TRIG_STAGES = 0 then
+                seq_value_flat <= (others => '0');
+                seq_mask_flat <= (others => '0');
+                seq_count_flat <= (others => '0');
+            end if;
+            if G_QUAL_CONDS = 0 then
+                qual_mode_r <= (others => '0');
+                qual_cfg_flat <= (others => '0');
+                qual_val_flat <= (others => '0');
+                qual_sel_r <= (others => '0');
+            end if;
+
             if wr_en_i = '1' then
                 case unsigned(wr_addr_i) is
                     when C_ADDR_CTRL =>

@@ -156,6 +156,10 @@ These are parked on the version roadmap below.
 
 JTAG register map at the burst slave (32-bit words). v0.1 implements the registers below; everything else reads as 0.
 
+The register bank is wholly synchronous or combinational: GHDL-to-Yosys
+elaboration must infer no latches from disabled optional sequencer and qualifier
+processes (REA-P2.24, REA-REQ-010).
+
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
 | `0x00` | RO  | VERSION     | Magic `0x5245410F` ('REA' + v0.15 tier: the multi-stage sequencer's SEQ window decodes and FEATURES[30:28] reports its depth (REA-P3.7), after v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
