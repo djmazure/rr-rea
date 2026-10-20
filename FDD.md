@@ -4,7 +4,7 @@
 Facts verified against `d7b7d3b` on 2026-10-20.
 
 <!-- rr:fdd:generated:begin -->
-<!-- rr:fdd:inputs sha256:c9ebea9fdbba4b75 -->
+<!-- rr:fdd:inputs sha256:caae157c5229cc8a -->
 <!-- rr:fdd:projection v3 -->
 > Machine-owned block — scaffolded by `rr fdd init`, refreshed by
 > `rr fdd generate`. Do not edit inside the markers;
@@ -402,7 +402,7 @@ Requirement-to-test mapping: each `REA-REQ-N` is tagged with `@requires` in a te
 
 | Area | Test files |
 |---|---|
-| Constraints | `tests/test_rea_scoped_xdc_p2_8.py`, `tests/test_rea_scoped_xdc_p3_13.py`, `tests/test_rea_scoped_sdc_p2_12.py`, `tests/test_rea_scoped_microchip_sdc_p2_13.py`, `tests/test_rea_bscane2_bound_p2_19.py`, `tests/test_rea_sync_recognition_p3_8.py` |
+| Constraints | `tests/test_rea_scoped_xdc_p2_8.py`, `tests/test_rea_scoped_xdc_p3_13.py`, `tests/test_rea_scoped_sdc_p2_12.py`, `tests/test_rea_scoped_microchip_sdc_p2_13.py`, `tests/test_rea_bscane2_bound_p2_19.py`, `tests/test_rea_sync_recognition_p3_8.py`, `tests/test_rea_cdc_waiver_p2_26.py` |
 | Budgets | `tests/test_resource_budget_points_t3_1.py`, `tests/test_fmax_floor_points_t3_3.py` |
 | Identity and package | `tests/test_version_magic_single_source.py`, `tests/test_features_bitmap_p1_1.py`, `tests/test_package_source_set_p3_14.py` |
 | Register and readback | `tests/test_rea_decim_p2_23.py`, `tests/test_axi_subword_p2_6.py`, `tests/test_axis_window_gating_p2_5.py`, `tests/test_window_blob_layout_p2_4.py`, `tests/test_xilinx7_tap_mirror_p2_22.py` |
