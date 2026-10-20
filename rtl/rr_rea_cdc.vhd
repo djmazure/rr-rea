@@ -42,8 +42,8 @@ entity rr_rea_sync_word is
 end entity;
 
 architecture rtl of rr_rea_sync_word is
-    signal s1 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');
-    signal s2 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');
+    signal s1 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');  -- rr-lint-disable-line RR-CDC-002: quasi-static MCP, stable while armed (REA-REQ-959, bounded in rr_rea_scoped.xdc/.sdc)
+    signal s2 : std_logic_vector(G_WIDTH - 1 downto 0) := (others => '0');  -- rr-lint-disable-line RR-CDC-002: quasi-static MCP, stable while armed (REA-REQ-959, bounded in rr_rea_scoped.xdc/.sdc)
     -- How each vendor tool recognises this synchronizer, from its own
     -- reports (REA-P3.8, 2026-09-26, util_field: G_SAMPLE_W 80, QUAL 1):
     --

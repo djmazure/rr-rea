@@ -12,9 +12,15 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.12.2
+#   version: below        the PACKAGE version the registry pins   -> 1.12.3
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.12.3 (REA-P2.26) is a PATCH: annotates rr_rea_sync_word s1/s2 with the inline
+# RR-CDC-002 waiver citing REA-REQ-959 (quasi-static multicycle path, stable while
+# armed, bounded in rr_rea_scoped.xdc/.sdc) so consumers running whole-design CDC
+# checks (RR-CDC-002) don't carry a local patch. No RTL logic, register-map, or
+# runtime-tier change.
 #
 # 1.12.2 (REA-P2.23) is a PATCH: DECIM register (0x00B0) stores and reads back
 # only the applied 24-bit decimation ratio (bits [31:24] read 0 and are not
@@ -255,7 +261,7 @@
 
 name: rea
 namespace: routertl
-version: 1.12.2
+version: 1.12.3
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
