@@ -71,7 +71,7 @@ ADDR_DATA_BASE = 0x100
 CTRL_ARM = 0x1
 STATUS_ARMED, STATUS_TRIGGERED, STATUS_DONE = 0x1, 0x2, 0x4
 TRIG_MODE_SEQ = 1 << 1          # C_TRIG_MODE_BIT_SEQ_EN
-VERSION_P3_7 = 0x5245410F       # v0.15 tier (tier byte stays odd, REQ-806)
+VERSION_TIER = 0x52454111       # v0.17 tier (tier byte stays odd, REQ-806)
 FULL_MASK = (1 << SAMPLE_W) - 1
 PRETRIG, POSTTRIG = 8, 8
 
@@ -217,7 +217,7 @@ async def _assert_not_triggered(dut, probe: Probe, why: str) -> None:
 @cocotb.test()
 @requires("REA-REQ-607", "REA-REQ-967")
 async def test_rea_req_607_seq_window_decodes_through_the_top(dut):
-    """VERSION is the v0.15 tier and FEATURES[30:28] reports G_TRIG_STAGES.
+    """VERSION is the current (v0.17) tier and FEATURES[30:28] reports G_TRIG_STAGES.
     Each stage's cfg (count_target [15:0] only), value and mask round-trip,
     value/mask on BOTH pages of TRIG_WORD_SEL. Reserved offsets, a stage past
     G_TRIG_STAGES and cfg bits above [15:0] drop their writes and read 0, and
@@ -225,7 +225,7 @@ async def test_rea_req_607_seq_window_decodes_through_the_top(dut):
     await _start_clocks(dut)
     await _reset(dut)
 
-    assert await _jtag_read(dut, ADDR_VERSION) == VERSION_P3_7
+    assert await _jtag_read(dut, ADDR_VERSION) == VERSION_TIER
     features = await _jtag_read(dut, ADDR_FEATURES)
     assert (features >> 28) & 0x7 == STAGES, (
         f"FEATURES=0x{features:08X}: [30:28] should carry G_TRIG_STAGES={STAGES}")

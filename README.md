@@ -16,6 +16,12 @@ This repository is the public home of the `routertl/rea` package on
   after up to four patterns appear in order, each with an optional match count.
   The RTL and register window are in place (REA-P3.7); arming it from `rr ila`
   needs routertl RTL-P2.1400.
+- **Force trigger** (v0.17, REA-P2.28): `CTRL` bit[2] makes an armed core
+  that is still waiting on its pattern trigger on the sample present when the
+  command lands, the Vivado ILA "Run Trigger Immediate". `PRETRIG`/`POSTTRIG`
+  still frame the window and `STATUS` bit[9] says the capture was forced.
+  Forcing an idle, triggered or done core does nothing. See `SPEC.md` "Force
+  trigger".
 - **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
   when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
   over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses

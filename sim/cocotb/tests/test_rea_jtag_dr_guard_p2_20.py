@@ -31,7 +31,7 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 _RTL_DIR = str(_Path(__file__).resolve().parents[3] / "rtl")
 
 DR_W = 50
-VERSION = 0x5245410F  # odd by permanent contract (SPEC VERSION row)
+VERSION = 0x52454111  # odd by permanent contract (SPEC VERSION row)
 
 
 def main() -> None:

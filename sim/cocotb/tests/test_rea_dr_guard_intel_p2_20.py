@@ -24,7 +24,7 @@ from sdk.cocotb_helpers import requires  # noqa: E402
 
 DR_W = 50
 ADDR_VERSION, ADDR_PRETRIG = 0x00, 0x14
-VERSION = 0x5245410F
+VERSION = 0x52454111
 
 
 def _gframe(addr: int, data: int, write: bool) -> int:

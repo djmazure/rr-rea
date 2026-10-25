@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.15)
+# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.17)
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships three vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based), Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) and Microchip PolarFire / PolarFire SoC (`rr_rea_jtag_microchip`, UJTAG-based, since 1.6.0) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. PolarFire parts use an OpenOCD bridge on the embedded FlashPro5 (RTL-P2.1279). **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
@@ -100,7 +100,7 @@ Per family:
   - **Blocked on rr-rea 1.10.1 (2026-10-01, field bench, RTL-P2.901).** Arria 10
     compiled with Quartus Std 23.1, 256-bit sample width, STA met including
     the core's own hold paths. The identity gate FAILS: control readback
-    returns all-ones for every value with bit0=1 (VERSION `0x5245410F` and
+    returns all-ones for every value with bit0=1 (VERSION `0x5245410F` and <!-- rea-magic:historical -->
     BUILD_ID read `0xFFFFFFFF`, FEATURES reads exact, and a read/write register
     holds odd values but reads them back as all-ones). Reproduced identically
     through the Std 23.1 and the Pro 26.1 System Console. The REAClient
@@ -162,9 +162,9 @@ processes (REA-P2.24, REA-REQ-010).
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x5245410F` ('REA' + v0.15 tier: the multi-stage sequencer's SEQ window decodes and FEATURES[30:28] reports its depth (REA-P3.7), after v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
-| `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle |
-| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused |
+| `0x00` | RO  | VERSION     | Magic `0x52454111` ('REA' + v0.17 tier: CTRL[2] force-trigger and STATUS[9] forced (REA-P2.28), after the v0.15 multi-stage sequencer's SEQ window and FEATURES[30:28] depth (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
+| `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle, bit[2]=force_trig_toggle (v0.17, REA-P2.28: an armed core triggers on the sample present when the command lands; no-op when idle, triggered or done) |
+| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused, [8]=reserved 0 (host in-reset, RTL-P2.1377), [9]=forced (v0.17, REA-P2.28: this capture's trigger came from CTRL[2], not the pattern; cleared by arm and soft reset) |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
 | `0x10` | RO  | DEPTH       | Synth-time generic |
 | `0x14` | RW  | PRETRIG     | Pretrigger sample count |
@@ -201,7 +201,7 @@ processes (REA-P2.24, REA-REQ-010).
 | `0x0040` | RW | SEQ_BASE    | Sequencer window 0x40..0x9F (decodes nothing when `G_TRIG_STAGES = 0`, the default): stage K at `0x40 + 20*K` for K < `G_TRIG_STAGES` — +0 `SEQ_CFG` (count_target [15:0]), +4 `SEQ_VALUE`, +8 `SEQ_MASK` (both paged by `TRIG_WORD_SEL`), +0x0C/+0x10 reserved (REA-P3.7, REA-REQ-607) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
-`VERSION` is the exact 32-bit protocol magic `0x5245410F`. `CAPTURE_LEN`
+`VERSION` is the exact 32-bit protocol magic `0x52454111`. `CAPTURE_LEN`
 updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
 using 32-bit unsigned arithmetic; the host may read it before arm or done.
 `TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
@@ -353,7 +353,7 @@ sequencer (REA-P3.7)".
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x5245410F` at the v0.15 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x52454111` at the v0.17 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -446,7 +446,7 @@ is the trigger. Elaborate it with `G_TRIG_STAGES` (1..4) on `rr_rea_top` or
 any vendor wrapper. The default, 0, elaborates no sequencer: the core is the
 pre-v0.15 one, the SEQ window decodes nowhere and `TRIG_MODE` bit[1] is
 ignored. `FEATURES[30:28]` reports the depth (0 = none); a host reads it only
-from a core whose `VERSION` is at least `0x5245410F`.
+from a core whose `VERSION` is at least `0x5245410F`. <!-- rea-magic:historical -->
 `G_TRIG_STAGES > 4` halts elaboration, because the window holds four stages
 (REA-REQ-967).
 
@@ -503,6 +503,40 @@ external trigger is synchronized with a double-flop; sub-sample-period pulses
 are not guaranteed to be seen. Verified on nvc by REA-REQ-410..413; the
 board-pin route + a real scope/cross-board fire is integrator-validated.
 `rr ila` sets the bits from `trigger.external: { mode: or|and, signal: <pin> }`.
+
+### Force trigger (`CTRL` bit[2], `STATUS` bit[9], REA-P2.28)
+
+The Vivado ILA "Run Trigger Immediate": capture what the design is doing now,
+without reprogramming the trigger. Writing `CTRL` with bit[2]
+(`C_CTRL_BIT_FORCE_TRIG`) set flips a toggle that crosses to `sample_clk_i`
+through `rr_rea_pulse_xfer` like ARM and RESET.
+
+- **Armed and waiting.** The core triggers in the sample cycle the pulse
+  arrives, whatever the trigger pattern. The sample stored in that cycle is
+  the trigger cell. The `PRETRIG` samples before it are the pre-trigger
+  window and `POSTTRIG` sets the post-trigger depth, as for a pattern
+  trigger. Decimation and storage qualification still apply to which samples
+  are stored. `PRETRIG_VALID` counts the pre-trigger cells written since the
+  arm, capped at `PRETRIG` (REA-REQ-972).
+- **Idle, already triggered, or done.** The command is ignored. It sets no
+  status bit and does not move the trigger cell, `START_PTR` or
+  `PRETRIG_VALID` (REA-REQ-973).
+- **`STATUS[9]` forced** reads 1 when this capture's trigger came from the
+  command and 0 when it came from the pattern (a pattern hit in the same cycle
+  wins). Arm and soft reset clear it. A forced trigger does not pulse
+  `trigger_o`: it is a host command, not a probe event (REA-REQ-974).
+- **Discovery.** `FEATURES` has no free bit, so a host uses the bit only on a
+  core whose `VERSION` is at least `0x52454111` (v0.17). On an older core the
+  write is dropped and the core keeps waiting.
+- **Order.** Arm first. The host should see `STATUS[0]` armed before it
+  forces: a force that reaches the core before the arm is ignored.
+
+The fix that came with it (REA-P2.28): with no decimation or qualification,
+`PRETRIG_VALID` for an unpipelined trigger (`trigger_i`, force) used to
+subtract the comparator pipeline depth (`TRIG_LATENCY`), as if the trigger had
+come through the comparator. A capture triggered fewer than `PRETRIG +
+TRIG_LATENCY` samples after the arm under-reported its pre-trigger cells by up
+to `TRIG_LATENCY`, and the host trimmed real samples.
 
 ### Write-side source (`SOURCE` 0x3C, RTL-P2.837)
 
@@ -584,7 +618,7 @@ hypothesis is that the trigger is the first bit shifted out after CAPTURE being
   moved it (REA-P1.1), and the host refuses a 1.11.0 guarded core.
 - **Only on `rr_rea_intel`** today, because the fault is on the Intel SLD path.
   `rr_rea_xilinx7` and `rr_rea_jtag_microchip` do not expose it.
-- `VERSION` stays `0x5245410F`; the tier byte stays odd (REA-REQ-806). The
+- `VERSION` stayed `0x5245410F` for it; the tier byte stays odd (REA-REQ-806). The <!-- rea-magic:historical -->
   guard is a FEATURES bit, not a VERSION bump.
 
 The discriminator image (`examples/dr_guard_discriminator/rr_rea_dr_guard_discriminator_top.vhd`, a reference top outside the package source set; see `docs/dr_guard_discriminator.md`) puts a guarded and
@@ -624,10 +658,10 @@ recognises the synchronizers" below):
 
 - **Register clock → `sample_clk_i`:** configuration words (PRETRIG,
   POSTTRIG, TRIG_*, DECIM, COND_*, QUAL_*, SEED, SOURCE) through
-  `rr_rea_sync_word`; ARM, RESET and FILL through `rr_rea_pulse_xfer`
-  (toggle synchronizers).
+  `rr_rea_sync_word`; ARM, RESET, FORCE_TRIG (REA-P2.28) and FILL through
+  `rr_rea_pulse_xfer` (toggle synchronizers).
 - **`sample_clk_i` → register clock:** status and integrity words (armed,
-  done, CRC, epoch, selftest) through `rr_rea_sync_word`; publish and
+  done, forced, CRC, epoch, selftest) through `rr_rea_sync_word`; publish and
   invalidate through `rr_rea_pulse_xfer`.
 
 Rules the RTL keeps (REA-REQ-961):

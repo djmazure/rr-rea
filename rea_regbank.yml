@@ -1,5 +1,5 @@
 name: rea_registers
-version: 0.13.0  # REA-P3.7: SEQ window decodes (0x40..0x9F)
+version: 0.14.0  # REA-P2.28: CTRL[2] force-trigger, STATUS[9] forced
 address_mode: bytes
 outputs:
   - vhdl_template
@@ -15,8 +15,8 @@ artifacts:
     prefix: ADDR_
 registers:
   - {name: VERSION, address: 0x0000, access: RO, description: REA magic and feature version}
-  - {name: CTRL, address: 0x0004, access: WO, description: Arm and reset toggles}
-  - {name: STATUS, address: 0x0008, access: RO, description: Capture status flags}
+  - {name: CTRL, address: 0x0004, access: WO, description: 'Arm, reset and force-trigger toggles (bit 0 arm, bit 1 reset, bit 2 force_trig)'}
+  - {name: STATUS, address: 0x0008, access: RO, description: 'Capture status flags (bit 9 forced: the trigger came from CTRL bit 2)'}
   - {name: SAMPLE_W, address: 0x000C, access: RO, description: Synthesized sample width}
   - {name: DEPTH, address: 0x0010, access: RO, description: Synthesized capture depth}
   - {name: PRETRIG, address: 0x0014, access: RW, description: Pre-trigger sample count}

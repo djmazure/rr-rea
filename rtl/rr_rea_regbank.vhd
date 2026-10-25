@@ -5,14 +5,14 @@
 --
 -- Sits between the JTAG protocol decoder (rr_rea_jtag_iface) and the
 -- capture_i FSM (rr_rea_capture_fsm). Implements the SW-interface
--- contract from SPEC.md (REA-REQ-010..012, REA-REQ-971). Synchronous to jtag_clk_i;
--- CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
+-- contract from SPEC.md (REA-REQ-010..012, REA-REQ-971, REA-REQ-972..974).
+-- Synchronous to jtag_clk_i; CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x5245410F ('REA' + v0.15 feature tier; single-sourced
+--   0x00 RO  VERSION       0x52454111 ('REA' + v0.17 feature tier; single-sourced
 --                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
---   0x04 WO  CTRL          arm_toggle/reset_toggle
---   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o
+--   0x04 WO  CTRL          arm_toggle/reset_toggle/force_trig_toggle (REA-P2.28)
+--   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o, [9] forced
 --   0x0C RO  SAMPLE_W      synth-time generic
 --   0x10 RO  DEPTH         synth-time generic
 --   0x14 RW  PRETRIG
@@ -92,6 +92,9 @@ entity rr_rea_regbank is
         triggered_i : in std_logic;
         done_i      : in std_logic;
         overflow_i  : in std_logic;
+        -- REA-P2.28: STATUS[9], the capture was forced (sample domain, sync'd).
+        -- Defaults '0' so the regbank unit tests need not wire it.
+        forced_i    : in std_logic := '0';
         start_ptr_i : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
 
         -- ── v0.8 readback-integrity status (jtag_clk_i domain; crossed
@@ -168,7 +171,9 @@ entity rr_rea_regbank is
             max_nat(1, G_TRIG_STAGES) * C_SEQ_COUNT_W - 1 downto 0);
 
         arm_toggle_o   : out std_logic;
-        reset_toggle_o : out std_logic
+        reset_toggle_o : out std_logic;
+        -- REA-P2.28: CTRL[2] force-trigger toggle (REA-REQ-972).
+        force_toggle_o : out std_logic
     );
 end entity;
 
@@ -274,6 +279,7 @@ architecture rtl of rr_rea_regbank is
     -- ── Toggle bits — flipped on every write to CTRL.bit[N] ──────
     signal arm_toggle_r   : std_logic := '0';
     signal reset_toggle_r : std_logic := '0';
+    signal force_toggle_r : std_logic := '0';
 
     -- ── RO computed: capture_len ─────────────────────────────────
     signal capture_len_w : std_logic_vector(31 downto 0);
@@ -381,6 +387,7 @@ begin
     source_o       <= source_r(G_NUM_SOURCE - 1 downto 0);
     arm_toggle_o   <= arm_toggle_r;
     reset_toggle_o <= reset_toggle_r;
+    force_toggle_o <= force_toggle_r;
 
     -- ── Per-condition expansion (RTL-P3.647) ─────────────────────
     -- REA-P2.10: the expansion below is COMBINATIONAL; it drives the *_c
@@ -543,6 +550,7 @@ begin
             source_r       <= (others => '0');
             arm_toggle_r   <= '0';
             reset_toggle_r <= '0';
+            force_toggle_r <= '0';
 
         elsif rising_edge(jtag_clk_i) then
             -- REA-P2.24: when an optional bank is disabled, its write loops
@@ -572,6 +580,9 @@ begin
                         end if;
                         if wr_data_i(C_CTRL_BIT_RESET) = '1' then
                             reset_toggle_r <= not reset_toggle_r;
+                        end if;
+                        if wr_data_i(C_CTRL_BIT_FORCE_TRIG) = '1' then
+                            force_toggle_r <= not force_toggle_r;
                         end if;
 
                     when C_ADDR_PRETRIG =>
@@ -736,6 +747,7 @@ begin
         status(C_STATUS_BIT_SELFTEST_BUSY)    := selftest_busy_i;
         status(C_STATUS_BIT_SELFTEST_MODE)    := selftest_mode_i;
         status(C_STATUS_BIT_SELFTEST_REFUSED) := selftest_refused_i;
+        status(C_STATUS_BIT_FORCED)           := forced_i;
 
         spr := (others => '0');
         spr(C_PTR_W - 1 downto 0) := start_ptr_i;

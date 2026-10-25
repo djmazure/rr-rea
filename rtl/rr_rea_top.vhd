@@ -177,6 +177,7 @@ architecture rtl of rr_rea_top is
     signal trig_mask_jclk  : std_logic_vector(G_SAMPLE_W - 1 downto 0);
     signal arm_toggle_jclk   : std_logic;
     signal reset_toggle_jclk : std_logic;
+    signal force_toggle_jclk : std_logic;  -- REA-P2.28 CTRL[2]
     signal trig_mode_jclk    : std_logic_vector(31 downto 0);
     signal chan_sel_jclk     : std_logic_vector(7 downto 0);
     signal decim_ratio_jclk  : std_logic_vector(23 downto 0);
@@ -200,6 +201,7 @@ architecture rtl of rr_rea_top is
     signal ext_trig_sclk   : std_logic_vector(0 downto 0);  -- synced board pin
     signal arm_pulse_sclk   : std_logic;
     signal reset_pulse_sclk : std_logic;
+    signal force_pulse_sclk : std_logic;
 
     -- ── v0.8 CAPTURE_EPOCH (REA-P2.2, REQ-807): sample-domain generation
     --    counter, crossed to jtag_clk_i for the regbank. The host's anti-tear
@@ -313,6 +315,7 @@ architecture rtl of rr_rea_top is
     signal triggered_sclk : std_logic;
     signal done_sclk      : std_logic;
     signal overflow_sclk  : std_logic;
+    signal forced_sclk    : std_logic;
     signal trigger_out_sclk : std_logic;
     signal trigger_sticky_r : std_logic := '0';
     signal dpram_we_sclk    : std_logic;
@@ -330,6 +333,7 @@ architecture rtl of rr_rea_top is
     signal triggered_jclk : std_logic_vector(0 downto 0);
     signal done_jclk      : std_logic_vector(0 downto 0);
     signal overflow_jclk  : std_logic_vector(0 downto 0);
+    signal forced_jclk    : std_logic_vector(0 downto 0);
     signal start_ptr_jclk : std_logic_vector(C_PTR_W - 1 downto 0);
     signal pretrig_valid_jclk : std_logic_vector(C_PTR_W downto 0);
     signal pretrig_valid_reg  : std_logic_vector(31 downto 0);
@@ -499,6 +503,7 @@ begin
             triggered_i => triggered_jclk(0),
             done_i      => done_jclk(0),
             overflow_i  => overflow_jclk(0),
+            forced_i    => forced_jclk(0),
             start_ptr_i => start_ptr_jclk,
             pretrig_valid_i => pretrig_valid_reg,
             -- v0.8 readback integrity (REA-P2.2). CRC values + crc_valid arrive
@@ -536,7 +541,8 @@ begin
             seq_masks_o    => seq_masks_jclk,
             seq_counts_o   => seq_counts_jclk,
             arm_toggle_o   => arm_toggle_jclk,
-            reset_toggle_o => reset_toggle_jclk
+            reset_toggle_o => reset_toggle_jclk,
+            force_toggle_o => force_toggle_jclk
         );
 
     -- ── reg_rdata_i mux: dpram window vs regbank ───────────────────
@@ -750,6 +756,14 @@ begin
             dst_pulse_o => reset_pulse_sclk
         );
 
+    -- REA-P2.28: CTRL[2] force-trigger, the same toggle -> pulse crossing.
+    u_cdc_force : rr_rea_pulse_xfer
+        port map (
+            src_toggle_i => force_toggle_jclk,
+            dst_clk_i => sample_clk_i, dst_rst_i => sample_rst_sync,
+            dst_pulse_o => force_pulse_sclk
+        );
+
     -- ── Selftest fill request / seed CDC (REA-P2.3) ──────────────────
     -- These produce the FREE control inputs the trust core consumes; the fill
     -- FSM itself now lives INSIDE the core (REA-P3.2).
@@ -923,6 +937,7 @@ begin
             probe_i      => probe_sclk,
             arm_pulse_i     => arm_pulse_sclk,
             reset_pulse_i   => reset_pulse_sclk,
+            force_i         => force_pulse_sclk,
             pretrig_len_i  => pretrig_sclk,
             posttrig_len_i => posttrig_sclk,
             trig_value_i   => trig_value_sclk,
@@ -958,6 +973,7 @@ begin
             triggered_o   => triggered_sclk,
             done_o        => done_sclk,
             overflow_o    => overflow_sclk,
+            forced_o      => forced_sclk,
             trigger_o => trigger_out_sclk,
             dpram_we_o    => dpram_we_sclk,
             dpram_addr_o  => dpram_addr_sclk,
@@ -992,6 +1008,14 @@ begin
         port map (dst_clk_i => reg_clk_o,
                   din_i(0) => overflow_sclk,
                   dout_o => overflow_jclk);
+
+    -- REA-P2.28: STATUS[9] forced. Sticky from the fire edge to the next
+    -- arm/reset, so a flag sync is sound, like triggered.
+    u_cdc_forced : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => forced_sclk,
+                  dout_o => forced_jclk);
 
     u_cdc_start_ptr : rr_rea_sync_word
         generic map (G_WIDTH => C_PTR_W)

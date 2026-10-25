@@ -35,8 +35,8 @@
 -- latched on the (staged) arm and must be held one cycle past it, as the
 -- regbank does.
 --
--- See requirements.yml REA-REQ-100..106 and REA-REQ-950..959 for the test
--- contract.
+-- See requirements.yml REA-REQ-100..106, REA-REQ-950..959 and
+-- REA-REQ-972..974 (REA-P2.28 host force-trigger) for the test contract.
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -72,6 +72,17 @@ entity rr_rea_capture_fsm is
         -- other REA instances on the bus). Tied low when the
         -- crossbar isn't connected.
         trigger_i  : in  std_logic := '0';
+
+        -- ── Host force-trigger (REA-P2.28, REA-REQ-972..974) ───────
+        -- 1-cycle pulse on sample_clk from CTRL bit[2] (C_CTRL_BIT_FORCE_TRIG),
+        -- crossed by rr_rea_pulse_xfer in rr_rea_top. An ARMED, untriggered
+        -- core takes its trigger in the cycle the pulse arrives, whatever the
+        -- trigger pattern: the sample stored in that cycle is the trigger
+        -- cell, so the samples before it are the pre-trigger window and
+        -- POSTTRIG still sets the post-trigger depth. Idle, triggered or done:
+        -- ignored. Like trigger_i it bypasses the comparator pipeline and does
+        -- NOT pulse trigger_o (a host command is not a probe event).
+        force_i    : in  std_logic := '0';
 
         -- ── Latched config (sample_clk domain) ───────────────────
         pretrig_len_i  : in  std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
@@ -179,6 +190,9 @@ entity rr_rea_capture_fsm is
         triggered_o   : out std_logic;
         done_o        : out std_logic;
         overflow_o    : out std_logic;
+        -- REA-P2.28: sticky, '1' when this capture's trigger came from force_i
+        -- and not from the trigger pattern. Cleared by arm and soft reset.
+        forced_o      : out std_logic;
         trigger_o : out std_logic;   -- 1-cycle pulse on local fire
 
         -- ── DPRAM port-A drive ───────────────────────────────────
@@ -490,6 +504,7 @@ architecture rtl of rr_rea_capture_fsm is
     signal triggered_r   : std_logic := '0';
     signal done_r        : std_logic := '0';
     signal overflow_r    : std_logic := '0';
+    signal forced_r      : std_logic := '0';
     signal wr_ptr_r      : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal trig_ptr_r    : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     -- RTL-T1.16 pre-trigger contiguity accounting.
@@ -655,6 +670,7 @@ architecture rtl of rr_rea_capture_fsm is
     signal arm_s          : std_logic;
     signal reset_s        : std_logic;
     signal trig_in_s      : std_logic;
+    signal force_s        : std_logic;
     signal ext_trigger_s  : std_logic;
     -- qual_enable as the (staged) FSM sees it: loaded on arm_s, while
     -- qual_enable_r feeds the look-ahead evaluator and loads on arm_pulse_i.
@@ -1052,6 +1068,7 @@ begin
         arm_s           <= arm_pulse_i;
         reset_s         <= reset_pulse_i;
         trig_in_s       <= trigger_i;
+        force_s         <= force_i;
         ext_trigger_s   <= ext_trigger_i;
     end generate;
 
@@ -1068,6 +1085,7 @@ begin
                 arm_s           <= '0';
                 reset_s         <= '0';
                 trig_in_s       <= '0';
+                force_s         <= '0';
                 ext_trigger_s   <= '0';
                 qual_ok         <= '1';
                 qual_enable_r   <= '0';
@@ -1079,6 +1097,7 @@ begin
                 arm_s         <= arm_pulse_i;
                 reset_s       <= reset_pulse_i;
                 trig_in_s     <= trigger_i;
+                force_s       <= force_i;
                 ext_trigger_s <= ext_trigger_i;
                 qual_ok       <= qual_next;
                 -- REA-P2.7: the qualifier is arm-time config (REA-REQ-959).
@@ -1297,6 +1316,7 @@ begin
     triggered_o     <= triggered_r;
     done_o          <= done_r;
     overflow_o      <= overflow_r;
+    forced_o        <= forced_r;
     trigger_o   <= trigger_out_r;
     wr_ptr_o    <= std_logic_vector(wr_ptr_r);
     trig_ptr_o  <= std_logic_vector(trig_ptr_r);
@@ -1346,6 +1366,7 @@ begin
             triggered_r    <= '0';
             done_r         <= '0';
             overflow_r     <= '0';
+            forced_r       <= '0';
             wr_ptr_r       <= (others => '0');
             trig_ptr_r     <= (others => '0');
             start_ptr_r    <= (others => '0');
@@ -1431,6 +1452,7 @@ begin
                 triggered_r   <= '0';
                 done_r        <= '0';
                 overflow_r    <= '0';
+                forced_r      <= '0';
                 post_count_r  <= (others => '0');
                 post_full_r   <= '0';
                 trigger_out_r <= '0';
@@ -1456,6 +1478,7 @@ begin
                 armed_r        <= '1';
                 triggered_r    <= '0';
                 done_r         <= '0';
+                forced_r       <= '0';
                 -- Restart the contiguity count with the capture.
                 since_arm_r     <= (others => '0');
                 pretrig_valid_r <= (others => '0');
@@ -1614,8 +1637,12 @@ begin
             -- triggered=0). The arm/reset branch must fully own that cycle.
             if armed_r = '1' and triggered_r = '0' and done_r = '0'
                and arm_s = '0' and reset_s = '0' then
-                if local_fire_pipe = '1' or trig_in_s = '1' then
+                if local_fire_pipe = '1' or trig_in_s = '1'
+                   or force_s = '1' then
                     triggered_r <= '1';
+                    -- REA-P2.28: a pattern hit in the same cycle wins the
+                    -- trigger cell (below), so the capture is not forced.
+                    forced_r <= force_s and not local_fire_pipe;
                     -- RTL-T1.16: freeze the contiguity figure AT the trigger.
                     -- Cells beyond this are pre-arm residue, not context.
                     --
@@ -1636,10 +1663,15 @@ begin
                         else
                             pretrig_valid_r <= pipeline_final_pv;
                         end if;
-                    elsif exact_count = '1' then
-                        -- External trigger_i with qualification/decimation:
-                        -- no pipeline lag (fire_lag = 0), since_arm counts
-                        -- STORES (REA-REQ-955/960).
+                    else
+                        -- trigger_i / force_i: no pipeline lag (fire_lag = 0).
+                        -- The trigger cell is the store at wr_ptr_r in THIS
+                        -- cycle, so every store counted by since_arm precedes
+                        -- it, in every mode (REA-REQ-955/960). REA-P2.28: the
+                        -- every-cycle branch used to subtract C_PIPE_STAGES
+                        -- here as if this were a pipelined fire, so a forced
+                        -- capture soon after the arm under-reported its
+                        -- pre-trigger window and the host trimmed real cells.
                         if since_arm_r < resize(pretrig_len_r,
                                                 since_arm_r'length) then
                             pretrig_valid_r <= since_arm_r;
@@ -1647,15 +1679,6 @@ begin
                             pretrig_valid_r <= resize(pretrig_len_r,
                                                       pretrig_valid_r'length);
                         end if;
-                    elsif since_arm_r <= to_unsigned(C_PIPE_STAGES,
-                                                  since_arm_r'length) then
-                        pretrig_valid_r <= (others => '0');
-                    elsif (since_arm_r - C_PIPE_STAGES)
-                          < resize(pretrig_len_r, since_arm_r'length) then
-                        pretrig_valid_r <= since_arm_r - C_PIPE_STAGES;
-                    else
-                        pretrig_valid_r <= resize(pretrig_len_r,
-                                                  pretrig_valid_r'length);
                     end if;
                     -- REA-P2.11: v_x_low = the low C_PF_K bits of the value
                     -- loaded into post_count_r below (the trigger-pipeline

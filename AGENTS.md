@@ -43,6 +43,7 @@ the open gaps for each family. Read it before promising REA on a part.
 | Storage qualification | `G_QUAL_CONDS` 1..15 **and** `G_TIMESTAMP_W > 0` | store only when EQ/NE/RISE/FALL slots hold (AND/OR); `--qualify 'EXPR'`, `--qualify-any`, or `storage_qualifier:` in the yml |
 | Timestamp plane | `G_TIMESTAMP_W` (default 32) | per-sample `sample_clk` count; exports of gapped captures are placed by it |
 | `PRETRIG_VALID` | always | the host trims pre-trigger cells older than this capture |
+| Force trigger (Vivado "Run Trigger Immediate") | always, `VERSION` >= `0x52454111` | `CTRL` bit[2] (`C_CTRL_BIT_FORCE_TRIG`): an armed core triggers on the sample present when the command lands, PRETRIG/POSTTRIG still frame it; `STATUS` bit[9] = forced; a no-op when idle, triggered or done; no `trigger_o` toggle (REA-P2.28) |
 | Write-side SOURCE | `G_NUM_SOURCE` | JTAG-driven bits into the design, reset 0, no auto-release; `rr ila source` |
 | Identity | always | `VERSION` magic, generic-derived `FEATURES`, source-hash `BUILD_ID` (build hook) |
 | Readback integrity | always | CRC-32 of both planes + capture epoch; `rr ila selftest` |
@@ -53,6 +54,12 @@ the open gaps for each family. Read it before promising REA on a part.
 **Sequencer (v0.15, REA-P3.7):** `G_TRIG_STAGES` 1..4 (default 0 = none) on
 the top and every wrapper, SEQ window at 0x40, enabled by `TRIG_MODE` bit[1]. The RTL is wired;
 `rr ila` cannot arm it until routertl RTL-P2.1400 lands.
+
+**Force trigger (v0.17, REA-P2.28):** `FEATURES` has no free bit, so the
+host gates CTRL[2] on `VERSION`. Arm, see `STATUS[0]` armed, then force: a
+force that reaches the core before the arm is dropped, not held. The RTL is
+wired; the host `REAClient.force_trigger()` lives in routertl and is not part
+of this repo.
 
 **Not available:** segmented capture, `G_NUM_CHAN > 1`.
 

@@ -84,7 +84,10 @@ package rr_rea_pkg is
     -- window the trigger-latency stores would overrun; next ODD minor again.
     -- v0.15 (REA-P3.7) decodes the SEQ window (0x40..0x9F) and adds
     -- FEATURES[30:28]; the register map gained registers, next ODD minor.
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"5245410F";
+    -- v0.17 (REA-P2.28) adds CTRL[2] force-trigger and STATUS[9] forced: a
+    -- register semantic changed and FEATURES has no free bit to advertise it,
+    -- so the tier moves to the next ODD minor (REA-REQ-913, REA-REQ-806).
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454111";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -152,7 +155,7 @@ package rr_rea_pkg is
     -- widening the slot. Do NOT reintroduce a single-32-bit value_a/mask_a —
     -- that is the exact cap P2.658b removed from the legacy path.
     --
-    -- REA-P3.7 (v0.15, VERSION 0x5245410F): implemented in rr_rea_regbank for
+    -- REA-P3.7 (v0.15, VERSION 0x5245410F; rea-magic:historical): implemented in rr_rea_regbank for
     -- G_TRIG_STAGES stages (0..C_MAX_TRIG_STAGES; 0 = no sequencer). cfg carries count_target in
     -- [15:0]; its other bits, and value_b/mask_b, are reserved (write
     -- dropped, read 0) because the FSM's stages compare by masked equality
@@ -252,7 +255,7 @@ package rr_rea_pkg is
     constant C_FEAT_SAMPLE_LIVENESS_BIT : natural := 23;
     constant C_FEAT_QUAL_CONDS_LSB   : natural := 24;
     -- REA-P3.7: [30:28] = G_TRIG_STAGES (0..4, 0 = none), the sequencer depth. Read it
-    -- only from a core whose VERSION is >= 0x5245410F; older cores read 0.
+    -- only from a core whose VERSION is >= 0x5245410F; older cores read 0.  -- rea-magic:historical
     constant C_FEAT_TRIG_STAGES_LSB  : natural := 28;
     -- REA-P2.20 / REA-P1.1: [31] advertises the guarded 50-bit DR. FEATURES is
     -- even whenever G_TRIG_CONDS is even (its LSB is bit 0; default 4), and
@@ -270,6 +273,13 @@ package rr_rea_pkg is
     -- ── CTRL register bit assignments ────────────────────────────
     constant C_CTRL_BIT_ARM     : natural := 0;
     constant C_CTRL_BIT_RESET   : natural := 1;
+    -- REA-P2.28 (v0.17): force_trig_toggle. An ARMED core waiting on its
+    -- pattern takes the trigger on the sample present when the command lands
+    -- (Vivado ILA "Run Trigger Immediate"); PRETRIG/POSTTRIG still frame the
+    -- window. Idle, triggered or done: a no-op. STATUS[9] tells the host the
+    -- capture was forced. No FEATURES bit is free, so a host gates it on
+    -- VERSION >= 0x52454111.
+    constant C_CTRL_BIT_FORCE_TRIG : natural := 2;
 
     -- ── STATUS register bit assignments ──────────────────────────
     constant C_STATUS_BIT_ARMED      : natural := 0;
@@ -280,6 +290,10 @@ package rr_rea_pkg is
     constant C_STATUS_BIT_SELFTEST_BUSY    : natural := 5;
     constant C_STATUS_BIT_SELFTEST_MODE    : natural := 6;
     constant C_STATUS_BIT_SELFTEST_REFUSED : natural := 7;
+    -- [8] is reserved: the routertl host reads it as in-reset (RTL-P2.1377).
+    -- REA-P2.28: this capture's trigger came from C_CTRL_BIT_FORCE_TRIG, not
+    -- the trigger pattern. Sticky until the next arm or soft reset.
+    constant C_STATUS_BIT_FORCED           : natural := 9;
 
     -- ── TRIG_MODE values ─────────────────────────────────────────
     constant C_TRIG_MODE_VALUE_MATCH : std_logic_vector(31 downto 0) := x"00000001";

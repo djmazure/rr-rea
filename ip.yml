@@ -1,6 +1,7 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.15 (VERSION magic 0x5245410F): the multi-stage trigger sequencer is
-# reachable (REA-P3.7), after v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification
+# On-chip protocol tier v0.17 (VERSION magic 0x52454111): CTRL[2] force-trigger and STATUS[9]
+# forced (REA-P2.28), after the v0.15 multi-stage trigger sequencer
+# (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification
 # (REA-P2.7) on top of the aligned per-sample timestamp plane (DATA_PLANE_SEL,
 # RTL-T2.123), the v0.8 readback-integrity trust tier and PRETRIG_VALID.
 #
@@ -12,9 +13,22 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.12.3
-#   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
-#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#   version: below        the PACKAGE version the registry pins   -> 1.13.0
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.14.0
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454111
+#
+# 1.13.0 (REA-P2.28) is a MINOR: CTRL bit[2] (C_CTRL_BIT_FORCE_TRIG) forces the
+# trigger of an ARMED core on the sample present when the command lands, the
+# Vivado ILA "Run Trigger Immediate". The samples before it are the pre-trigger
+# window and POSTTRIG still sets the post-trigger depth. Forcing an idle,
+# triggered or done core is a no-op. STATUS[9] (forced) tells the host the
+# trigger came from the command, not the pattern; it does not pulse trigger_o.
+# Also fixes PRETRIG_VALID for an unpipelined trigger (trigger_i / force) with
+# no decimation or qualification: it subtracted the comparator pipeline depth,
+# so a capture triggered soon after the arm under-reported its pre-trigger
+# cells. FEATURES has no free bit, so the runtime tier moves 0x5245410F ->  # rea-magic:historical
+# 0x52454111 (REA-REQ-913, tier byte stays odd, REA-REQ-806) and the register
+# map 0.13.0 -> 0.14.0. Existing instantiations elaborate unchanged.
 #
 # 1.12.3 (REA-P2.26) is a PATCH: annotates rr_rea_sync_word s1/s2 with the inline
 # RR-CDC-002 waiver citing REA-REQ-959 (quasi-static multicycle path, stable while
@@ -27,7 +41,7 @@
 # stored), matching decim_ratio_o and what the capture decimator uses
 # (REA-REQ-971). Every other RW register continues to round-trip arbitrary
 # 32-bit values (REA-REQ-010). Register map 0.13.0 and runtime tier
-# 0x5245410F are unchanged.
+# 0x5245410F are unchanged.  # rea-magic:historical
 # 1.12.2 also includes REA-P2.24: disabled optional sequencer and qualifier
 # banks now have explicit clock-edge assignments, so the
 # GHDL-to-Yosys flow infers no latches and rr cdc check can elaborate REA
@@ -40,7 +54,7 @@
 # The lookups are now -quiet with a TCK-period fallback. The tck <-> sample
 # clock bound is unchanged at implementation: zybo_rea_demo routed
 # clock_interaction shows Max Delay Datapath Only 4.000 ns both ways, as on
-# 1.12.0. Register map 0.13.0 and runtime tier 0x5245410F are unchanged.
+# 1.12.0. Register map 0.13.0 and runtime tier 0x5245410F are unchanged.  # rea-magic:historical
 #
 # 1.12.0 (REA-P2.22) is a MINOR: rr_rea_xilinx7 gains four optional OUTPUT
 # ports, tap_tck/tap_tms/tap_tdi (BSCANE2's TCK/TMS/TDI) and tap_tdo (this
@@ -52,7 +66,7 @@
 # rtl/rr_rea_dr_guard_discriminator_top.vhd as an Altera synth source, so
 # every Altera consumer compiled a debug-only experiment top it never
 # instantiated; it moved to examples/dr_guard_discriminator/ and is no longer
-# in the package source set. Register map 0.13.0 and runtime tier 0x5245410F
+# in the package source set. Register map 0.13.0 and runtime tier 0x5245410F  # rea-magic:historical
 # are unchanged; rr_rea_top and the other core RTL are unchanged.
 #
 # 1.11.2 (REA-P2.19) is a PATCH: Xilinx timing coverage, no RTL change.
@@ -63,7 +77,7 @@
 # {path, ref: rr_rea_xilinx7} entry because the primitive lives in the
 # wrapper, above rr_rea_top. It needs an rr that reads {path, ref} entries
 # (routertl RTL-P2.1532); an older rr skips the entry and builds as before.
-# Register map 0.13.0 and runtime tier 0x5245410F are unchanged.
+# Register map 0.13.0 and runtime tier 0x5245410F are unchanged.  # rea-magic:historical
 #
 # 1.11.1 (REA-P1.1) is a PATCH that fixes a contract defect in 1.11.0:
 # FEATURES[23], which 1.11.0 gave to the guarded DR, was already the routertl
@@ -82,7 +96,7 @@
 # fault (RTL-P2.901). Also ships rtl/rr_rea_dr_guard_discriminator_top.vhd, a
 # debug-only Altera reference top (three cores, no design logic), as an
 # Altera-only synth source that is unused unless a target names it. Register
-# map 0.13.0 and runtime tier 0x5245410F are unchanged: no address moved, and
+# map 0.13.0 and runtime tier 0x5245410F are unchanged: no address moved, and  # rea-magic:historical
 # FEATURES is generic-derived. Host framing is routertl RTL-P2.1527.
 #
 # 1.10.1 (REA-P2.17) is a PATCH: no host-visible change (register map and
@@ -261,7 +275,7 @@
 
 name: rea
 namespace: routertl
-version: 1.12.3
+version: 1.13.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

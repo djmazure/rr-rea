@@ -51,7 +51,7 @@ async def test_mirrors_follow_the_tap_through_a_register_scan(dut):
 
     cocotb.start_soon(watch())
     version = await rwg.read(dut, 0x00)
-    assert version == 0x5245410F, f"VERSION=0x{version:08X} through the wrapper"
+    assert version == 0x52454111, f"VERSION=0x{version:08X} through the wrapper"
     # Both levels observed on the two signals the core cannot fake: TMS (now
     # connected) and TDO (the scan's response bits).
     assert seen["tms"] == {"0", "1"}, seen

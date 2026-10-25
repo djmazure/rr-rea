@@ -178,7 +178,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact current feature-tier magic
-      0x5245410F (v0.15, REA-P3.7 sequencer register window; v0.13 added TRIG_LATENCY, v0.11 storage qualification). The value is a protocol discriminator, not an
+      0x52454111 (v0.17, REA-P2.28 CTRL[2] force-trigger and STATUS[9] forced; v0.15 added the REA-P3.7 sequencer register window, v0.13 TRIG_LATENCY, v0.11 storage qualification). The value is a protocol discriminator, not an
       inferred string or a mutable register. The tier byte is ODD by
       permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
       is how a wide-readback miscompile is detected (RTL-P1.96).
@@ -834,8 +834,8 @@ functional_contract:
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
       logic — never hand-set — preserving the generic-derived fingerprint
-      invariant. VERSION reads the current tier magic (0x5245410F since
-      REA-P3.7); the tier byte is
+      invariant. VERSION reads the current tier magic (0x52454111 since
+      REA-P2.28); the tier byte is
       ODD (structural test: VERSION bit0 = 1, permanent contract for the
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
@@ -1376,7 +1376,7 @@ functional_contract:
       dropped and such a page reads 0. FEATURES[22] SHALL read 1 exactly when
       G_QUAL_CONDS > 0 and FEATURES[27:24] SHALL read G_QUAL_CONDS (both
       derived from the generic, never hand-set). VERSION SHALL read the current tier
-      magic (0x5245410F since REA-P3.7; tier byte stays odd, REA-REQ-806).
+      magic (0x52454111 since REA-P2.28; tier byte stays odd, REA-REQ-806).
   - id: REA-REQ-959
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Storage qualification (REA-P2.7)" }]
@@ -1492,7 +1492,7 @@ functional_contract:
       rr_rea_intel SHALL pass G_DR_GUARD to rr_rea_top, and FEATURES[31]
       SHALL read 1 iff the register door is the guarded JTAG DR (G_DR_GUARD
       and G_REG_IFACE = "jtag"), else 0. Read through the wrapper with
-      50-bit guarded frames, VERSION SHALL read exactly 0x5245410F, and an
+      50-bit guarded frames, VERSION SHALL read exactly 0x52454111, and an
       odd value written to a RW register SHALL read back exactly.
   - id: REA-REQ-970
     kind: behavioral
@@ -1511,3 +1511,38 @@ functional_contract:
       decimation ratio: bits [31:24] of `rd_data_o` SHALL always read '0' (the
       upper byte is not stored), and `decim_ratio_o` SHALL equal the low 24 bits
       of the written value, matching what the capture decimator uses.
+
+  # ── REA-P2.28 host force-trigger (CTRL[2], STATUS[9], v0.17) ──────────
+  - id: REA-REQ-972
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Force trigger (`CTRL` bit[2], `STATUS` bit[9], REA-P2.28)" }]
+    desc: >-
+      A CTRL (0x04) write with bit[2] set to an ARMED, untriggered core SHALL
+      trigger it in the sample cycle the crossed pulse reaches the capture FSM,
+      whatever the trigger pattern: STATUS[1] SHALL read 1 and, after POSTTRIG
+      more stored samples, STATUS[2] done. The window read from START_PTR
+      SHALL be PRETRIG contiguous samples, the trigger cell (the sample present
+      when the force landed), then POSTTRIG samples. PRETRIG_VALID SHALL equal
+      min(samples stored since the arm before the trigger cell, PRETRIG) in
+      every mode, also when the force lands fewer than PRETRIG samples after
+      the arm: it SHALL NOT subtract the comparator pipeline depth, which an
+      unpipelined trigger never passed through.
+  - id: REA-REQ-973
+    kind: negative
+    spec: [{ doc: SPEC.md, clause: "Force trigger (`CTRL` bit[2], `STATUS` bit[9], REA-P2.28)" }]
+    desc: >-
+      A force (CTRL bit[2]) on a core that is not armed (after reset, or done)
+      or is already triggered SHALL be a no-op: it SHALL NOT set STATUS
+      armed, triggered, done or forced, and SHALL NOT change the trigger cell,
+      START_PTR or PRETRIG_VALID of the capture in progress or completed. A
+      later arm SHALL capture normally (the force is not held pending).
+  - id: REA-REQ-974
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Force trigger (`CTRL` bit[2], `STATUS` bit[9], REA-P2.28)" }]
+    desc: >-
+      STATUS[9] (forced) SHALL read 1 after a capture whose trigger came from
+      CTRL bit[2] and 0 after a capture triggered by the pattern; arm and soft
+      reset SHALL clear it. A forced trigger SHALL NOT signal trigger_o (no
+      FSM pulse, no rr_rea_top toggle). VERSION
+      SHALL read 0x52454111 (v0.17), the tier that advertises the bit, since
+      FEATURES has no free bit.
