@@ -190,8 +190,6 @@ begin
     sel_s  <= '1' when (uireg_s = C_USER_OPCODE) else '0';
     arst_s <= not urstb_s;
 
-    trigger_pulse_o <= '0';
-
     u_top : rr_rea_top
         generic map (
             G_SAMPLE_W    => G_SAMPLE_W,
@@ -208,6 +206,8 @@ begin
             sample_rst_i  => sample_rst_i,
             probe_i       => probe_i,
             ext_trigger_i => ext_trigger_i,
+            trigger_i       => trigger_i,
+            trigger_pulse_o => trigger_pulse_o,
             source_o      => source_o,
             trigger_o     => trigger_o,
             arst_i        => arst_s,
@@ -262,7 +262,6 @@ end entity rr_rea_jtag_microchip;
 
 architecture rtl of rr_rea_jtag_microchip is
 begin
-    trigger_pulse_o <= '0';
     u_impl : entity work.rr_rea_microchip
         generic map (
             G_SAMPLE_W    => G_SAMPLE_W,
@@ -280,6 +279,8 @@ begin
             sample_rst_i  => sample_rst_i,
             probe_i       => probe_i,
             ext_trigger_i => ext_trigger_i,
+            trigger_i       => trigger_i,
+            trigger_pulse_o => trigger_pulse_o,
             source_o      => source_o,
             trigger_o     => trigger_o,
             jtag_tck_i    => jtag_tck_i,

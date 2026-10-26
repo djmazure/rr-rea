@@ -4,7 +4,7 @@
 Facts verified against `d7b7d3b` on 2026-10-20.
 
 <!-- rr:fdd:generated:begin -->
-<!-- rr:fdd:inputs sha256:01554e3f21d705f0 -->
+<!-- rr:fdd:inputs sha256:defdd26cf0236f10 -->
 <!-- rr:fdd:projection v3 -->
 > Machine-owned block — scaffolded by `rr fdd init`, refreshed by
 > `rr fdd generate`. Do not edit inside the markers;
@@ -15,7 +15,7 @@ Facts verified against `d7b7d3b` on 2026-10-20.
 
 ## Canonical References
 
-- **Requirements** — `requirements.yml`: REA-REQ-200 (behavioral), REA-REQ-201 (behavioral), REA-REQ-202 (behavioral), REA-REQ-001 (behavioral), REA-REQ-002 (behavioral), REA-REQ-003 (behavioral), REA-REQ-010 (behavioral), REA-REQ-011 (behavioral), … (+118 more — see the Requirements table below)
+- **Requirements** — `requirements.yml`: REA-REQ-200 (behavioral), REA-REQ-201 (behavioral), REA-REQ-202 (behavioral), REA-REQ-001 (behavioral), REA-REQ-002 (behavioral), REA-REQ-003 (behavioral), REA-REQ-010 (behavioral), REA-REQ-011 (behavioral), … (+120 more — see the Requirements table below)
 - **Interfaces** — `requirements.yml` port_contract:
   - none declared
   - _contract_: declared here from the contract — not proof the HDL matches; verify with `rr sim contract-check`
@@ -153,6 +153,8 @@ Facts verified against `d7b7d3b` on 2026-10-20.
 | REA-REQ-972 | behavioral | A CTRL (0x04) write with bit[2] set to an ARMED, untriggered core SHALL trigger it in the sample cycle the crossed pulse reaches the capture FSM, whatever the trigger pattern: STATUS[1] SHALL read 1 and, after POSTTRIG more stored samples, STATUS[2] done. The window read from START_PTR SHALL be PRETRIG contiguous samples, the trigger cell (the sample present when the force landed), then POSTTRIG samples. PRETRIG_VALID SHALL equal min(samples stored since the arm before the trigger cell, PRETRIG) in every mode, also when the force lands fewer than PRETRIG samples after the arm: it SHALL NOT subtract the comparator pipeline depth, which an unpipelined trigger never passed through. |
 | REA-REQ-973 | negative | A force (CTRL bit[2]) on a core that is not armed (after reset, or done) or is already triggered SHALL be a no-op: it SHALL NOT set STATUS armed, triggered, done or forced, and SHALL NOT change the trigger cell, START_PTR or PRETRIG_VALID of the capture in progress or completed. A later arm SHALL capture normally (the force is not held pending). |
 | REA-REQ-974 | behavioral | STATUS[9] (forced) SHALL read 1 after a capture whose trigger came from CTRL bit[2] and 0 after a capture triggered by the pattern; arm and soft reset SHALL clear it. A forced trigger SHALL NOT signal trigger_o (no FSM pulse, no rr_rea_top toggle). VERSION SHALL read 0x52454111 (v0.17), the tier that advertises the bit, since FEATURES has no free bit. |
+| REA-REQ-975 | behavioral | rr_rea_top SHALL have an input trigger_i (default '0', a 1-cycle pulse synchronous to sample_clk_i) wired to the capture FSM's trigger_i, and every vendor wrapper (rr_rea_xilinx7, rr_rea_intel, rr_rea_microchip / rr_rea_jtag_microchip) SHALL expose trigger_i and pass it to rr_rea_top's trigger_i unchanged. With two rr_rea_top cores on unrelated sample clocks coupled through rr_rea_trig_xbar (A.trigger_o -> toggle_a_i, pulse_b_o -> B.trigger_i, and the reverse), core B armed on a pattern its probe never presents and core A armed on one it does: when core A fires, rr_rea_trig_xbar SHALL pulse B's trigger_i exactly once, core B SHALL trigger and complete (STATUS triggered\|done, not forced), and B's trigger cell SHALL be B's own sample no more than 4 B samples after the one present when A's trigger_o flipped, with a contiguous window around it. Core B's trigger_o SHALL NOT flip, and nothing SHALL reach core A's trigger_i (REA-REQ-401). |
+| REA-REQ-976 | behavioral | rr_rea_top SHALL have an output trigger_pulse_o, in the sample_clk_i domain, that is '1' for exactly one cycle per local fire (the cycle before trigger_o flips) and '0' otherwise; a capture triggered by trigger_i SHALL NOT pulse it. trigger_o SHALL stay the toggle that rr_rea_trig_xbar consumes. Every vendor wrapper SHALL expose trigger_pulse_o driven by rr_rea_top's trigger_pulse_o. |
 
 ## Register Map
 
@@ -230,12 +232,12 @@ none declared
 
 ### Trigger and window
 
-- Trigger sources: the value/mask comparator (`TRIG_VALUE`, `TRIG_MASK`), the comparator array of `G_TRIG_CONDS` slots (`COND_*`), the external input `ext_trigger_i`, and, when `G_TRIG_STAGES > 0`, the sequencer window at `SEQ_BASE`. `TRIG_MODE` selects and combines them.
+- Trigger sources: the value/mask comparator (`TRIG_VALUE`, `TRIG_MASK`), the comparator array of `G_TRIG_CONDS` slots (`COND_*`), the external input `ext_trigger_i`, and, when `G_TRIG_STAGES > 0`, the sequencer window at `SEQ_BASE`. `TRIG_MODE` selects and combines them. Two more inputs trigger an armed core with no `TRIG_MODE` bit: the cross-core `trigger_i` pulse and the `CTRL[2]` force.
 - The trigger pipeline depth is `TRIG_LATENCY` (0xF4) = `ceil(G_SAMPLE_W/8) + ceil(log2(G_TRIG_CONDS))` sample cycles (`rea_trig_latency` in `rtl/rr_rea_pkg.vhd`, used as `C_PIPE_STAGES` in the capture FSM). The matching write pointer travels with each result, so the trigger cell is the sample that matched.
 - Window: `PRETRIG` stored cells, the trigger cell, then `POSTTRIG` stored cells. `CAPTURE_LEN` = `PRETRIG + POSTTRIG + 1`. `START_PTR` is the oldest cell after `done`.
 - On arm, `STATUS.overflow` is set when `PRETRIG + max(POSTTRIG, TRIG_LATENCY) >= G_DEPTH`.
 - `PRETRIG_VALID` (0xF0) counts the pre-trigger cells stored after the arm, capped at `PRETRIG`.
-- `trigger_o` is a level that toggles once per trigger event (`trigger_sticky_r` in `rtl/rr_rea_top.vhd`). `rr_rea_trig_xbar` takes this toggle from one core and returns a one-cycle pulse in the other core's clock domain.
+- `trigger_o` is a level that toggles once per local fire (`trigger_sticky_r` in `rtl/rr_rea_top.vhd`), and `trigger_pulse_o` is the same fire as a one-cycle pulse. A `trigger_i` or force fire signals neither. `rr_rea_trig_xbar` takes the toggle from one core and returns a one-cycle pulse on the other core's `trigger_i`, in that core's clock domain (`SPEC.md` "Cross-core trigger", REA-P2.29).
 
 ### Readback
 
@@ -262,7 +264,8 @@ graph LR
     FSM -->|"port A write"| DPS["rr_rea_dpram sample plane (u_dpram)"]
     FSM -->|"port A write"| DPT["rr_rea_dpram timestamp plane (G_TIMESTAMP_W > 0)"]
     TRUST["rr_rea_trust_core (u_trust_core)"] -->|"port A read, CRC sweep"| DPS
-    FSM --> TRIG["trigger_o (toggle)"]
+    XIN["trigger_i (xbar pulse)"] --> FSM
+    FSM --> TRIG["trigger_o (toggle), trigger_pulse_o"]
     SRCS["source_o [G_NUM_SOURCE]"]
   end
   subgraph register clock: tck_i or reg_clk_i
@@ -312,7 +315,9 @@ The trust core, fill FSM and capture FSM are separate entities so their control 
 | `probe_i` | in | `G_SAMPLE_W` | sample | Probed signals, LSB first |
 | `source_o` | out | `G_NUM_SOURCE` | sample | `SOURCE` register bits into the design; reset value 0 |
 | `ext_trigger_i` | in | 1 | async | External trigger, synchronized inside; default `'0'` |
-| `trigger_o` | out | 1 | sample | Toggles once per trigger |
+| `trigger_i` | in | 1 | sample | Cross-core trigger, a one-cycle pulse (`rr_rea_trig_xbar`); not synchronized inside; default `'0'` |
+| `trigger_o` | out | 1 | sample | Toggles once per local fire |
+| `trigger_pulse_o` | out | 1 | sample | One-cycle pulse per local fire |
 | `arst_i` | in | 1 | async | TAP-domain reset, active high (`"jtag"` only) |
 | `tck_i`, `tdi_i`, `capture_i`, `shift_en_i`, `update_i`, `sel_i` | in | 1 | TCK | TAP signals from the vendor wrapper (`"jtag"` only) |
 | `tdo_o` | out | 1 | TCK | TAP data out; `'0'` under `"external"` |
@@ -394,6 +399,7 @@ Requirement-to-test mapping: each `REA-REQ-N` is tagged with `@requires` in a te
 | Sequencer | `test_rea_capture_fsm_seq.py`, `test_rea_capture_fsm_seq_derived.py`, `test_rea_capture_fsm_seq_wide.py`, `test_rea_sequencer_top_p3_7.py`, `test_rea_seq_elab_guard_p3_7.py` |
 | Window, decimation, pre-trigger | `test_rea_armed_window_trigger_t2_220.py`, `test_rea_armed_window_trigger_demo_geometry_t2_220.py`, `test_rea_decim_window_t2_4.py`, `test_rea_window_equals_depth_t2_6.py`, `test_rea_pretrig_valid_t1_16.py`, `test_rea_pretrig_valid_sat_t2_5.py` |
 | Force trigger | `test_rea_capture_fsm_force_p2_28.py`, `test_rea_force_trigger_top_p2_28.py` |
+| Cross-core trigger | `test_rea_cross_trigger_top_p2_29.py`, `test_rea_wrapper_cross_trigger_microchip_p2_29.py` (and the REA-P2.29 cases in the xilinx7 / intel wrapper files) |
 | Storage qualification | `test_rea_storage_qual_p2_7.py`, `test_rea_storage_qual_top_p2_7.py`, `test_rea_regbank_qual_p2_7.py`, `test_rea_qual_elab_guard_p2_7.py` |
 | Register bank | `test_rea_regbank.py`, `test_rea_regbank_array.py`, `test_rea_regbank_wide.py`, `test_rea_regbank_wide704.py`, `test_rea_regbank_cdc_source_p2_10.py`, `test_rea_build_id_p3_1203.py`, `test_rea_ceiling_guard_p2895.py` |
 | Top level | `test_rea_top.py`, `test_rea_top_input_pipe.py`, `test_rea_top_wide_readback.py`, `test_rea_top_cdc_source_p2_10.py`, `test_rea_timestamp_plane.py`, `test_rea_source.py` |

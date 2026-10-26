@@ -538,6 +538,61 @@ come through the comparator. A capture triggered fewer than `PRETRIG +
 TRIG_LATENCY` samples after the arm under-reported its pre-trigger cells by up
 to `TRIG_LATENCY`, and the host trimmed real samples.
 
+### Cross-core trigger (`trigger_i`, `trigger_o`, `trigger_pulse_o`, REA-P2.29)
+
+One trigger event freezes several REA cores in the same capture, each on its
+own sample clock. Every core (`rr_rea_top` and every vendor wrapper) has
+three trigger ports, all in its `sample_clk_i` domain:
+
+| Port | Dir | What it is |
+|---|---|---|
+| `trigger_i` | in, default `'0'` | 1-cycle pulse, synchronous to `sample_clk_i`. An armed, untriggered core triggers on the sample stored in that cycle, whatever its trigger pattern. No `TRIG_MODE` bit enables it. Idle, triggered or done: ignored (REA-REQ-400, REA-REQ-975) |
+| `trigger_o` | out | Toggle: flips once per **local** fire (the core's own pattern, after `ext_and`). The level `rr_rea_trig_xbar` expects |
+| `trigger_pulse_o` | out | The same local fire as a pulse, high for exactly one `sample_clk_i` cycle, the cycle before `trigger_o` flips (REA-REQ-976) |
+
+A fire that came from `trigger_i` or from a `CTRL[2]` force is not local: it
+does not flip `trigger_o` and does not pulse `trigger_pulse_o`, so two coupled
+cores cannot ping-pong (REA-REQ-401, REA-REQ-974). `STATUS[9]` stays 0 for a
+`trigger_i` fire, which is not a force.
+
+**Two cores on different clocks.** Use `rr_rea_trig_xbar`, which crosses each
+toggle with `rr_rea_pulse_xfer` into the other core's clock:
+
+```vhdl
+u_xbar : entity rr_rea.rr_rea_trig_xbar
+    port map (clk_a_i => clk_a, rst_a_i => rst_a, toggle_a_i => trig_a,  -- u_a.trigger_o
+              pulse_a_o => xin_a,                                         -- u_a.trigger_i
+              clk_b_i => clk_b, rst_b_i => rst_b, toggle_b_i => trig_b,  -- u_b.trigger_o
+              pulse_b_o => xin_b);                                        -- u_b.trigger_i
+```
+
+Arm every coupled core before the event, then read each core's window. The
+trigger cell of a core triggered through the xbar is that core's own sample a
+few of its clock cycles after the firing core's `trigger_o` flipped (two sync
+flops and an edge flop in `rr_rea_pulse_xfer`). On the nvc test harness it is
+2 samples after the one present when `trigger_o` flipped; the test bounds it
+at 4. The window, `PRETRIG_VALID` and `POSTTRIG` work as for
+a force: no comparator pipeline lag. On a `G_QUAL_CONDS > 0` build `trigger_i`
+is staged one cycle with the other sample-side inputs (REA-P2.11).
+
+**Two cores on the same clock.** No crossing is needed: connect
+`u_a.trigger_pulse_o` to `u_b.trigger_i` (and back, if either may fire first).
+`trigger_pulse_o` is a flop and `trigger_i` does not reach it, so the loop
+has no combinational path.
+
+**What is not supported.** `trigger_i` is not synchronized inside the core.
+An asynchronous or off-chip trigger goes to `ext_trigger_i`. The xbar has two
+ports (N = 2). `rr ila` arms each core separately; it has no single command
+that arms several cores together.
+
+Before 1.14.0 `rr_rea_top` had no `trigger_i` port. The capture FSM's
+`trigger_i` was left at its default `'0'`, so `rr_rea_trig_xbar` reached no
+core, and `trigger_o` was only ever a toggle. Verified on nvc:
+`test_rea_cross_trigger_top_p2_29` (two `rr_rea_top` cores, 8 ns and 13 ns
+clocks, through the xbar), and the per-wrapper port checks in
+`test_rea_wrapper_generics_{xilinx7,intel}_p3_6` and
+`test_rea_wrapper_cross_trigger_microchip_p2_29`. Not yet seen on silicon.
+
 ### Write-side source (`SOURCE` 0x3C, RTL-P2.837)
 
 The read-side path (probes → capture) has a write-side counterpart: an
@@ -1250,7 +1305,7 @@ first-AW-beat trigger recipe and an instantiation template.
 |--------:|:--------|:--------|:--|
 | v0.2 | Host-side `REAClient` (capture protocol ownership) | RTL-P3.276 | **Shipped** |
 | v0.2 | Synthetic `sample_clk` anchor (host-side) | RTL-P3.272 v0.1 promise | **Shipped** |
-| v0.2 | Cross-domain trigger crossbar (`rr_rea_trig_xbar`) | RTL-P3.266 + (new) | **Shipped** |
+| v0.2 | Cross-domain trigger crossbar (`rr_rea_trig_xbar`) | RTL-P3.266 + (new) | **Shipped** as a block at v0.2; reachable only since ip 1.14.0, when `rr_rea_top` got `trigger_i` (REA-P2.29). See "Cross-core trigger" |
 | v0.2 | On-chip sample-clock tick channel (RTL companion to host anchor) | (new) | Parked |
 | v0.2 | Edge-detect trigger mode | RTL-P3.263 | **Shipped** as the rising/falling comparator ops (RTL-P3.644..646) |
 | v0.3 | Decimation | (new) | **Shipped** |
@@ -1278,6 +1333,11 @@ the user a visual anchor on the RouteWave canvas to see the
 sample cadence alongside the captured probes.
 
 ### v0.2 — Cross-domain trigger crossbar (rr_rea_trig_xbar)
+
+The design sketch below is the v0.2 plan, kept for history. What is wired is
+in "Cross-core trigger" above: `trigger_o` is a toggle, not a pulse;
+`trigger_i` is a pulse already on the core's clock (the xbar does the
+crossing); there is no shared arm.
 
 When a design has multiple clock domains (e.g., 125 MHz Ethernet,
 250 MHz fabric, 100 MHz processor), the user often wants ONE event

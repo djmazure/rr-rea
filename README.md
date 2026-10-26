@@ -22,6 +22,11 @@ This repository is the public home of the `routertl/rea` package on
   still frame the window and `STATUS` bit[9] says the capture was forced.
   Forcing an idle, triggered or done core does nothing. See `SPEC.md` "Force
   trigger".
+- **Cross-core trigger** (ip 1.14.0, REA-P2.29): one core's trigger freezes
+  another core on another clock in the same capture. Wire A's `trigger_o`
+  (a toggle) through `rr_rea_trig_xbar` to B's `trigger_i` (a 1-cycle pulse on
+  B's clock), and the reverse. `trigger_pulse_o` is the same local fire as a
+  1-cycle pulse. On every vendor wrapper. See `SPEC.md` "Cross-core trigger".
 - **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
   when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
   over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses

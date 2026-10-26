@@ -38,7 +38,7 @@ the open gaps for each family. Read it before promising REA on a part.
 | Single comparator: `==` `!=` `<` `>` rising falling on one masked field, or an all-`==` AND | always | `rr ila capture --trigger 'state == 3'`, `'rising(irq)'` |
 | Mixed-op AND of up to `G_TRIG_CONDS` conditions | always | the host picks the array automatically; each condition value ≤ 32 bits |
 | External board-pin trigger (OR / AND) | `ext_trigger_i` | on every vendor wrapper since 1.8.0 (REA-P3.6) |
-| Cross-core trigger | `trigger_o` + `rr_rea_trig_xbar` | freeze several clock domains together |
+| Cross-core trigger | `trigger_i` / `trigger_o` / `trigger_pulse_o` + `rr_rea_trig_xbar`, since ip 1.14.0 | freeze two clock domains together: A.`trigger_o` (toggle) → xbar → B.`trigger_i` (1-cycle pulse on B's clock), and the reverse; on one clock, `trigger_pulse_o` → `trigger_i` directly. A `trigger_i` fire does not signal `trigger_o`. On every wrapper. Before 1.14.0 `rr_rea_top` had no `trigger_i`, so the xbar reached no core (REA-P2.29) |
 | Decimation | `DECIM` | `--decim N`: store 1 in N+1; windows count stored cells |
 | Storage qualification | `G_QUAL_CONDS` 1..15 **and** `G_TIMESTAMP_W > 0` | store only when EQ/NE/RISE/FALL slots hold (AND/OR); `--qualify 'EXPR'`, `--qualify-any`, or `storage_qualifier:` in the yml |
 | Timestamp plane | `G_TIMESTAMP_W` (default 32) | per-sample `sample_clk` count; exports of gapped captures are placed by it |
@@ -68,10 +68,12 @@ of this repo.
 and since 1.6.0 `rr_rea_jtag_microchip` (UJTAG, `G_CTRL_CHAIN` 1..4 = user
 opcode 0x55..0x58, or a raw opcode 16..127). Since 1.8.0 all three pass
 `G_TRIG_CONDS` (default 4) and `G_QUAL_CONDS` (default 0) to the core, and all
-three have `ext_trigger_i` (REA-P3.6). On PolarFire, instantiate it as
+three have `ext_trigger_i` (REA-P3.6). Since 1.14.0 all three have
+`trigger_i` and `trigger_pulse_o` (REA-P2.29). On PolarFire, instantiate it as
 `entity rr_rea.rr_rea_jtag_microchip`: a `component` in your `work` library
 does not bind to the package's `rr_rea` library under Libero.
-Connect `trigger_o`: with no observable output the hierarchy can be pruned.
+Connect `trigger_o` (or `trigger_pulse_o`): with no observable output the
+hierarchy can be pruned.
 
 **Integration rules.** Clock REA from the observed boundary's own clock, and
 reset it from a power-on reset the observed block cannot gate. On AMD the

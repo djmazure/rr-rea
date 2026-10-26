@@ -958,6 +958,8 @@ begin
             probe_i      => probe_sclk,
             arm_pulse_i     => arm_pulse_sclk,
             reset_pulse_i   => reset_pulse_sclk,
+            -- REA-P2.29: the cross-core trigger (rr_rea_trig_xbar pulse).
+            trigger_i       => trigger_i,
             force_i         => force_pulse_sclk,
             pretrig_len_i  => pretrig_sclk,
             posttrig_len_i => posttrig_sclk,
@@ -1060,7 +1062,7 @@ begin
     -- trigger_pulse_o brings it out as is (REA-REQ-976); trigger_o is a
     -- sticky flag flipped on each fire, the toggle rr_rea_trig_xbar crosses
     -- (and slow enough for an LED to show).
-    trigger_pulse_o <= '0';
+    trigger_pulse_o <= trigger_out_sclk;
     trigger_o <= trigger_sticky_r;
     process (sample_clk_i, sample_rst_sync)
     begin

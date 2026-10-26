@@ -126,7 +126,6 @@ begin
     tap_tms <= tms_i;
     tap_tdi <= tdi_i;
     tap_tdo <= tdo_o;
-    trigger_pulse_o <= '0';
 
     u_top : entity work.rr_rea_top
         generic map (
@@ -145,6 +144,8 @@ begin
             probe_i    => probe_i,
             ext_trigger_i => ext_trigger_i,
             source_o  => source_o,
+            trigger_i       => trigger_i,
+            trigger_pulse_o => trigger_pulse_o,
             trigger_o => trigger_o,
             arst_i        => arst_i,
             tck_i         => tck_i,

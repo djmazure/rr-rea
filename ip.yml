@@ -13,9 +13,18 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.13.0
+#   version: below        the PACKAGE version the registry pins   -> 1.14.0
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.14.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454111
+#
+# 1.14.0 (REA-P2.29) is a MINOR: the cross-core trigger is wired. rr_rea_top
+# and every vendor wrapper get trigger_i (a 1-cycle pulse on sample_clk_i,
+# default '0') into the capture FSM and trigger_pulse_o (the local fire as a
+# 1-cycle pulse). Before this rr_rea_top had no trigger_i, so the FSM's input
+# sat at '0' and rr_rea_trig_xbar could trigger no core, though the cross-core
+# trigger was advertised. trigger_o stays the toggle the xbar consumes. No
+# register-map or runtime-tier change (VERSION stays 0x52454111): the ports are
+# not host-visible. Existing instantiations elaborate unchanged.
 #
 # 1.13.0 (REA-P2.28) is a MINOR: CTRL bit[2] (C_CTRL_BIT_FORCE_TRIG) forces the
 # trigger of an ARMED core on the sample present when the command lands, the
@@ -275,7 +284,7 @@
 
 name: rea
 namespace: routertl
-version: 1.13.0
+version: 1.14.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
