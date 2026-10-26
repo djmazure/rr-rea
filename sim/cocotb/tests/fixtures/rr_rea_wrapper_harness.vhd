@@ -6,7 +6,8 @@
 -- Its ports carry rr_rea_top's TAP names, so the register-scan helpers of the
 -- rr_rea_top tests drive it unchanged; the scan then crosses the mock
 -- primitive and the wrapper, which is what proves a wrapper generic or port
--- actually reaches the core.
+-- actually reaches the core. The core instance is u_dut.u_top in the
+-- g_<vendor> generate, for the tests that check a port at that boundary.
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -31,6 +32,9 @@ entity rr_rea_wrapper_harness is
         sample_rst_i  : in  std_logic;
         probe_i       : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
         ext_trigger_i : in  std_logic;
+        -- REA-P2.29: cross-core trigger ports of the wrapper under test.
+        trigger_i       : in  std_logic := '0';
+        trigger_pulse_o : out std_logic;
         trigger_o     : out std_logic;
         source_o      : out std_logic_vector(0 downto 0);
         -- mocked TAP, named as on rr_rea_top
@@ -70,6 +74,8 @@ begin
                 sample_rst_i  => sample_rst_i,
                 probe_i       => probe_i,
                 ext_trigger_i => ext_trigger_i,
+                trigger_i       => trigger_i,
+                trigger_pulse_o => trigger_pulse_o,
                 source_o      => source_o,
                 trigger_o     => trigger_o
             );
@@ -91,6 +97,8 @@ begin
                 sample_rst_i  => sample_rst_i,
                 probe_i       => probe_i,
                 ext_trigger_i => ext_trigger_i,
+                trigger_i       => trigger_i,
+                trigger_pulse_o => trigger_pulse_o,
                 source_o      => source_o,
                 trigger_o     => trigger_o
             );

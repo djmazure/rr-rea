@@ -17,6 +17,7 @@ from pathlib import Path
 
 import cocotb
 from cocotb.clock import Clock
+from cocotb.handle import Force, Release
 from cocotb.triggers import ClockCycles, NextTimeStep, ReadOnly, RisingEdge
 
 RTL_DIR = Path(__file__).resolve().parents[3] / "rtl"
@@ -159,3 +160,54 @@ async def ext_trigger_fires_only_on_the_pin(dut):
     assert status & STATUS_TRIGGERED, (
         f"STATUS=0x{status:08X}: the external pin went high and the core did "
         "not trigger — ext_trigger_i does not reach rr_rea_top")
+
+
+# ── REA-P2.29: cross-core trigger ports, checked at the wrapper/core boundary ─
+#
+# Both checks look at the rr_rea_top instance inside the wrapper (`core`), so
+# they prove the WRAPPER passes the port and do not depend on what rr_rea_top
+# does with it; test_rea_cross_trigger_top_p2_29 proves that end to end.
+
+
+def harness_core(dut, vendor: str):
+    """The rr_rea_top instance inside rr_rea_wrapper_harness's wrapper."""
+    return getattr(dut, f"g_{vendor}").u_dut.u_top
+
+
+def _bit(handle) -> int | None:
+    return int(handle.value) if handle.value.is_resolvable else None
+
+
+async def trigger_i_reaches_core(dut, core, clk, who: str):
+    """The wrapper's trigger_i SHALL arrive on rr_rea_top's trigger_i
+    (REA-REQ-975). Both levels are checked, so a constant tie-off fails."""
+    req = "REA-REQ-975"
+    for level in (1, 0, 1, 0):
+        dut.trigger_i.value = level
+        await RisingEdge(clk)
+        await ReadOnly()
+        seen = _bit(core.trigger_i)
+        assert seen == level, (
+            f"{req}: {who} trigger_i = {level} but rr_rea_top's trigger_i "
+            f"reads {seen}: the wrapper does not pass trigger_i to the core")
+        await RisingEdge(clk)
+
+
+async def trigger_pulse_o_reaches_pin(dut, core, clk, who: str):
+    """rr_rea_top's trigger_pulse_o SHALL arrive on the wrapper's
+    trigger_pulse_o (REA-REQ-976). The core's port is forced to each level in
+    turn; a wrapper that ties its output off reads the tie-off instead."""
+    req = "REA-REQ-976"
+    try:
+        for level in (1, 0, 1, 0):
+            core.trigger_pulse_o.value = Force(level)
+            await RisingEdge(clk)
+            await ReadOnly()
+            seen = _bit(dut.trigger_pulse_o)
+            assert seen == level, (
+                f"{req}: rr_rea_top's trigger_pulse_o = {level} but {who} "
+                f"trigger_pulse_o reads {seen}: the wrapper does not bring "
+                "the core's trigger_pulse_o out")
+            await RisingEdge(clk)
+    finally:
+        core.trigger_pulse_o.value = Release()

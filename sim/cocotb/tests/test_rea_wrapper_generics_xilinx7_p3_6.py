@@ -1,7 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Daniel J. Mazure
 # SPDX-License-Identifier: MIT
 """REA-P3.6: rr_rea_xilinx7 passes G_TRIG_CONDS, G_QUAL_CONDS and (REA-P3.7) G_TRIG_STAGES to rr_rea_top,
-and its ext_trigger_i reaches the core. Body in rea_wrapper_generics.py."""
+and its ext_trigger_i reaches the core; (REA-P2.29) its trigger_i and
+trigger_pulse_o reach the core. Body in rea_wrapper_generics.py."""
 from __future__ import annotations
 
 import sys as _sys
@@ -32,6 +33,24 @@ async def test_wrapper_passes_trig_and_qual_conds(dut):
 async def test_wrapper_ext_trigger_reaches_core(dut):
     await rwg.start(dut)
     await rwg.ext_trigger_fires_only_on_the_pin(dut)
+
+
+@cocotb.test()
+@requires("REA-REQ-975")
+async def test_wrapper_trigger_i_reaches_core(dut):
+    """REA-P2.29: the wrapper's trigger_i reaches rr_rea_top's trigger_i."""
+    await rwg.start(dut)
+    await rwg.trigger_i_reaches_core(
+        dut, rwg.harness_core(dut, VENDOR), dut.sample_clk_i, "rr_rea_xilinx7")
+
+
+@cocotb.test()
+@requires("REA-REQ-976")
+async def test_wrapper_trigger_pulse_o_reaches_pin(dut):
+    """REA-P2.29: rr_rea_top's trigger_pulse_o reaches the wrapper's."""
+    await rwg.start(dut)
+    await rwg.trigger_pulse_o_reaches_pin(
+        dut, rwg.harness_core(dut, VENDOR), dut.sample_clk_i, "rr_rea_xilinx7")
 
 
 def main() -> None:

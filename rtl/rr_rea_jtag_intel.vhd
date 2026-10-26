@@ -65,6 +65,13 @@ entity rr_rea_intel is
         -- faster period), never an async clock group — SPEC.md
         -- "Clock-domain crossings".
         source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
+        -- REA-P2.29 (REA-REQ-975/976): cross-core trigger. trigger_i is a
+        -- 1-cycle pulse synchronous to sample_clk_i (rr_rea_trig_xbar's
+        -- pulse_*_o on this core's clock); it triggers an armed core and
+        -- does not signal trigger_o. trigger_pulse_o is the local fire as a
+        -- 1-cycle pulse; trigger_o stays the toggle the xbar consumes.
+        trigger_i       : in  std_logic := '0';
+        trigger_pulse_o : out std_logic;
         trigger_o : out std_logic
     );
 end entity;
@@ -130,6 +137,8 @@ begin
             ir_in             => ir_in_unused,
             ir_out            => "0"
         );
+
+    trigger_pulse_o <= '0';
 
     u_top : entity work.rr_rea_top
         generic map (

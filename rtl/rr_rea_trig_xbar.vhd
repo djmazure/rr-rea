@@ -21,9 +21,17 @@
 --
 -- The CDC primitive (rr_rea_pulse_xfer) takes a TOGGLE LEVEL on
 -- the source clock and emits a 1-cycle pulse on the destination
--- clock. Each REA instance already maintains a `trigger_sticky_r`
--- toggle in rr_rea_top (it flips on every local trigger fire),
--- so we wire that directly to the xbar inputs — no glue needed.
+-- clock. rr_rea_top's `trigger_o` IS that toggle (`trigger_sticky_r`,
+-- it flips on every local trigger fire), and its `trigger_i` takes the
+-- 1-cycle pulse on its own sample clock (REA-P2.29, REA-REQ-975), so
+-- the wiring is direct, no glue:
+--
+--   A.trigger_o -> toggle_a_i    pulse_b_o -> B.trigger_i   (clk_b_i = B's sample clock)
+--   B.trigger_o -> toggle_b_i    pulse_a_o -> A.trigger_i   (clk_a_i = A's sample clock)
+--
+-- Before REA-P2.29 rr_rea_top had no trigger_i port, so pulse_*_o
+-- reached no core. A trigger_i fire does not signal trigger_o
+-- (REA-REQ-401), so the loop through the xbar cannot ping-pong.
 --
 -- The destination side gates on its own reset; the source side
 -- doesn't need a reset because it just samples the toggle.
@@ -36,8 +44,8 @@ entity rr_rea_trig_xbar is
         -- Instance A
         clk_a_i         : in  std_logic;
         rst_a_i         : in  std_logic;
-        toggle_a_i   : in  std_logic;   -- from REA A's trigger_sticky_r
-        pulse_a_o   : out std_logic;   -- to   REA A's trigger_i
+        toggle_a_i   : in  std_logic;   -- from REA A's trigger_o (toggle)
+        pulse_a_o   : out std_logic;   -- to   REA A's trigger_i (clk_a_i pulse)
 
         -- Instance B
         clk_b_i         : in  std_logic;

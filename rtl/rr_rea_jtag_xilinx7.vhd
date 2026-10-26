@@ -51,6 +51,13 @@ entity rr_rea_xilinx7 is
         -- bounded with set_max_delay -datapath_only (half the faster period),
         -- never an async clock group — SPEC.md "Clock-domain crossings".
         source_o  : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
+        -- REA-P2.29 (REA-REQ-975/976): cross-core trigger. trigger_i is a
+        -- 1-cycle pulse synchronous to sample_clk_i (rr_rea_trig_xbar's
+        -- pulse_*_o on this core's clock); it triggers an armed core and
+        -- does not signal trigger_o. trigger_pulse_o is the local fire as a
+        -- 1-cycle pulse; trigger_o stays the toggle the xbar consumes.
+        trigger_i       : in  std_logic := '0';
+        trigger_pulse_o : out std_logic;
         trigger_o : out std_logic;
         -- REA-P2.22: optional TAP mirror outputs, for a consumer that needs
         -- the raw TAP signals of this BSCANE2 (e.g. to observe the live
@@ -119,6 +126,7 @@ begin
     tap_tms <= tms_i;
     tap_tdi <= tdi_i;
     tap_tdo <= tdo_o;
+    trigger_pulse_o <= '0';
 
     u_top : entity work.rr_rea_top
         generic map (

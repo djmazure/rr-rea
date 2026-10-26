@@ -62,6 +62,13 @@ entity rr_rea_microchip is
         sample_rst_i  : in  std_logic;
         probe_i       : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
         ext_trigger_i : in  std_logic := '0';
+        -- REA-P2.29 (REA-REQ-975/976): cross-core trigger. trigger_i is a
+        -- 1-cycle pulse synchronous to sample_clk_i (rr_rea_trig_xbar's
+        -- pulse_*_o on this core's clock); it triggers an armed core and
+        -- does not signal trigger_o. trigger_pulse_o is the local fire as a
+        -- 1-cycle pulse; trigger_o stays the toggle the xbar consumes.
+        trigger_i       : in  std_logic := '0';
+        trigger_pulse_o : out std_logic;
         source_o      : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
         trigger_o     : out std_logic;
         -- JTAG boundary ports for simulation BFM or optional external routing
@@ -109,6 +116,8 @@ architecture rtl of rr_rea_microchip is
             sample_rst_i  : in  std_logic;
             probe_i       : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
             ext_trigger_i : in  std_logic := '0';
+            trigger_i       : in  std_logic := '0';
+            trigger_pulse_o : out std_logic;
             source_o      : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
             trigger_o     : out std_logic;
             arst_i        : in  std_logic;
@@ -181,6 +190,8 @@ begin
     sel_s  <= '1' when (uireg_s = C_USER_OPCODE) else '0';
     arst_s <= not urstb_s;
 
+    trigger_pulse_o <= '0';
+
     u_top : rr_rea_top
         generic map (
             G_SAMPLE_W    => G_SAMPLE_W,
@@ -232,6 +243,13 @@ entity rr_rea_jtag_microchip is
         sample_rst_i  : in  std_logic;
         probe_i       : in  std_logic_vector(G_SAMPLE_W - 1 downto 0);
         ext_trigger_i : in  std_logic := '0';
+        -- REA-P2.29 (REA-REQ-975/976): cross-core trigger. trigger_i is a
+        -- 1-cycle pulse synchronous to sample_clk_i (rr_rea_trig_xbar's
+        -- pulse_*_o on this core's clock); it triggers an armed core and
+        -- does not signal trigger_o. trigger_pulse_o is the local fire as a
+        -- 1-cycle pulse; trigger_o stays the toggle the xbar consumes.
+        trigger_i       : in  std_logic := '0';
+        trigger_pulse_o : out std_logic;
         source_o      : out std_logic_vector(G_NUM_SOURCE - 1 downto 0);
         trigger_o     : out std_logic;
         jtag_tck_i    : in  std_logic := '0';
@@ -244,6 +262,7 @@ end entity rr_rea_jtag_microchip;
 
 architecture rtl of rr_rea_jtag_microchip is
 begin
+    trigger_pulse_o <= '0';
     u_impl : entity work.rr_rea_microchip
         generic map (
             G_SAMPLE_W    => G_SAMPLE_W,

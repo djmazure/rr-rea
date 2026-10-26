@@ -16,7 +16,8 @@
 --   capture_fsm    ──────────────►       dpram (port A: write)
 --   dpram (port B: read) ────────►       JTAG iface (when reg_addr_o in DPRAM window)
 --
--- See SPEC.md and requirements.yml REA-REQ-300 for the contract.
+-- See SPEC.md and requirements.yml REA-REQ-300 for the contract, and
+-- REA-REQ-975/976 for the cross-core trigger ports (REA-P2.29).
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -106,12 +107,32 @@ entity rr_rea_top is
         -- unaffected (internal-only trigger).
         ext_trigger_i : in std_logic := '0';
 
-        -- ── Local trigger pulse (1-cycle on sample_clk_i) ─────────
-        -- Exposed so the design can route it to an LED / external
-        -- pin / cross-domain trigger crossbar (v0.2). Doubles as a
-        -- "Vivado optimizer anchor" — without an observable output
-        -- the whole REA hierarchy gets pruned in synthesis.
+        -- ── Cross-core trigger input (REA-P2.29, REA-REQ-400/975) ─
+        -- A 1-cycle pulse SYNCHRONOUS to sample_clk_i: the pulse_*_o of
+        -- rr_rea_trig_xbar that is clocked by this core's sample clock.
+        -- While the core is armed and untriggered, a pulse triggers it on the
+        -- sample stored in that cycle, whatever the trigger pattern, with no
+        -- TRIG_MODE enable. It does not signal trigger_o / trigger_pulse_o, so
+        -- two coupled cores cannot ping-pong (REA-REQ-401). It is not
+        -- synchronized here: route an asynchronous signal to ext_trigger_i.
+        -- Defaults '0'. Before 1.14.0 this port did not exist and the FSM's
+        -- trigger_i was left at its default, so rr_rea_trig_xbar could not
+        -- trigger any core.
+        trigger_i : in std_logic := '0';
+
+        -- ── Local trigger outputs (sample_clk_i domain) ───────────
+        -- trigger_o is a TOGGLE: it flips once per local fire (a pattern
+        -- match; not trigger_i and not a CTRL[2] force). It is the level
+        -- rr_rea_trig_xbar's toggle_*_i expects, and the pulse_xfer CDC
+        -- recovers one pulse per flip in the other clock domain. It doubles as
+        -- the optimizer anchor: without an observable output the whole REA
+        -- hierarchy gets pruned in synthesis.
         trigger_o : out std_logic;
+        -- REA-P2.29 (REA-REQ-976): the same local fire as a pulse, high for
+        -- exactly one sample_clk_i cycle per fire, for logic in the same
+        -- clock domain (another core's trigger_i on the SAME clock, a
+        -- counter, a scope pin stretcher). Registered in the capture FSM.
+        trigger_pulse_o : out std_logic;
 
         -- ── JTAG TAP (jtag_clk_i domain) — driven by external wrapper
         --    in synth, driven by testbench in sim ─────────────────
@@ -1034,9 +1055,12 @@ begin
     pretrig_valid_reg <= std_logic_vector(
         resize(unsigned(pretrig_valid_jclk), 32));
 
-    -- ── trigger_o: pulse the external port + maintain a sticky
-    --    flag flipped on each trigger so an LED can dance and the
-    --    Vivado optimizer can't prune the hierarchy. ─────────────
+    -- ── trigger_o / trigger_pulse_o ──────────────────────────────
+    -- trigger_out_sclk is the FSM's registered 1-cycle local-fire pulse.
+    -- trigger_pulse_o brings it out as is (REA-REQ-976); trigger_o is a
+    -- sticky flag flipped on each fire, the toggle rr_rea_trig_xbar crosses
+    -- (and slow enough for an LED to show).
+    trigger_pulse_o <= '0';
     trigger_o <= trigger_sticky_r;
     process (sample_clk_i, sample_rst_sync)
     begin

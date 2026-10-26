@@ -1546,3 +1546,33 @@ functional_contract:
       FSM pulse, no rr_rea_top toggle). VERSION
       SHALL read 0x52454111 (v0.17), the tier that advertises the bit, since
       FEATURES has no free bit.
+
+  # ── REA-P2.29 cross-core trigger ports (trigger_i, trigger_pulse_o) ───
+  - id: REA-REQ-975
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Cross-core trigger (`trigger_i`, `trigger_o`, `trigger_pulse_o`, REA-P2.29)" }]
+    desc: >-
+      rr_rea_top SHALL have an input trigger_i (default '0', a 1-cycle pulse
+      synchronous to sample_clk_i) wired to the capture FSM's trigger_i, and
+      every vendor wrapper (rr_rea_xilinx7, rr_rea_intel, rr_rea_microchip /
+      rr_rea_jtag_microchip) SHALL expose trigger_i and pass it to
+      rr_rea_top's trigger_i unchanged. With two rr_rea_top cores on unrelated
+      sample clocks coupled through rr_rea_trig_xbar (A.trigger_o ->
+      toggle_a_i, pulse_b_o -> B.trigger_i, and the reverse), core B armed on
+      a pattern its probe never presents and core A armed on one it does:
+      when core A fires, rr_rea_trig_xbar SHALL pulse B's trigger_i exactly
+      once, core B SHALL trigger and complete (STATUS triggered|done, not
+      forced), and B's trigger cell SHALL be B's own sample no more than 4 B
+      samples after the one present when A's trigger_o flipped, with a
+      contiguous window around it. Core B's trigger_o SHALL NOT flip, and
+      nothing SHALL reach core A's trigger_i (REA-REQ-401).
+  - id: REA-REQ-976
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Cross-core trigger (`trigger_i`, `trigger_o`, `trigger_pulse_o`, REA-P2.29)" }]
+    desc: >-
+      rr_rea_top SHALL have an output trigger_pulse_o, in the sample_clk_i
+      domain, that is '1' for exactly one cycle per local fire (the cycle
+      before trigger_o flips) and '0' otherwise; a capture triggered by
+      trigger_i SHALL NOT pulse it. trigger_o SHALL stay the toggle that
+      rr_rea_trig_xbar consumes. Every vendor wrapper SHALL expose
+      trigger_pulse_o driven by rr_rea_top's trigger_pulse_o.
