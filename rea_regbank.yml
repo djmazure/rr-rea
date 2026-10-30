@@ -11,6 +11,9 @@ artifacts:
     prefix: C_REGBANK_ADDR_
     width: 16
   python_host:
+    # REA-P3.17: owned by the RouteRTL SDK, the home of the REA host client.
+    # This repository ships no host Python, so the path never exists here; check
+    # this repo's artefacts with `rr regbank diff --only vhdl_template`.
     path: sdk/cli/rea/registers.py
     prefix: ADDR_
 registers:

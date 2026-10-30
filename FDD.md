@@ -4,7 +4,7 @@
 Facts verified against `d7b7d3b` on 2026-10-20.
 
 <!-- rr:fdd:generated:begin -->
-<!-- rr:fdd:inputs sha256:4b303619832d97e8 -->
+<!-- rr:fdd:inputs sha256:0b72bcb4b5a624e5 -->
 <!-- rr:fdd:projection v3 -->
 > Machine-owned block — scaffolded by `rr fdd init`, refreshed by
 > `rr fdd generate`. Do not edit inside the markers;
@@ -416,11 +416,13 @@ Requirement-to-test mapping: each `REA-REQ-N` is tagged with `@requires` in a te
 | Budgets | `tests/test_resource_budget_points_t3_1.py`, `tests/test_fmax_floor_points_t3_3.py` |
 | Identity and package | `tests/test_version_magic_single_source.py`, `tests/test_features_bitmap_p1_1.py`, `tests/test_package_source_set_p3_14.py` |
 | Register and readback | `tests/test_rea_decim_p2_23.py`, `tests/test_axi_subword_p2_6.py`, `tests/test_axis_window_gating_p2_5.py`, `tests/test_window_blob_layout_p2_4.py`, `tests/test_xilinx7_tap_mirror_p2_22.py` |
-| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py`, `tests/test_regbank_valid_rea_t2_7.py` |
+| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py`, `tests/test_regbank_valid_rea_t2_7.py`, `tests/test_regbank_artefacts_in_sync_rea_p3_17.py` |
 
 `tests/test_fdd_p2_25.py` runs `rr fdd check --strict --full`, checks that every repository path cited in this document exists, and checks the generics table against the `rr_rea_top` entity.
 
 `tests/test_regbank_valid_rea_t2_7.py` runs `rr regbank validate` on `rea_regbank.yml` and shows, with a mutant, that an unquoted flow-mapping description is rejected.
+
+`tests/test_regbank_artefacts_in_sync_rea_p3_17.py` runs `rr regbank diff --only vhdl_template`, the artefact this repository owns, and shows with two mutants that a hand-edited constant and an unregenerated register are reported as drift. The `python_host` artefact is owned by the RouteRTL SDK and is not checked here.
 
 ### Formal harnesses (`verif/`)
 
