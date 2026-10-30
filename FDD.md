@@ -4,7 +4,7 @@
 Facts verified against `d7b7d3b` on 2026-10-20.
 
 <!-- rr:fdd:generated:begin -->
-<!-- rr:fdd:inputs sha256:defdd26cf0236f10 -->
+<!-- rr:fdd:inputs sha256:4b303619832d97e8 -->
 <!-- rr:fdd:projection v3 -->
 > Machine-owned block — scaffolded by `rr fdd init`, refreshed by
 > `rr fdd generate`. Do not edit inside the markers;
@@ -176,7 +176,7 @@ Facts verified against `d7b7d3b` on 2026-10-20.
 | COND_CFG | 0x34 | RW | Comparator-array slot configuration |
 | COND_VAL | 0x38 | RW | Comparator-array slot value |
 | SOURCE | 0x3C | RW | DUT-facing source control bits |
-| SEQ_BASE | 0x40 | RW | Sequencer window base; stage K at +20*K (cfg |
+| SEQ_BASE | 0x40 | RW | Sequencer window base; stage K at +20*K (cfg, value, mask; value/mask paged by TRIG_WORD_SEL), K < G_TRIG_STAGES (REA-P3.7) |
 | CHAN_SEL | 0xA0 | RW | Capture channel selector |
 | NUM_CHAN | 0xA4 | RO | Synthesized channel count |
 | DECIM | 0xB0 | RW | Capture decimation ratio |
@@ -416,9 +416,11 @@ Requirement-to-test mapping: each `REA-REQ-N` is tagged with `@requires` in a te
 | Budgets | `tests/test_resource_budget_points_t3_1.py`, `tests/test_fmax_floor_points_t3_3.py` |
 | Identity and package | `tests/test_version_magic_single_source.py`, `tests/test_features_bitmap_p1_1.py`, `tests/test_package_source_set_p3_14.py` |
 | Register and readback | `tests/test_rea_decim_p2_23.py`, `tests/test_axi_subword_p2_6.py`, `tests/test_axis_window_gating_p2_5.py`, `tests/test_window_blob_layout_p2_4.py`, `tests/test_xilinx7_tap_mirror_p2_22.py` |
-| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py` |
+| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py`, `tests/test_regbank_valid_rea_t2_7.py` |
 
 `tests/test_fdd_p2_25.py` runs `rr fdd check --strict --full`, checks that every repository path cited in this document exists, and checks the generics table against the `rr_rea_top` entity.
+
+`tests/test_regbank_valid_rea_t2_7.py` runs `rr regbank validate` on `rea_regbank.yml` and shows, with a mutant, that an unquoted flow-mapping description is rejected.
 
 ### Formal harnesses (`verif/`)
 
