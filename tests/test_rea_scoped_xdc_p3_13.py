@@ -71,7 +71,7 @@ def _bound(sample_period: str) -> tuple[int, str]:
     return proc.returncode, (proc.stdout + proc.stderr).strip()
 
 
-pytestmark = pytest.mark.skipif(TCLSH is None, reason="tclsh not installed")
+pytestmark = pytest.mark.skipif(TCLSH is None, reason="REA-T3.5: tclsh not installed")
 
 
 def test_synthesis_pass_without_the_sample_clock_parses_cleanly():

@@ -55,7 +55,7 @@ def _elaborate(generics: dict) -> subprocess.CompletedProcess:
 _BASE = {"G_SAMPLE_W": 12, "G_DEPTH": 16}
 
 needs_nvc = pytest.mark.skipif(shutil.which("nvc") is None,
-                               reason="nvc not on PATH")
+                               reason="REA-T3.4: nvc not on PATH")
 
 
 @needs_nvc
