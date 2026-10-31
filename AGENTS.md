@@ -228,6 +228,18 @@ a stated reason in its landing message why it is not released yet.
 4. **Verify** the registry row: version X.Y.Z with commit_sha equal to the
    tag's commit (`git rev-parse vX.Y.Z^{}`).
 
+**A change to `rea_regbank.yml` also changes routertl (RTL-T3.282).** The host
+address table `sdk/cli/rea/registers.py` lives in routertl, generated from this
+map. routertl keeps a pinned copy of the map as test data
+(`sdk/cli/tests/fixtures/rea/rea_regbank.pinned.yml`) and its nightly
+pre-release sweep compares the register name/address pairs of that copy with
+rr-rea at the revision in `scripts/ci/rr_rea_pin.env`. So a commit that adds,
+moves or renames a register is not finished here: report it to Mission Control
+so routertl refreshes the fixture, regenerates `registers.py` with
+`rr regbank generate`, and bumps the pin to a tag that contains the change, all
+in one routertl commit. Until then the sweep still compares against the older
+pinned revision and cannot see the change.
+
 **Tagging and publishing are the owner's call.** On this bench an agent does
 not push tags or run `rr pkg publish`; it lands the bump and reports the
 pending release to Mission Control. **Do not back-fill** tags for intermediate
