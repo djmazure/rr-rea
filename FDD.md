@@ -4,7 +4,7 @@
 Facts verified against `d7b7d3b` on 2026-10-20.
 
 <!-- rr:fdd:generated:begin -->
-<!-- rr:fdd:inputs sha256:caae157c5229cc8a -->
+<!-- rr:fdd:inputs sha256:791b5dcf07302fbb -->
 <!-- rr:fdd:projection v3 -->
 > Machine-owned block — scaffolded by `rr fdd init`, refreshed by
 > `rr fdd generate`. Do not edit inside the markers;
@@ -143,7 +143,7 @@ Facts verified against `d7b7d3b` on 2026-10-20.
 | REA-REQ-960 | behavioral | With DECIM=N>0, in every trigger phase, the capture window read back from `start_ptr_o` for PRETRIG+POSTTRIG+1 cells SHALL be the samples this capture stored: the trigger cell (the first sample stored at or after the trigger sample), the PRETRIG samples stored before it and the POSTTRIG samples stored after it. `done_o` SHALL NOT rise before the last post-trigger cell is written, so no cell holds a value from an earlier capture. `pretrig_valid_o` SHALL count the samples STORED after the arm and before the trigger cell (capped at PRETRIG), not that count minus the trigger pipeline's cycle latency. |
 | REA-REQ-961 | structural | Every signal rr_rea_top crosses between the register clock and sample_clk_i, in either direction, SHALL be driven directly by a register in its source domain, with no combinational logic between that register and the synchronizer's first stage (Vivado CDC-10). In the sample -> register direction `selftest_busy_sclk` SHALL equal `fill_busy or (sweep_busy and selftest_mode_r)` delayed by one `sample_clk_i` edge. In the register -> sample direction the expanded comparator and qualifier words `cond_masks_o`, `cond_values_o`, `cond_ops_o`, `cond_valid_o`, `qual_masks_o`, `qual_values_o`, `qual_ops_o` and `qual_valid_o` SHALL change only on a rising `jtag_clk_i` edge, one edge after the COND_*/QUAL_* write that feeds them, never in the same simulation step as that write. |
 | REA-REQ-962 | structural | The package SHALL ship its own timing constraints to every consumer: ip.yml `build.sources.xdc` SHALL declare constraints/rr_rea_scoped.xdc, applied `read_xdc -ref rr_rea_top`, which (1) SHALL create a clock on `tck_i` (Vivado derives none on a user-instantiated BSCANE2 TCK, so without it the whole JTAG domain is untimed), and (2) SHALL bound every crossing into a synchronizer first stage (`*u_cdc_*/s1_reg*`) with set_max_delay -datapath_only equal to half the faster of the TCK and `sample_clk_i` periods, derived from the live sample clock. It SHALL NOT contain set_clock_groups or set_false_path between the domains. Every synchronizer instance in rr_rea_top SHALL be labelled `u_cdc_*` with its first stage named `s1`, so the selector reaches it. |
-| REA-REQ-965 | structural | The package SHALL ship its Quartus timing constraints to every intel/altera consumer (REA-P2.12): ip.yml `build.sources.sdc` SHALL declare constraints/rr_rea_scoped.sdc, applied globally, which (1) SHALL create the clock `altera_reserved_tck` unless the consumer already clocks that port (Quartus derives none for the sld_virtual_jtag TCK, so without it the whole JTAG domain is untimed), and (2) SHALL bound every crossing into a synchronizer first stage, selected by REA's own entity names (`*\|rr_rea_sync_word:*\|s1*`, `*\|rr_rea_pulse_xfer:*\|s1*`), with set_net_delay -max at half the faster of the two clock periods, derived from the live clocks. Every set_false_path SHALL be paired with that bound on the same target; the file SHALL NOT contain set_clock_groups. Guarded by tests/test_rea_scoped_sdc_p2_12.py. |
+| REA-REQ-965 | structural | The package SHALL ship its Quartus timing constraints to every intel/altera consumer (REA-P2.12): ip.yml `build.sources.sdc` SHALL declare constraints/rr_rea_scoped.sdc, applied globally, which (1) SHALL create the clock `altera_reserved_tck` unless the consumer already clocks that port (Quartus derives none for the sld_virtual_jtag TCK, so without it the whole JTAG domain is untimed), and (2) SHALL bound every crossing into a synchronizer first stage, selected by REA's own entity names (`*\|rr_rea_sync_word:*\|s1*`, `*\|rr_rea_pulse_xfer:*\|s1*`), with set_net_delay -max at half the faster of the two clock periods, derived from the live clocks. Every set_false_path SHALL be paired with that bound on the same target; the file SHALL NOT contain set_clock_groups. (3) It SHALL bound the skew across each multi-bit rr_rea_sync_word word with one set_max_skew per word instance over exactly that word's first-stage bits, at 0.8 times the faster of the two clock periods, derived from the live clocks (REA-P1.4; Quartus Design Assistant CDC-50007). Guarded by tests/test_rea_scoped_sdc_p2_12.py and tests/test_rea_scoped_sdc_skew_p1_4.py. |
 | REA-REQ-964 | behavioral | TRIG_LATENCY (0xF4, RO) SHALL read the capture FSM's trigger-pipeline depth in sample cycles, ceil(G_SAMPLE_W / 8) + ceil(log2(G_TRIG_CONDS)), computed by the same package function the FSM uses (never hand-set), so a host can refuse or clamp a window that would overflow (REA-REQ-107). |
 | REA-REQ-963 | behavioral | PRETRIG_VALID SHALL never vouch for a cell the ring has overwritten: the last PRETRIG_VALID pre-trigger cells read from START_PTR SHALL all be samples of this capture. When PRETRIG <= DEPTH - 1 - C_PIPE_STAGES (the trigger-pipeline latency) it SHALL equal the number of samples stored after the arm and before the trigger cell, capped at PRETRIG, exactly, with or without decimation or qualification. Above that bound it MAY under-count by at most C_PIPE_STAGES. The value SHALL be final in the cycle `done` rises (no added latency). |
 | REA-REQ-968 | behavioral | With G_DR_GUARD = true, rr_rea_jtag_iface SHALL use a 50-bit DR whose bit 0 is a guard bit: every CAPTURE SHALL load '0' into bit 0 and reg_rdata into bits [32:1], so the first bit shifted out on TDO after any CAPTURE is 0 for EVERY register value, odd ones included. UPDATE SHALL decode rnw from bit 49, addr from bits [48:33] and wdata from bits [32:1]. A write SHALL produce exactly one reg_wr_en pulse carrying the shifted addr and wdata, odd wdata included. With G_DR_GUARD = false (the default) the DR SHALL be the frozen 49-bit protocol, unchanged (REA-REQ-001..003). |
@@ -171,7 +171,7 @@ Facts verified against `d7b7d3b` on 2026-10-20.
 | COND_CFG | 0x34 | RW | Comparator-array slot configuration |
 | COND_VAL | 0x38 | RW | Comparator-array slot value |
 | SOURCE | 0x3C | RW | DUT-facing source control bits |
-| SEQ_BASE | 0x40 | RW | Sequencer window base; stage K at +20*K (cfg |
+| SEQ_BASE | 0x40 | RW | Sequencer window base; stage K at +20*K (cfg, value, mask; value/mask paged by TRIG_WORD_SEL), K < G_TRIG_STAGES (REA-P3.7) |
 | CHAN_SEL | 0xA0 | RW | Capture channel selector |
 | NUM_CHAN | 0xA4 | RO | Synthesized channel count |
 | DECIM | 0xB0 | RW | Capture decimation ratio |
@@ -402,13 +402,15 @@ Requirement-to-test mapping: each `REA-REQ-N` is tagged with `@requires` in a te
 
 | Area | Test files |
 |---|---|
-| Constraints | `tests/test_rea_scoped_xdc_p2_8.py`, `tests/test_rea_scoped_xdc_p3_13.py`, `tests/test_rea_scoped_sdc_p2_12.py`, `tests/test_rea_scoped_microchip_sdc_p2_13.py`, `tests/test_rea_bscane2_bound_p2_19.py`, `tests/test_rea_sync_recognition_p3_8.py`, `tests/test_rea_cdc_waiver_p2_26.py` |
+| Constraints | `tests/test_rea_scoped_xdc_p2_8.py`, `tests/test_rea_scoped_xdc_p3_13.py`, `tests/test_rea_scoped_sdc_p2_12.py`, `tests/test_rea_scoped_microchip_sdc_p2_13.py`, `tests/test_rea_bscane2_bound_p2_19.py`, `tests/test_rea_sync_recognition_p3_8.py`, `tests/test_rea_cdc_waiver_p2_26.py`, `tests/test_rea_scoped_sdc_skew_p1_4.py` |
 | Budgets | `tests/test_resource_budget_points_t3_1.py`, `tests/test_fmax_floor_points_t3_3.py` |
 | Identity and package | `tests/test_version_magic_single_source.py`, `tests/test_features_bitmap_p1_1.py`, `tests/test_package_source_set_p3_14.py` |
 | Register and readback | `tests/test_rea_decim_p2_23.py`, `tests/test_axi_subword_p2_6.py`, `tests/test_axis_window_gating_p2_5.py`, `tests/test_window_blob_layout_p2_4.py`, `tests/test_xilinx7_tap_mirror_p2_22.py` |
-| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py` |
+| Documents and contract | `tests/test_support_matrix_p3_9.py`, `tests/test_requirements_delegations_p3_16.py`, `tests/test_sim_guard_collection_import_mode_p3_12.py`, `tests/test_fdd_p2_25.py`, `tests/test_regbank_valid_rea_t2_7.py` |
 
 `tests/test_fdd_p2_25.py` runs `rr fdd check --strict --full`, checks that every repository path cited in this document exists, and checks the generics table against the `rr_rea_top` entity.
+
+`tests/test_regbank_valid_rea_t2_7.py` runs `rr regbank validate` on `rea_regbank.yml` and shows, with a mutant, that an unquoted flow-mapping description is rejected.
 
 ### Formal harnesses (`verif/`)
 

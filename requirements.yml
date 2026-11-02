@@ -1450,7 +1450,12 @@ functional_contract:
       set_net_delay -max at half the faster of the two clock periods, derived
       from the live clocks. Every set_false_path SHALL be paired with that
       bound on the same target; the file SHALL NOT contain set_clock_groups.
-      Guarded by tests/test_rea_scoped_sdc_p2_12.py.
+      (3) It SHALL bound the skew across each multi-bit rr_rea_sync_word word
+      with one set_max_skew per word instance over exactly that word's
+      first-stage bits, at 0.8 times the faster of the two clock periods,
+      derived from the live clocks (REA-P1.4; Quartus Design Assistant
+      CDC-50007). Guarded by tests/test_rea_scoped_sdc_p2_12.py and
+      tests/test_rea_scoped_sdc_skew_p1_4.py.
   - id: REA-REQ-964
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]

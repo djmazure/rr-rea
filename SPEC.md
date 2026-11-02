@@ -682,6 +682,18 @@ netlists and cannot reach another IP's synchronizers. It:
   source-domain flop (REA-REQ-961), so that net is the whole datapath. On the
   DE25 build: 327 first stages, requirement 10.000 ns (0.5 x min(33.333, 20)),
   worst slack 8.725 ns; setup and hold met in both clocks.
+- **Bounds the skew across each multi-bit word** (REA-P1.4): one
+  `set_max_skew -get_skew_value_from_clock_period min_clock_period
+  -skew_value_multiplier 0.8` per `rr_rea_sync_word` instance wider than one
+  bit, so the bits of a word land within one destination period of each
+  other and `s2` holds the whole word before the ARM toggle crosses
+  (REA-REQ-959). Per instance, because one constraint over every `s1` would
+  bound unrelated words against each other. The faster period is used, not
+  the destination period: Design Assistant rule CDC-50007 still flags a word
+  whose bound exceeds its source period. On the DE25 build (REA 1.12.3,
+  Quartus Pro 25.3.1, fabric clock 100 MHz): 15 words bounded at 8.000 ns,
+  measured skew at most 0.600 ns (7.400 ns least slack), CDC-50007 0 rows (13 before); the words
+  are reported under CDC-50008 (Low, a constrained multi-bit bus).
 
 The routertl DE25 and Arria 10 demos carry a `set_clock_groups -asynchronous`
 in their own `constraints/timing.sdc`, but that file never reached their

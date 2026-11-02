@@ -12,9 +12,16 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.12.3
+#   version: below        the PACKAGE version the registry pins   -> 1.12.4
 #   rea_regbank.yml       the REGISTER MAP version                -> 0.13.0
 #   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x5245410F
+#
+# 1.12.4 (REA-P1.4) is a PATCH on 1.12.3, constraints only: rr_rea_scoped.sdc
+# bounds the skew across each multi-bit rr_rea_sync_word word (set_max_skew,
+# 0.8 x the faster clock period). Quartus Design Assistant rule CDC-50007 (High)
+# listed every such REA word as insufficiently constrained and stopped any
+# integration that gates on it. No RTL, register-map or runtime-tier change.
+# The same change is 1.14.1 on main.
 #
 # 1.12.3 (REA-P2.26) is a PATCH: annotates rr_rea_sync_word s1/s2 with the inline
 # RR-CDC-002 waiver citing REA-REQ-959 (quasi-static multicycle path, stable while
@@ -261,7 +268,7 @@
 
 name: rea
 namespace: routertl
-version: 1.12.3
+version: 1.12.4
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea
