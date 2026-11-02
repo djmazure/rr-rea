@@ -45,8 +45,8 @@ if {[get_collection_size $_rr_rea_tck_port] > 0} {
 #    from a source-domain flop, REA-REQ-961, so the net IS the datapath). The
 #    bound is derived from the live clocks, never a literal. NOT
 #    set_clock_groups: a clock group waives the crossing without bounding it.
-#    Multi-bit configuration words are quasi-static (write while disarmed, then
-#    arm; REA-REQ-959), so no set_max_skew is needed across a word.
+#    Multi-bit words are quasi-static (write while disarmed, then arm;
+#    REA-REQ-959); section 3 bounds the skew across each word.
 set _rr_rea_s1 [get_registers -nowarn {*|rr_rea_sync_word:*|s1* *|rr_rea_pulse_xfer:*|s1*}]
 if {[get_collection_size $_rr_rea_s1] > 0} {
     set_false_path -from [get_registers *] -to $_rr_rea_s1
@@ -54,4 +54,52 @@ if {[get_collection_size $_rr_rea_s1] > 0} {
         -get_value_from_clock_period min_clock_period -value_multiplier 0.5
 } elseif {[info commands post_message] ne ""} {
     post_message -type warning "rr_rea_scoped.sdc: matched 0 REA synchronizer first stages (*|rr_rea_sync_word:*|s1*, *|rr_rea_pulse_xfer:*|s1*). Every REA build has them, so the netlist naming has changed and the REA clock-domain crossings are UNBOUNDED on this build."
+}
+
+# 3) Bound the skew across each multi-bit word (REA-P1.4). A word crosses per
+#    bit (rr_rea_sync_word), and the FSM latches it only after the ARM toggle
+#    has crossed through rr_rea_pulse_xfer, two destination edges or more
+#    after the write (REA-REQ-959). The bits of one word therefore have to land
+#    within one destination clock period of each other: then s2 holds the
+#    whole new word one cycle after its last bit, before the arm reaches it.
+#    The bound is 0.8 x the FASTER of the two periods, read from the live
+#    clocks, never a literal; the 0.2 is margin for clock uncertainty. The
+#    faster period is never longer than the destination period, so the
+#    requirement above holds. A bound of 0.8 x the destination period alone
+#    is analysed by the Timing Analyzer, but Design Assistant still reports
+#    CDC-50007 when it exceeds the source period (DE25, sample clock ->
+#    altera_reserved_tck: 26.666 ns against a 10 ns source, 4 words). One
+#    set_max_skew per word instance: a single constraint over every s1 would
+#    bound unrelated words, and both directions, against each other. Quartus
+#    Design Assistant rule CDC-50007 flags a multi-bit synchronizer bus without
+#    a skew bound; on the DE25 build (REA 1.12.3, Quartus Pro 25.3.1) it
+#    listed 14 REA words before this section. rr_rea_pulse_xfer and 1-bit
+#    words carry one bit and need no skew bound.
+set _rr_rea_words [dict create]
+foreach_in_collection _rr_rea_reg [get_registers -nowarn {*|rr_rea_sync_word:*|s1*}] {
+    set _rr_rea_name [get_node_info -name $_rr_rea_reg]
+    if {[regsub {\|s1(\[[0-9]+\])?$} $_rr_rea_name {} _rr_rea_inst]} {
+        dict incr _rr_rea_words $_rr_rea_inst
+    }
+}
+set _rr_rea_skewed 0
+dict for {_rr_rea_inst _rr_rea_bits} $_rr_rea_words {
+    if {$_rr_rea_bits < 2} {
+        continue
+    }
+    set _rr_rea_word_s1 [get_registers -nowarn \
+        "[string map {\[ \\\[ \] \\\]} $_rr_rea_inst]|s1*"]
+    if {[get_collection_size $_rr_rea_word_s1] != $_rr_rea_bits} {
+        if {[info commands post_message] ne ""} {
+            post_message -type warning "rr_rea_scoped.sdc: the REA word $_rr_rea_inst has $_rr_rea_bits first-stage bits, but its pattern selects [get_collection_size $_rr_rea_word_s1]; its skew is NOT bounded on this build."
+        }
+        continue
+    }
+    set_max_skew -from [get_registers *] -to $_rr_rea_word_s1 \
+        -get_skew_value_from_clock_period min_clock_period \
+        -skew_value_multiplier 0.8
+    incr _rr_rea_skewed
+}
+if {[info commands post_message] ne ""} {
+    post_message -type info "rr_rea_scoped.sdc: max skew bounded on $_rr_rea_skewed multi-bit REA words (0.8 x the faster period)."
 }
