@@ -216,8 +216,11 @@ a stated reason in its landing message why it is not released yet.
 2. **Tag the LAST commit of that version**: the newest commit on `main` whose
    `ip.yml` still says that version, i.e. the commit just before the next bump,
    or the tip if nothing has bumped since. `v1.2.0` is on `6350ce8`, the P2.5
-   revision after the 1.2.0 bump, for that reason. Annotated tag, pushed:
-   `git tag -a vX.Y.Z <sha> -m "rr-rea X.Y.Z" && git push origin vX.Y.Z`.
+   revision after the 1.2.0 bump, for that reason. Annotated tag, pushed with
+   an SSH keepalive (so the ~15-min pre-push gate does not outlast the SSH
+   idle window and die with `SIGPIPE`, `rc=141`, TIC-P2.694) and verified on
+   the remote against the tag's exact ref and commit:
+   `git tag -a vX.Y.Z <sha> -m "rr-rea X.Y.Z" && GIT_SSH_COMMAND='ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=80' git push origin vX.Y.Z && test "$(git ls-remote --exit-code --tags origin refs/tags/vX.Y.Z refs/tags/vX.Y.Z^{} | awk '$2 == "refs/tags/vX.Y.Z^{}" {print $1}')" = "$(git rev-parse vX.Y.Z^{})"`.
 3. **Publish from a clean checkout of that tag.** `rr pkg publish` records
    `git rev-parse HEAD` and uploads the working tree; it checks neither the tag
    nor a clean tree. So:
