@@ -23,10 +23,21 @@ VENDOR = "intel"
 
 
 @cocotb.test()
-@requires("REA-REQ-966", "REA-REQ-967")
+@requires("REA-REQ-966", "REA-REQ-967", "REA-REQ-978")
 async def test_wrapper_passes_trig_and_qual_conds(dut):
     await rwg.start(dut)
     rwg.check_features(await rwg.read(dut, rwg.ADDR_FEATURES))
+    await rwg.check_arm_at_reset_registers(
+        lambda addr: rwg.read(dut, addr), "rr_rea_intel")
+
+
+@cocotb.test()
+@requires("REA-REQ-977", "REA-REQ-978")
+async def test_wrapper_arm_at_reset_core_leaves_reset_armed(dut):
+    """REA-P2.32: the core inside rr_rea_intel leaves reset armed, STATUS[10] set."""
+    await rwg.start(dut)
+    await rwg.check_arm_at_reset_status(
+        lambda addr: rwg.read(dut, addr), "rr_rea_intel")
 
 
 @cocotb.test()

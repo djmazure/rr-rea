@@ -61,7 +61,7 @@ CTRL_FORCE_TRIG = 1 << 2          # C_CTRL_BIT_FORCE_TRIG
 ARMED, TRIGGERED, DONE = 1 << 0, 1 << 1, 1 << 2
 FORCED = 1 << 9                   # C_STATUS_BIT_FORCED
 STATUS_CAPTURE_BITS = ARMED | TRIGGERED | DONE | FORCED
-VERSION_V0_17 = 0x52454111        # tier byte stays odd (REA-REQ-806)
+VERSION_V0_17 = 0x52454113        # tier byte stays odd (REA-REQ-806)
 
 TCK_NS = 25.0
 STALE = 0xEEE                     # never a counter value (bit 8 set, < 0x200)

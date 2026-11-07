@@ -41,7 +41,7 @@ _FIXTURES = str(_Path(__file__).resolve().parent / "fixtures")
 ADDR_VERSION  = 0x00
 ADDR_BUILD_ID = 0xD4
 
-EXPECTED_VERSION  = 0x52454111  # v0.17 feature tier (rr_rea_pkg C_REA_VERSION)
+EXPECTED_VERSION  = 0x52454113  # v0.19 feature tier (rr_rea_pkg C_REA_VERSION)
 EXPECTED_BUILD_ID = 0xDEADBEEF  # from the fixture package (not the stub)
 
 

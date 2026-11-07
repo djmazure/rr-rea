@@ -42,10 +42,21 @@ async def _start(dut):
 
 
 @cocotb.test()
-@requires("REA-REQ-966", "REA-REQ-967")
+@requires("REA-REQ-966", "REA-REQ-967", "REA-REQ-978")
 async def test_wrapper_passes_trig_and_qual_conds(dut):
     await _start(dut)
     rwg.check_features(await read_reg(dut, rwg.ADDR_FEATURES))
+    await rwg.check_arm_at_reset_registers(
+        lambda addr: read_reg(dut, addr), "rr_rea_microchip")
+
+
+@cocotb.test()
+@requires("REA-REQ-977", "REA-REQ-978")
+async def test_wrapper_arm_at_reset_core_leaves_reset_armed(dut):
+    """REA-P2.32: the core inside rr_rea_microchip leaves reset armed, STATUS[10] set."""
+    await _start(dut)
+    await rwg.check_arm_at_reset_status(
+        lambda addr: read_reg(dut, addr), "rr_rea_microchip")
 
 
 @cocotb.test()
@@ -53,6 +64,11 @@ async def test_wrapper_ext_trigger_reaches_core(dut):
     """TRIG_MODE ext_en|ext_and: armed with the pin low the core must not
     trigger; raising the pin must trigger it."""
     await _start(dut)
+    await write_reg(dut, rwg.ADDR_CTRL, 2)             # soft reset to clear boot-armed state
+    await write_reg(dut, rwg.ADDR_DECIM, 0)
+    await write_reg(dut, rwg.ADDR_QUAL_MODE, 0)
+    await write_reg(dut, rwg.ADDR_TRIG_VALUE, 0)
+    await write_reg(dut, rwg.ADDR_TRIG_MASK, 0)
     await write_reg(dut, rwg.ADDR_POSTTRIG, 4)
     await write_reg(dut, rwg.ADDR_TRIG_MODE,
                     rwg.TRIG_MODE_EXT_EN | rwg.TRIG_MODE_EXT_AND)

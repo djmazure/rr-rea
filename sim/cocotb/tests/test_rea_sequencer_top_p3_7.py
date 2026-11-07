@@ -71,7 +71,7 @@ ADDR_DATA_BASE = 0x100
 CTRL_ARM = 0x1
 STATUS_ARMED, STATUS_TRIGGERED, STATUS_DONE = 0x1, 0x2, 0x4
 TRIG_MODE_SEQ = 1 << 1          # C_TRIG_MODE_BIT_SEQ_EN
-VERSION_TIER = 0x52454111       # v0.17 tier (tier byte stays odd, REQ-806)
+VERSION_TIER = 0x52454113       # v0.19 tier (tier byte stays odd, REQ-806)
 FULL_MASK = (1 << SAMPLE_W) - 1
 PRETRIG, POSTTRIG = 8, 8
 
