@@ -44,7 +44,20 @@ entity rr_rea_intel is
         -- REA-P2.20: opt-in 50-bit guarded DR, passed to rr_rea_top (default
         -- false = the frozen 49-bit protocol). For the RTL-P2.901 Arria 10
         -- readback fault; the host must read with the matching guard flag.
-        G_DR_GUARD    : boolean  := false
+        G_DR_GUARD    : boolean  := false;
+        -- REA-P2.32: boot-time reset-armed capture generics, passed to rr_rea_top.
+        G_ARM_AT_RESET     : boolean := false;
+        G_RESET_PRETRIG    : natural := 0;
+        G_RESET_POSTTRIG   : natural := 0;
+        G_RESET_TRIG_MODE  : natural := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK  : natural := 0;
+        G_RESET_DECIM      : natural := 0;
+        G_RESET_COND_CFG   : natural := 0;
+        G_RESET_COND_VAL   : natural := 0;
+        G_RESET_QUAL_MODE  : natural := 0;
+        G_RESET_QUAL_CFG   : natural := 0;
+        G_RESET_QUAL_VAL   : natural := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -140,15 +153,27 @@ begin
 
     u_top : entity work.rr_rea_top
         generic map (
-            G_SAMPLE_W    => G_SAMPLE_W,
-            G_DEPTH       => G_DEPTH,
-            G_TIMESTAMP_W => G_TIMESTAMP_W,
-            G_NUM_CHAN    => G_NUM_CHAN,
-            G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES,
-            G_DR_GUARD    => G_DR_GUARD
+            G_SAMPLE_W         => G_SAMPLE_W,
+            G_DEPTH            => G_DEPTH,
+            G_TIMESTAMP_W      => G_TIMESTAMP_W,
+            G_NUM_CHAN         => G_NUM_CHAN,
+            G_NUM_SOURCE       => G_NUM_SOURCE,
+            G_QUAL_CONDS       => G_QUAL_CONDS,
+            G_TRIG_CONDS       => G_TRIG_CONDS,
+            G_TRIG_STAGES      => G_TRIG_STAGES,
+            G_DR_GUARD         => G_DR_GUARD,
+            G_ARM_AT_RESET     => G_ARM_AT_RESET,
+            G_RESET_PRETRIG    => G_RESET_PRETRIG,
+            G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+            G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+            G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+            G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+            G_RESET_DECIM      => G_RESET_DECIM,
+            G_RESET_COND_CFG   => G_RESET_COND_CFG,
+            G_RESET_COND_VAL   => G_RESET_COND_VAL,
+            G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+            G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+            G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
         )
         port map (
             sample_clk_i  => sample_clk_i,

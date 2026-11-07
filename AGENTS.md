@@ -44,6 +44,7 @@ the open gaps for each family. Read it before promising REA on a part.
 | Timestamp plane | `G_TIMESTAMP_W` (default 32) | per-sample `sample_clk` count; exports of gapped captures are placed by it |
 | `PRETRIG_VALID` | always | the host trims pre-trigger cells older than this capture |
 | Force trigger (Vivado "Run Trigger Immediate") | always, `VERSION` >= `0x52454111` | `CTRL` bit[2] (`C_CTRL_BIT_FORCE_TRIG`): an armed core triggers on the sample present when the command lands, PRETRIG/POSTTRIG still frame it; `STATUS` bit[9] = forced; a no-op when idle, triggered or done; no `trigger_o` toggle (REA-P2.28) |
+| Boot-time reset-armed capture | `G_ARM_AT_RESET => true` + `G_RESET_*`, `VERSION` >= `0x52454113` | core leaves `sample_rst_i` ARMED (`STATUS[0]=1`, `STATUS[10]=1` `armed_at_reset`) with synthesis-time window/trigger/decim/qual config; captures a boot transition with zero host writes; selftest fill refused while waiting or holding the boot capture until a host `CTRL[1]` reset or `CTRL[0]` re-arm clears `STATUS[10]`; `CAPTURE_EPOCH` reads 1 for the boot capture; `rr ila` has no descriptor key or no-re-arm read for it yet (routertl RTL-P2.2187), and `rr ila capture` re-arms and discards it (REA-P2.32) |
 | Write-side SOURCE | `G_NUM_SOURCE` | JTAG-driven bits into the design, reset 0, no auto-release; `rr ila source` |
 | Identity | always | `VERSION` magic, generic-derived `FEATURES`, source-hash `BUILD_ID` (build hook) |
 | Readback integrity | always | CRC-32 of both planes + capture epoch; `rr ila selftest` |

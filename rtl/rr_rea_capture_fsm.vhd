@@ -35,8 +35,9 @@
 -- latched on the (staged) arm and must be held one cycle past it, as the
 -- regbank does.
 --
--- See requirements.yml REA-REQ-100..106, REA-REQ-950..959 and
--- REA-REQ-972..974 (REA-P2.28 host force-trigger) for the test contract.
+-- See requirements.yml REA-REQ-100..106, REA-REQ-950..959,
+-- REA-REQ-972..974 (REA-P2.28 host force-trigger) and REA-REQ-977..978
+-- (REA-P2.32 boot-time reset-armed capture) for the test contract.
 
 library ieee;
     use ieee.std_logic_1164.all;
@@ -47,11 +48,26 @@ library work;
 
 entity rr_rea_capture_fsm is
     generic (
-        G_SAMPLE_W     : positive := 12;
-        G_DEPTH        : positive := 4096;
-        G_TRIG_STAGES  : positive := 1;  -- v0.3 sequencer depth (REA-REQ-607)
-        G_TRIG_CONDS   : positive := 4;  -- v0.5 comparator-array slots (P3.647)
-        G_QUAL_CONDS   : natural  := 0   -- REA-P2.7 storage-qualifier slots
+        G_SAMPLE_W        : positive := 12;
+        G_DEPTH           : positive := 4096;
+        G_TRIG_STAGES     : positive := 1;  -- v0.3 sequencer depth (REA-REQ-607)
+        G_TRIG_CONDS      : positive := 4;  -- v0.5 comparator-array slots (P3.647)
+        G_QUAL_CONDS      : natural  := 0;  -- REA-P2.7 storage-qualifier slots
+        -- REA-P2.32: boot-time reset-armed capture (REA-REQ-977..978).
+        -- With G_ARM_AT_RESET = false (default), every G_RESET_* generic is
+        -- ignored and the core leaves reset disarmed, bit-identical to pre-P2.32.
+        G_ARM_AT_RESET    : boolean  := false;
+        G_RESET_PRETRIG   : natural  := 0;
+        G_RESET_POSTTRIG  : natural  := 0;
+        G_RESET_TRIG_MODE : natural  := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK : natural  := 0;
+        G_RESET_DECIM     : natural  := 0;
+        G_RESET_COND_CFG  : natural  := 0;
+        G_RESET_COND_VAL  : natural  := 0;
+        G_RESET_QUAL_MODE : natural  := 0;
+        G_RESET_QUAL_CFG  : natural  := 0;
+        G_RESET_QUAL_VAL  : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -193,6 +209,9 @@ entity rr_rea_capture_fsm is
         -- REA-P2.28: sticky, '1' when this capture's trigger came from force_i
         -- and not from the trigger pattern. Cleared by arm and soft reset.
         forced_o      : out std_logic;
+        -- REA-P2.32: sticky, '1' when the core came out of reset armed
+        -- (G_ARM_AT_RESET = true). Cleared by a host arm or soft reset.
+        armed_at_reset_o : out std_logic;
         trigger_o : out std_logic;   -- 1-cycle pulse on local fire
 
         -- ── DPRAM port-A drive ───────────────────────────────────
@@ -494,17 +513,104 @@ architecture rtl of rr_rea_capture_fsm is
     signal pv_in              : t_pv;
     -- PRETRIG > DEPTH - 1 - C_PIPE_STAGES, registered (pretrig_len_r only
     -- changes on arm; no pipeline sample can fire in the arm cycle).
-    signal pv_over_r          : std_logic := '0';
+    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
+    constant C_PF_K       : positive := clog2(C_PIPE_STAGES + 2);
+
+    -- ── REA-P2.32 synthesis-time reset-armed constants ───────────
+    constant C_RESET_ARMED : std_logic := rea_bool_to_sl(G_ARM_AT_RESET);
+    constant C_RESET_PRETRIG_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_PRETRIG);
+    constant C_RESET_POSTTRIG_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_POSTTRIG);
+    constant C_RESET_TRIG_MODE_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_TRIG_MODE);
+    constant C_RESET_DECIM_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_DECIM);
+    constant C_RESET_QUAL_MODE_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET and G_QUAL_CONDS > 0, G_RESET_QUAL_MODE);
+    constant C_RESET_PRETRIG : unsigned(C_PTR_W - 1 downto 0) :=
+        unsigned(C_RESET_PRETRIG_U32(C_PTR_W - 1 downto 0));
+    constant C_RESET_POSTTRIG : unsigned(C_PTR_W - 1 downto 0) :=
+        unsigned(C_RESET_POSTTRIG_U32(C_PTR_W - 1 downto 0));
+    constant C_RESET_TRIG_MODE : std_logic_vector(7 downto 0) :=
+        C_RESET_TRIG_MODE_U32(7 downto 0);
+    constant C_RESET_DECIM_RATIO : unsigned(23 downto 0) :=
+        unsigned(C_RESET_DECIM_U32(23 downto 0));
+    constant C_RESET_ARRAY_EN : std_logic :=
+        C_RESET_TRIG_MODE_U32(C_TRIG_MODE_BIT_ARRAY_EN);
+    constant C_RESET_EXT_EN : std_logic :=
+        C_RESET_TRIG_MODE_U32(C_TRIG_MODE_BIT_EXT_EN);
+    constant C_RESET_EXT_AND : std_logic :=
+        C_RESET_TRIG_MODE_U32(C_TRIG_MODE_BIT_EXT_AND);
+    constant C_RESET_QUAL_EN : std_logic := C_RESET_QUAL_MODE_U32(0);
+    constant C_RESET_QUAL_OR : std_logic := C_RESET_QUAL_MODE_U32(1);
+    constant C_RESET_TRIG_VALUE : std_logic_vector(G_SAMPLE_W - 1 downto 0) :=
+        rea_reset_flat_word0(G_ARM_AT_RESET, G_SAMPLE_W, G_RESET_TRIG_VALUE);
+    constant C_RESET_TRIG_MASK : std_logic_vector(G_SAMPLE_W - 1 downto 0) :=
+        rea_reset_flat_word0(G_ARM_AT_RESET, G_SAMPLE_W, G_RESET_TRIG_MASK);
+    constant C_RESET_COND_VALID : std_logic_vector(G_TRIG_CONDS - 1 downto 0) :=
+        rea_expand_slot0_valid(G_ARM_AT_RESET, G_TRIG_CONDS, G_RESET_COND_CFG);
+    constant C_RESET_COND_OPS : std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0) :=
+        rea_expand_slot0_ops(G_ARM_AT_RESET, G_TRIG_CONDS, G_RESET_COND_CFG);
+    constant C_RESET_COND_MASKS : std_logic_vector(
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_masks(
+            G_ARM_AT_RESET, G_TRIG_CONDS, G_SAMPLE_W, G_RESET_COND_CFG);
+    constant C_RESET_COND_VALUES : std_logic_vector(
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_values(
+            G_ARM_AT_RESET, G_TRIG_CONDS, G_SAMPLE_W,
+            G_RESET_COND_CFG, G_RESET_COND_VAL);
+    constant C_RESET_QUAL_VALID : std_logic_vector(C_QUAL_SLOTS - 1 downto 0) :=
+        rea_expand_slot0_valid(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_OPS : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0) :=
+        rea_expand_slot0_ops(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_MASKS : std_logic_vector(
+        C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_masks(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS,
+            G_SAMPLE_W, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_VALUES : std_logic_vector(
+        C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_values(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS,
+            G_SAMPLE_W, G_RESET_QUAL_CFG, G_RESET_QUAL_VAL);
+    constant C_RESET_EXACT_COUNT : boolean :=
+        G_ARM_AT_RESET and (C_RESET_QUAL_EN = '1' or C_RESET_DECIM_RATIO /= 0);
+    constant C_RESET_THR : unsigned(C_PTR_W downto 0) :=
+        resize(C_RESET_POSTTRIG, C_PTR_W + 1);
+    constant C_RESET_PF_THR_M1 : unsigned(C_PTR_W downto 0) :=
+        rea_reset_pf_thr_m1(C_RESET_EXACT_COUNT, C_RESET_THR);
+    constant C_RESET_PF_THR_LOW : unsigned(C_PF_K - 1 downto 0) :=
+        rea_reset_pf_thr_low(C_RESET_EXACT_COUNT, C_RESET_THR, C_PF_K);
+    constant C_RESET_PF_THR_SMALL : std_logic :=
+        rea_bool_to_sl(
+            (C_RESET_EXACT_COUNT and C_RESET_THR < 2 ** C_PF_K - 1)
+            or (not C_RESET_EXACT_COUNT and C_RESET_THR < 2 ** C_PF_K));
+    constant C_RESET_OVERFLOW : std_logic :=
+        rea_bool_to_sl(
+            G_ARM_AT_RESET and (
+                to_integer(C_RESET_PRETRIG)
+                + max_nat(to_integer(C_RESET_POSTTRIG), C_PIPE_STAGES) >= G_DEPTH));
+    constant C_RESET_PV_OVER : std_logic :=
+        rea_bool_to_sl(
+            G_ARM_AT_RESET and (
+                to_integer(C_RESET_PRETRIG) > G_DEPTH - 1 - C_PIPE_STAGES));
+
+    signal pv_over_r          : std_logic := C_RESET_PV_OVER;
     signal pv_sat             : t_pv;
     signal pv_width_r         : t_pv_pipe := (others => (others => '0'));
     signal pv_reduce_r        : t_pv_reduce_pipe := (others => (others => '0'));
     signal pipeline_final_pv  : t_pv;
 
-    signal armed_r       : std_logic := '0';
-    signal triggered_r   : std_logic := '0';
-    signal done_r        : std_logic := '0';
-    signal overflow_r    : std_logic := '0';
-    signal forced_r      : std_logic := '0';
+    signal armed_r          : std_logic := C_RESET_ARMED;
+    signal triggered_r      : std_logic := '0';
+    signal done_r           : std_logic := '0';
+    signal overflow_r       : std_logic := C_RESET_OVERFLOW;
+    signal forced_r         : std_logic := '0';
+    signal armed_at_reset_r : std_logic := C_RESET_ARMED;
     signal wr_ptr_r      : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     signal trig_ptr_r    : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
     -- RTL-T1.16 pre-trigger contiguity accounting.
@@ -524,17 +630,16 @@ architecture rtl of rr_rea_capture_fsm is
     -- latched at arm: POSTTRIG, or POSTTRIG + 1 when exact_count (see
     -- post_full's history below).
     signal post_full_r   : std_logic := '0';
-    signal pf_thr_m1_r   : unsigned(C_PTR_W downto 0) := (others => '0');
+    signal pf_thr_m1_r   : unsigned(C_PTR_W downto 0) := C_RESET_PF_THR_M1;
     -- At the fire edge post_count loads the trigger-pipeline lag, at most
     -- C_PIPE_STAGES + 1, so only C_PF_K low bits take part in that compare.
-    constant C_PF_K      : positive := clog2(C_PIPE_STAGES + 2);
-    signal pf_thr_small_r : std_logic := '0';
-    signal pf_thr_low_r  : unsigned(C_PF_K - 1 downto 0) := (others => '0');
+    signal pf_thr_small_r : std_logic := C_RESET_PF_THR_SMALL;
+    signal pf_thr_low_r  : unsigned(C_PF_K - 1 downto 0) := C_RESET_PF_THR_LOW;
     -- The post-trigger window is full: stop storing, then finish (REA-REQ-954).
     signal post_full     : std_logic;
-    signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := (others => '0');
-    signal posttrig_len_r: unsigned(C_PTR_W - 1 downto 0) := (others => '0');
-    signal decim_ratio_r : unsigned(23 downto 0)         := (others => '0');
+    signal pretrig_len_r : unsigned(C_PTR_W - 1 downto 0) := C_RESET_PRETRIG;
+    signal posttrig_len_r: unsigned(C_PTR_W - 1 downto 0) := C_RESET_POSTTRIG;
+    signal decim_ratio_r : unsigned(23 downto 0)         := C_RESET_DECIM_RATIO;
     signal decim_count_r : unsigned(23 downto 0)         := (others => '0');
     -- REA-T3.2: decim_count_r = 0 as a REGISTER kept in step with the
     -- counter, so the 24-bit zero-detect no longer sits in front of the
@@ -597,15 +702,15 @@ architecture rtl of rr_rea_capture_fsm is
     -- Latched on arm like the seq/legacy config. Flat vectors (same
     -- nvc-safe pattern as the sequencer); per-condition slices live only
     -- in the pure-combinational generate below.
-    signal array_enable_r : std_logic := '0';
+    signal array_enable_r : std_logic := C_RESET_ARRAY_EN;
     signal cond_values_r  : std_logic_vector(
-        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) := (others => '0');
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) := C_RESET_COND_VALUES;
     signal cond_masks_r   : std_logic_vector(
-        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) := (others => '0');
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) := C_RESET_COND_MASKS;
     signal cond_ops_r     : std_logic_vector(
-        G_TRIG_CONDS * 4 - 1 downto 0) := (others => '0');
+        G_TRIG_CONDS * 4 - 1 downto 0) := C_RESET_COND_OPS;
     signal cond_valid_r   : std_logic_vector(G_TRIG_CONDS - 1 downto 0)
-                              := (others => '0');
+                              := C_RESET_COND_VALID;
     constant C_CONDS_NONE : std_logic_vector(G_TRIG_CONDS - 1 downto 0)
                               := (others => '0');
 
@@ -613,15 +718,15 @@ architecture rtl of rr_rea_capture_fsm is
     -- triggered_r when seq_enable_r is on (REA-REQ-602).
     signal seq_final_fire : std_logic;
     signal trig_value_r  : std_logic_vector(G_SAMPLE_W - 1 downto 0)
-                              := (others => '0');
+                              := C_RESET_TRIG_VALUE;
     signal trig_mask_r   : std_logic_vector(G_SAMPLE_W - 1 downto 0)
-                              := (others => '0');
+                              := C_RESET_TRIG_MASK;
     signal trigger_out_r : std_logic := '0';
 
     -- ── Legacy-path comparator op (RTL-P3.644/645/646) ──────────
     -- trig_mode_r holds bits[7:0] of TRIG_MODE; bits[7:4] select the op.
     -- probe_prev_r is the previous sample, for edge detection.
-    signal trig_mode_r  : std_logic_vector(7 downto 0) := (others => '0');
+    signal trig_mode_r  : std_logic_vector(7 downto 0) := C_RESET_TRIG_MODE;
     signal probe_prev_r : std_logic_vector(G_SAMPLE_W - 1 downto 0)
                               := (others => '0');
     signal trig_op      : natural range 0 to 15 := 0;
@@ -636,27 +741,26 @@ architecture rtl of rr_rea_capture_fsm is
     -- effective_internal folds the external pin into the internal hit
     -- per the OR/AND mode; the FSM then fires on it (plus the
     -- independent trig_xbar OR).
-    signal ext_enable_r      : std_logic := '0';
-    signal ext_and_r         : std_logic := '0';
+    signal ext_enable_r      : std_logic := C_RESET_EXT_EN;
+    signal ext_and_r         : std_logic := C_RESET_EXT_AND;
     signal ext_trig_r        : std_logic := '0';
 
     -- ── REA-P2.7 storage qualifier ──────────────────────────────
-    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
     -- Enables/ops/valid are resettable control; the wide value/mask are
     -- validity-gated arm-time data (RTL-P2.897), like cond_values_r.
-    signal qual_enable_r  : std_logic := '0';
+    signal qual_enable_r  : std_logic := C_RESET_QUAL_EN;
     -- REA-T2.4: exact window arithmetic whenever a store can be skipped
     -- (qualification OR decimation). See the post_full comment.
     signal exact_count    : std_logic;
-    signal qual_or_r      : std_logic := '0';
+    signal qual_or_r      : std_logic := C_RESET_QUAL_OR;
     signal qual_ops_r     : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_OPS;
     signal qual_valid_r   : std_logic_vector(C_QUAL_SLOTS - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_VALID;
     signal qual_values_r  : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_VALUES;
     signal qual_masks_r   : std_logic_vector(C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_MASKS;
     -- qual_ok: this cycle's sample may be stored. '1' whenever qualification
     -- is off. store_tick = decimation tick AND qualifier: the one strobe that
     -- writes, advances wr_ptr and counts the post-trigger window.
@@ -1087,12 +1191,12 @@ begin
                 trig_in_s       <= '0';
                 force_s         <= '0';
                 ext_trigger_s   <= '0';
-                qual_ok         <= '1';
-                qual_enable_r   <= '0';
-                qual_or_r       <= '0';
-                qual_ops_r      <= (others => '0');
-                qual_valid_r    <= (others => '0');
-                qual_enable_s_r <= '0';
+                qual_ok         <= not C_RESET_QUAL_EN;
+                qual_enable_r   <= C_RESET_QUAL_EN;
+                qual_or_r       <= C_RESET_QUAL_OR;
+                qual_ops_r      <= C_RESET_QUAL_OPS;
+                qual_valid_r    <= C_RESET_QUAL_VALID;
+                qual_enable_s_r <= C_RESET_QUAL_EN;
             elsif rising_edge(sample_clk_i) then
                 arm_s         <= arm_pulse_i;
                 reset_s       <= reset_pulse_i;
@@ -1113,12 +1217,17 @@ begin
             end if;
         end process;
 
-        -- Data stage: no reset (the stored word is don't-care until written).
+        -- Data stage: no async reset (RTL-P2.897). When G_ARM_AT_RESET = true,
+        -- C_RESET_QUAL_* initializes at configuration and reloads synchronously
+        -- while sample_rst_i is asserted.
         process (sample_clk_i)
         begin
             if rising_edge(sample_clk_i) then
                 probe_s <= probe_i;
-                if arm_pulse_i = '1' then
+                if G_ARM_AT_RESET and sample_rst_i = '1' then
+                    qual_values_r <= C_RESET_QUAL_VALUES;
+                    qual_masks_r  <= C_RESET_QUAL_MASKS;
+                elsif arm_pulse_i = '1' then
                     qual_values_r <= qual_values_i;
                     qual_masks_r  <= qual_masks_i;
                 end if;
@@ -1293,7 +1402,7 @@ begin
     p_pv_over : process (sample_clk_i, sample_rst_i)
     begin
         if sample_rst_i = '1' then
-            pv_over_r <= '0';
+            pv_over_r <= C_RESET_PV_OVER;
         elsif rising_edge(sample_clk_i) then
             if to_integer(pretrig_len_r) > G_DEPTH - 1 - C_PIPE_STAGES then
                 pv_over_r <= '1';
@@ -1312,11 +1421,12 @@ begin
     ) else '0';
 
     -- ── Status outputs ───────────────────────────────────────────
-    armed_o         <= armed_r;
-    triggered_o     <= triggered_r;
-    done_o          <= done_r;
-    overflow_o      <= overflow_r;
-    forced_o        <= forced_r;
+    armed_o          <= armed_r;
+    triggered_o      <= triggered_r;
+    done_o           <= done_r;
+    overflow_o       <= overflow_r;
+    forced_o         <= forced_r;
+    armed_at_reset_o <= armed_at_reset_r;
     trigger_o   <= trigger_out_r;
     wr_ptr_o    <= std_logic_vector(wr_ptr_r);
     trig_ptr_o  <= std_logic_vector(trig_ptr_r);
@@ -1344,7 +1454,14 @@ begin
     begin
         if rising_edge(sample_clk_i) then
             probe_prev_r <= probe_s;
-            if arm_s = '1' then
+            if G_ARM_AT_RESET and sample_rst_i = '1' then
+                trig_value_r     <= C_RESET_TRIG_VALUE;
+                trig_mask_r      <= C_RESET_TRIG_MASK;
+                seq_value_r_flat <= (others => '0');
+                seq_mask_r_flat  <= (others => '0');
+                cond_values_r    <= C_RESET_COND_VALUES;
+                cond_masks_r     <= C_RESET_COND_MASKS;
+            elsif arm_s = '1' then
                 trig_value_r    <= trig_value_i;
                 trig_mask_r     <= trig_mask_i;
                 seq_value_r_flat <= seq_values_i;
@@ -1362,40 +1479,42 @@ begin
         variable v_x_low : unsigned(C_PF_K - 1 downto 0);
     begin
         if sample_rst_i = '1' then
-            armed_r        <= '0';
-            triggered_r    <= '0';
-            done_r         <= '0';
-            overflow_r     <= '0';
-            forced_r       <= '0';
-            wr_ptr_r       <= (others => '0');
-            trig_ptr_r     <= (others => '0');
-            start_ptr_r    <= (others => '0');
-            post_count_r   <= (others => '0');
-            post_full_r    <= '0';
-            -- POSTTRIG 0, no decimation/qualification: threshold 0.
-            pf_thr_m1_r    <= (others => '0');
-            pf_thr_small_r <= '1';
-            pf_thr_low_r   <= (others => '0');
-            pretrig_len_r  <= (others => '0');
-            posttrig_len_r <= (others => '0');
-            trig_mode_r    <= (others => '0');
-            decim_ratio_r  <= (others => '0');
-            decim_count_r  <= (others => '0');
-            decim_zero_r   <= '1';
-            seq_enable_r   <= '0';
-            seq_state_r    <= (others => '0');
+            armed_r          <= C_RESET_ARMED;
+            triggered_r      <= '0';
+            done_r           <= '0';
+            overflow_r       <= C_RESET_OVERFLOW;
+            forced_r         <= '0';
+            armed_at_reset_r <= C_RESET_ARMED;
+            wr_ptr_r         <= (others => '0');
+            trig_ptr_r       <= (others => '0');
+            start_ptr_r      <= (others => '0');
+            since_arm_r      <= (others => '0');
+            pretrig_valid_r  <= (others => '0');
+            post_count_r     <= (others => '0');
+            post_full_r      <= '0';
+            pf_thr_m1_r      <= C_RESET_PF_THR_M1;
+            pf_thr_small_r   <= C_RESET_PF_THR_SMALL;
+            pf_thr_low_r     <= C_RESET_PF_THR_LOW;
+            pretrig_len_r    <= C_RESET_PRETRIG;
+            posttrig_len_r   <= C_RESET_POSTTRIG;
+            trig_mode_r      <= C_RESET_TRIG_MODE;
+            decim_ratio_r    <= C_RESET_DECIM_RATIO;
+            decim_count_r    <= (others => '0');
+            decim_zero_r     <= '1';
+            seq_enable_r     <= '0';
+            seq_state_r      <= (others => '0');
             seq_count_target_r_flat <= (others => '0');
             seq_counter_r_flat      <= (others => '0');
             seq_reach_r             <= (others => '1');
             seq_tle1_r              <= (others => '1');
             seq_tm2_r_flat          <= (others => '0');
-            array_enable_r <= '0';
+            array_enable_r <= C_RESET_ARRAY_EN;
             -- Wide comparator configuration is loaded atomically on arm and
             -- ignored while its reset control enables remain low.
-            cond_ops_r     <= (others => '0');
-            cond_valid_r   <= (others => '0');
-            ext_enable_r   <= '0';
-            ext_and_r      <= '0';
+            cond_ops_r     <= C_RESET_COND_OPS;
+            cond_valid_r   <= C_RESET_COND_VALID;
+            ext_enable_r   <= C_RESET_EXT_EN;
+            ext_and_r      <= C_RESET_EXT_AND;
             ext_trig_r     <= '0';
             trigger_out_r  <= '0';
 
@@ -1448,14 +1567,15 @@ begin
 
             -- ── reset_pulse: hard reset of capture state ───────
             if reset_s = '1' then
-                armed_r       <= '0';
-                triggered_r   <= '0';
-                done_r        <= '0';
-                overflow_r    <= '0';
-                forced_r      <= '0';
-                post_count_r  <= (others => '0');
-                post_full_r   <= '0';
-                trigger_out_r <= '0';
+                armed_r          <= '0';
+                triggered_r      <= '0';
+                done_r           <= '0';
+                overflow_r       <= '0';
+                forced_r         <= '0';
+                armed_at_reset_r <= '0';
+                post_count_r     <= (others => '0');
+                post_full_r      <= '0';
+                trigger_out_r    <= '0';
                 -- NOTE: wr_ptr_r is NOT reset on reset_pulse for v0.1
                 -- — keeping the buffer state alive across soft resets
                 -- is consistent with sliding-window semantics. Hard
@@ -1475,10 +1595,11 @@ begin
             end if;
 
             if arm_s = '1' then
-                armed_r        <= '1';
-                triggered_r    <= '0';
-                done_r         <= '0';
-                forced_r       <= '0';
+                armed_r          <= '1';
+                triggered_r      <= '0';
+                done_r           <= '0';
+                forced_r         <= '0';
+                armed_at_reset_r <= '0';
                 -- Restart the contiguity count with the capture.
                 since_arm_r     <= (others => '0');
                 pretrig_valid_r <= (others => '0');

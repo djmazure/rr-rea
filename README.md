@@ -27,6 +27,18 @@ This repository is the public home of the `routertl/rea` package on
   (a toggle) through `rr_rea_trig_xbar` to B's `trigger_i` (a 1-cycle pulse on
   B's clock), and the reverse. `trigger_pulse_o` is the same local fire as a
   1-cycle pulse. On every vendor wrapper. See `SPEC.md` "Cross-core trigger".
+- **Boot-time reset-armed capture** (v0.19, ip 1.15.0, `G_ARM_AT_RESET => true` +
+  `G_RESET_*`, REA-P2.32): bring the core out of `sample_rst_i` already armed
+  with a synthesis-time window, trigger, decimation and qualifier configuration
+  so a boot transition before the host attaches is captured and held in the
+  frozen window with zero host writes. `STATUS` bit[10] (`armed_at_reset`)
+  reports that the core was armed at reset (sticky across the boot capture until
+  a host `CTRL` arm or reset clears it), the selftest fill FSM refuses a
+  fill while the reset-armed capture is waiting or holding its window, and the
+  boot capture reads `CAPTURE_EPOCH` 1. On every vendor wrapper. The `rr ila`
+  side (descriptor key, read without re-arm) is routertl RTL-P2.2187; until it
+  lands, `rr ila capture` re-arms and discards a boot capture. See `SPEC.md`
+  "Boot-time reset-armed capture".
 - **Storage qualification** (v0.11, `G_QUAL_CONDS > 0`): store a sample only
   when a qualifier holds, so a 4096-deep window holds 4096 bus *events* spread
   over seconds instead of 82 us of idle cycles at 50 MHz. The qualifier uses

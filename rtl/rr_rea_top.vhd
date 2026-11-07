@@ -71,7 +71,24 @@ entity rr_rea_top is
         -- TDO end, to discriminate the Arria 10 readback fault (RTL-P2.901).
         -- false (the default) = the frozen 49-bit protocol. Only meaningful
         -- with G_REG_IFACE = "jtag"; FEATURES[31] reads 1 iff both hold.
-        G_DR_GUARD    : boolean  := false
+        G_DR_GUARD    : boolean  := false;
+        -- REA-P2.32: boot-time reset-armed capture (REA-REQ-977..978).
+        -- When G_ARM_AT_RESET = false (default), every G_RESET_* generic is
+        -- ignored and the core leaves sample_rst_i disarmed, bit-identical to
+        -- pre-P2.32. When true, the core leaves reset ARMED with the synthesis
+        -- trigger/qualifier/window configuration below and sets STATUS[10].
+        G_ARM_AT_RESET     : boolean := false;
+        G_RESET_PRETRIG    : natural := 0;
+        G_RESET_POSTTRIG   : natural := 0;
+        G_RESET_TRIG_MODE  : natural := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK  : natural := 0;
+        G_RESET_DECIM      : natural := 0;
+        G_RESET_COND_CFG   : natural := 0;
+        G_RESET_COND_VAL   : natural := 0;
+        G_RESET_QUAL_MODE  : natural := 0;
+        G_RESET_QUAL_CFG   : natural := 0;
+        G_RESET_QUAL_VAL   : natural := 0
     );
     port (
         -- ── Sample-clock domain ──────────────────────────────────
@@ -332,11 +349,16 @@ architecture rtl of rr_rea_top is
     signal seq_enable_sclk : std_logic;
 
     -- ── FSM outputs (sample_clk_i domain) ──────────────────────────
-    signal armed_sclk     : std_logic;
-    signal triggered_sclk : std_logic;
-    signal done_sclk      : std_logic;
-    signal overflow_sclk  : std_logic;
-    signal forced_sclk    : std_logic;
+    signal armed_sclk          : std_logic;
+    signal triggered_sclk      : std_logic;
+    signal done_sclk           : std_logic;
+    signal overflow_sclk       : std_logic;
+    signal forced_sclk         : std_logic;
+    signal armed_at_reset_sclk : std_logic;
+    -- REA-P2.32 (REA-REQ-978): the selftest fill is refused while the core is
+    -- armed OR while STATUS[10] (armed_at_reset) is set, so the attaching
+    -- host's selftest cannot overwrite a boot capture it has not read yet.
+    signal fill_hold_sclk      : std_logic;
     signal trigger_out_sclk : std_logic;
     signal trigger_sticky_r : std_logic := '0';
     signal dpram_we_sclk    : std_logic;
@@ -350,11 +372,12 @@ architecture rtl of rr_rea_top is
     signal pretrig_valid_sclk : std_logic_vector(C_PTR_W downto 0);
 
     -- ── CDC: sample_clk_i → jtag_clk_i (status mirror) ───────────────
-    signal armed_jclk     : std_logic_vector(0 downto 0);
-    signal triggered_jclk : std_logic_vector(0 downto 0);
-    signal done_jclk      : std_logic_vector(0 downto 0);
-    signal overflow_jclk  : std_logic_vector(0 downto 0);
-    signal forced_jclk    : std_logic_vector(0 downto 0);
+    signal armed_jclk          : std_logic_vector(0 downto 0);
+    signal triggered_jclk      : std_logic_vector(0 downto 0);
+    signal done_jclk           : std_logic_vector(0 downto 0);
+    signal overflow_jclk       : std_logic_vector(0 downto 0);
+    signal forced_jclk         : std_logic_vector(0 downto 0);
+    signal armed_at_reset_jclk : std_logic_vector(0 downto 0);
     signal start_ptr_jclk : std_logic_vector(C_PTR_W - 1 downto 0);
     signal pretrig_valid_jclk : std_logic_vector(C_PTR_W downto 0);
     signal pretrig_valid_reg  : std_logic_vector(31 downto 0);
@@ -501,31 +524,44 @@ begin
     -- ── Register file ────────────────────────────────────────────
     u_regbank : entity work.rr_rea_regbank
         generic map (
-            G_SAMPLE_W    => G_SAMPLE_W,
-            G_DEPTH       => G_DEPTH,
-            G_TIMESTAMP_W => G_TIMESTAMP_W,
-            G_NUM_CHAN    => G_NUM_CHAN,
-            G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_AXIS_WINDOW => G_AXIS_WINDOW,
-            G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES,
-            G_DR_GUARD    => G_DR_GUARD and G_REG_IFACE = "jtag"
+            G_SAMPLE_W         => G_SAMPLE_W,
+            G_DEPTH            => G_DEPTH,
+            G_TIMESTAMP_W      => G_TIMESTAMP_W,
+            G_NUM_CHAN         => G_NUM_CHAN,
+            G_TRIG_CONDS       => G_TRIG_CONDS,
+            G_NUM_SOURCE       => G_NUM_SOURCE,
+            G_AXIS_WINDOW      => G_AXIS_WINDOW,
+            G_QUAL_CONDS       => G_QUAL_CONDS,
+            G_TRIG_STAGES      => G_TRIG_STAGES,
+            G_DR_GUARD         => G_DR_GUARD and G_REG_IFACE = "jtag",
+            G_ARM_AT_RESET     => G_ARM_AT_RESET,
+            G_RESET_PRETRIG    => G_RESET_PRETRIG,
+            G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+            G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+            G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+            G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+            G_RESET_DECIM      => G_RESET_DECIM,
+            G_RESET_COND_CFG   => G_RESET_COND_CFG,
+            G_RESET_COND_VAL   => G_RESET_COND_VAL,
+            G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+            G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+            G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
         )
         port map (
-            jtag_clk_i => reg_clk_o,
-            jtag_rst_i => reg_rst_o,
-            wr_en_i    => reg_wr_en_o,
-            wr_addr_i  => reg_addr_o,
-            wr_data_i  => reg_wdata_o,
-            rd_addr_i  => reg_addr_o,
-            rd_data_o  => regbank_rdata,
-            armed_i     => armed_jclk(0),
-            triggered_i => triggered_jclk(0),
-            done_i      => done_jclk(0),
-            overflow_i  => overflow_jclk(0),
-            forced_i    => forced_jclk(0),
-            start_ptr_i => start_ptr_jclk,
+            jtag_clk_i       => reg_clk_o,
+            jtag_rst_i       => reg_rst_o,
+            wr_en_i          => reg_wr_en_o,
+            wr_addr_i        => reg_addr_o,
+            wr_data_i        => reg_wdata_o,
+            rd_addr_i        => reg_addr_o,
+            rd_data_o        => regbank_rdata,
+            armed_i          => armed_jclk(0),
+            triggered_i      => triggered_jclk(0),
+            done_i           => done_jclk(0),
+            overflow_i       => overflow_jclk(0),
+            forced_i         => forced_jclk(0),
+            armed_at_reset_i => armed_at_reset_jclk(0),
+            start_ptr_i      => start_ptr_jclk,
             pretrig_valid_i => pretrig_valid_reg,
             -- v0.8 readback integrity (REA-P2.2). CRC values + crc_valid arrive
             -- with the sweep (P2.2p2-sweep); selftest bits with fill (P2.3).
@@ -810,13 +846,13 @@ begin
     -- ts_done_r status feed below.
     u_trust_core : entity work.rr_rea_trust_core
         generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
-                     G_PUB_SETTLE => 8)
+                     G_PUB_SETTLE => 8, G_ARM_AT_RESET => G_ARM_AT_RESET)
         port map (
             sample_clk_i        => sample_clk_i,
             sample_rst_i        => sample_rst_sync,
             arm_pulse_i         => arm_pulse_sclk,
             reset_pulse_i       => reset_pulse_sclk,
-            armed_i             => armed_sclk,
+            armed_i             => fill_hold_sclk,
             triggered_i         => triggered_sclk,
             done_i              => done_sclk,
             cap_we_i            => dpram_we_sclk,
@@ -948,10 +984,25 @@ begin
     end generate;
 
     u_fsm : entity work.rr_rea_capture_fsm
-        generic map (G_SAMPLE_W => G_SAMPLE_W, G_DEPTH => G_DEPTH,
-                     G_TRIG_CONDS => G_TRIG_CONDS,
-                     G_QUAL_CONDS => G_QUAL_CONDS,
-                     G_TRIG_STAGES => C_SEQ_STAGES)
+        generic map (
+            G_SAMPLE_W         => G_SAMPLE_W,
+            G_DEPTH            => G_DEPTH,
+            G_TRIG_CONDS       => G_TRIG_CONDS,
+            G_QUAL_CONDS       => G_QUAL_CONDS,
+            G_TRIG_STAGES      => C_SEQ_STAGES,
+            G_ARM_AT_RESET     => G_ARM_AT_RESET,
+            G_RESET_PRETRIG    => G_RESET_PRETRIG,
+            G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+            G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+            G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+            G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+            G_RESET_DECIM      => G_RESET_DECIM,
+            G_RESET_COND_CFG   => G_RESET_COND_CFG,
+            G_RESET_COND_VAL   => G_RESET_COND_VAL,
+            G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+            G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+            G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
+        )
         port map (
             sample_clk_i    => sample_clk_i,
             sample_rst_i    => sample_rst_sync,
@@ -992,11 +1043,12 @@ begin
             qual_masks_i   => qual_masks_sclk,
             qual_ops_i     => qual_ops_sclk,
             qual_valid_i   => qual_valid_sclk,
-            armed_o       => armed_sclk,
-            triggered_o   => triggered_sclk,
-            done_o        => done_sclk,
-            overflow_o    => overflow_sclk,
-            forced_o      => forced_sclk,
+            armed_o          => armed_sclk,
+            triggered_o      => triggered_sclk,
+            done_o           => done_sclk,
+            overflow_o       => overflow_sclk,
+            forced_o         => forced_sclk,
+            armed_at_reset_o => armed_at_reset_sclk,
             trigger_o => trigger_out_sclk,
             dpram_we_o    => dpram_we_sclk,
             dpram_addr_o  => dpram_addr_sclk,
@@ -1039,6 +1091,20 @@ begin
         port map (dst_clk_i => reg_clk_o,
                   din_i(0) => forced_sclk,
                   dout_o => forced_jclk);
+
+    -- REA-P2.32: STATUS[10] armed_at_reset. Sticky from sample_rst_i to the
+    -- next host arm/reset, so a flag sync is sound, like forced.
+    u_cdc_armed_at_reset : rr_rea_sync_word
+        generic map (G_WIDTH => 1)
+        port map (dst_clk_i => reg_clk_o,
+                  din_i(0) => armed_at_reset_sclk,
+                  dout_o => armed_at_reset_jclk);
+
+    -- REA-P2.32 (REA-REQ-978): fill refusal input of the trust core. Both
+    -- terms are sample-domain FSM registers, so this is a same-domain OR.
+    -- With G_ARM_AT_RESET = false armed_at_reset_sclk is constant '0' and
+    -- this is armed_sclk, as before.
+    fill_hold_sclk <= armed_sclk or armed_at_reset_sclk;
 
     u_cdc_start_ptr : rr_rea_sync_word
         generic map (G_WIDTH => C_PTR_W)

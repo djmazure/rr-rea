@@ -36,6 +36,8 @@
 --   REQ-800 : publication can only be pending once the sweep engine is idle.
 --   REQ-803 : the invalidate toggle flips ONLY on an arm / soft-reset pulse.
 --   REQ-807 : CAPTURE_EPOCH bumps on exactly arm / soft-reset / accepted fill.
+--             sample_rst_i loads 0, or 1 with G_ARM_AT_RESET = true: the
+--             reset arm is that build's first accepted arm (REA-REQ-977).
 --   REQ-808 : snapshot-settle-toggle publication; a mid-flight epoch change
 --             (arm / fill / reset) cancels the publish (invalidation wins).
 --   REQ-810 : port-A single-owner — fill / capture / sweep are mutually
@@ -54,7 +56,10 @@ entity rr_rea_trust_core is
     generic (
         G_SAMPLE_W   : positive := 12;
         G_DEPTH      : positive := 4096;
-        G_PUB_SETTLE : natural  := 8      -- publication settle window (cycles)
+        G_PUB_SETTLE : natural  := 8;     -- publication settle window (cycles)
+        -- REA-P2.32 (REA-REQ-977): the core leaves sample_rst_i armed, so that
+        -- arm is counted. false (default) = the pre-P2.32 reset value 0.
+        G_ARM_AT_RESET : boolean := false
     );
     port (
         sample_clk_i    : in  std_logic;
@@ -109,8 +114,14 @@ architecture rtl of rr_rea_trust_core is
 
     constant C_PTR_W : positive := clog2(G_DEPTH);
 
+    -- REA-P2.32: CAPTURE_EPOCH out of sample_rst_i. A reset-armed build
+    -- (G_ARM_AT_RESET) has already accepted one arm, the reset arm, so its
+    -- boot capture is generation 1 and the first host arm reads 2.
+    constant C_EPOCH_RESET : std_logic_vector(31 downto 0) :=
+        (0 => rea_bool_to_sl(G_ARM_AT_RESET), others => '0');
+
     -- Epoch / invalidate.
-    signal capture_epoch_r    : std_logic_vector(31 downto 0) := (others => '0');
+    signal capture_epoch_r    : std_logic_vector(31 downto 0) := C_EPOCH_RESET;
     signal invalidate_toggle_r : std_logic := '0';
 
     -- Sweep.
@@ -149,11 +160,12 @@ begin
 
     -- ── CAPTURE_EPOCH counter (REQ-807) ──────────────────────────────
     -- Bumps on exactly: accepted arm, soft reset, accepted selftest fill.
-    -- sample_rst_i is the hard reset to 0. Nothing else moves it.
+    -- sample_rst_i is the hard reset to C_EPOCH_RESET (0, or 1 when the core
+    -- leaves reset armed, REA-P2.32). Nothing else moves it.
     process (sample_clk_i, sample_rst_i)
     begin
         if sample_rst_i = '1' then
-            capture_epoch_r <= (others => '0');
+            capture_epoch_r <= C_EPOCH_RESET;
         elsif rising_edge(sample_clk_i) then
             if arm_pulse_i = '1' or reset_pulse_i = '1'
                or fill_accept = '1' then     -- REQ-853: accepted fill bumps epoch

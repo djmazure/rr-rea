@@ -5,14 +5,16 @@
 --
 -- Sits between the JTAG protocol decoder (rr_rea_jtag_iface) and the
 -- capture_i FSM (rr_rea_capture_fsm). Implements the SW-interface
--- contract from SPEC.md (REA-REQ-010..012, REA-REQ-971, REA-REQ-972..974).
+-- contract from SPEC.md (REA-REQ-010..012, REA-REQ-971, REA-REQ-972..974,
+-- REA-REQ-977..978).
 -- Synchronous to jtag_clk_i; CDC to/from sample_clk_i is the separate rr_rea_cdc block's job.
 --
 -- v0.1 register map (full table in SPEC.md):
---   0x00 RO  VERSION       0x52454111 ('REA' + v0.17 feature tier; single-sourced
+--   0x00 RO  VERSION       0x52454113 ('REA' + v0.19 feature tier; single-sourced
 --                          as rr_rea_pkg.C_REA_VERSION — never re-typed)
 --   0x04 WO  CTRL          arm_toggle/reset_toggle/force_trig_toggle (REA-P2.28)
---   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o, [9] forced
+--   0x08 RO  STATUS        armed_o/triggered_o/done_o/overflow_o, [9] forced,
+--                          [10] armed_at_reset (REA-P2.32)
 --   0x0C RO  SAMPLE_W      synth-time generic
 --   0x10 RO  DEPTH         synth-time generic
 --   0x14 RW  PRETRIG
@@ -71,7 +73,23 @@ entity rr_rea_regbank is
         -- REA-P2.20: true iff the JTAG door uses the 50-bit guarded DR
         -- (rr_rea_top passes G_DR_GUARD and G_REG_IFACE = "jtag"). Only
         -- FEATURES[31] reads it (REA-REQ-969).
-        G_DR_GUARD    : boolean  := false
+        G_DR_GUARD    : boolean  := false;
+        -- REA-P2.32: synthesis-time reset-armed configuration (REA-REQ-977..978).
+        -- When G_ARM_AT_RESET = true, the RW configuration registers initialize
+        -- to these values so a host reading the frozen boot capture with no write
+        -- sees the exact PRETRIG/POSTTRIG/CAPTURE_LEN/TRIG_* configuration.
+        G_ARM_AT_RESET     : boolean := false;
+        G_RESET_PRETRIG    : natural := 0;
+        G_RESET_POSTTRIG   : natural := 0;
+        G_RESET_TRIG_MODE  : natural := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK  : natural := 0;
+        G_RESET_DECIM      : natural := 0;
+        G_RESET_COND_CFG   : natural := 0;
+        G_RESET_COND_VAL   : natural := 0;
+        G_RESET_QUAL_MODE  : natural := 0;
+        G_RESET_QUAL_CFG   : natural := 0;
+        G_RESET_QUAL_VAL   : natural := 0
         -- RTL-T2.119: G_BUILD_ID generic removed — BUILD_ID (0xD4) now reads
         -- C_REA_BUILD_ID directly from rr_rea_build_id_pkg (a std_logic_vector
         -- generic didn't survive Vivado synthesis).
@@ -95,6 +113,9 @@ entity rr_rea_regbank is
         -- REA-P2.28: STATUS[9], the capture was forced (sample domain, sync'd).
         -- Defaults '0' so the regbank unit tests need not wire it.
         forced_i    : in std_logic := '0';
+        -- REA-P2.32: STATUS[10], the core came out of reset armed (sample domain,
+        -- sync'd). Defaults '0' so the regbank unit tests need not wire it.
+        armed_at_reset_i : in std_logic := '0';
         start_ptr_i : in std_logic_vector(clog2(G_DEPTH) - 1 downto 0);
 
         -- ── v0.8 readback-integrity status (jtag_clk_i domain; crossed
@@ -179,27 +200,93 @@ end entity;
 
 architecture rtl of rr_rea_regbank is
 
-    constant C_PTR_W : positive := clog2(G_DEPTH);
+    constant C_PTR_W      : positive := clog2(G_DEPTH);
+    constant C_TRIG_WORDS : positive := trig_words(G_SAMPLE_W);
+    constant C_SEQ_STAGES : positive := max_nat(1, G_TRIG_STAGES);
+    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
+
+    -- ── REA-P2.32 reset-armed defaults ───────────────────────────
+    constant C_RESET_PRETRIG : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_PRETRIG);
+    constant C_RESET_POSTTRIG : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_POSTTRIG);
+    constant C_RESET_TRIG_MODE : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_TRIG_MODE);
+    constant C_RESET_TRIG_VALUE_FLAT : std_logic_vector(
+        C_TRIG_WORDS * 32 - 1 downto 0) :=
+        rea_reset_flat_word0(G_ARM_AT_RESET, C_TRIG_WORDS * 32, G_RESET_TRIG_VALUE);
+    constant C_RESET_TRIG_MASK_FLAT : std_logic_vector(
+        C_TRIG_WORDS * 32 - 1 downto 0) :=
+        rea_reset_flat_word0(G_ARM_AT_RESET, C_TRIG_WORDS * 32, G_RESET_TRIG_MASK);
+    constant C_RESET_DECIM_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET, G_RESET_DECIM);
+    constant C_RESET_DECIM : std_logic_vector(23 downto 0) :=
+        C_RESET_DECIM_U32(23 downto 0);
+    constant C_RESET_COND_CFG_FLAT : std_logic_vector(
+        G_TRIG_CONDS * 32 - 1 downto 0) :=
+        rea_reset_cfg_flat_slot0(G_ARM_AT_RESET, G_TRIG_CONDS, G_RESET_COND_CFG);
+    constant C_RESET_COND_VAL_FLAT : std_logic_vector(
+        G_TRIG_CONDS * 32 - 1 downto 0) :=
+        rea_reset_flat_word0(G_ARM_AT_RESET, G_TRIG_CONDS * 32, G_RESET_COND_VAL);
+    constant C_RESET_QUAL_MODE_U32 : std_logic_vector(31 downto 0) :=
+        rea_reset_u32(G_ARM_AT_RESET and G_QUAL_CONDS > 0, G_RESET_QUAL_MODE);
+    constant C_RESET_QUAL_MODE : std_logic_vector(31 downto 0) :=
+        x"0000000" & "00" & C_RESET_QUAL_MODE_U32(1 downto 0);
+    constant C_RESET_QUAL_CFG_FLAT : std_logic_vector(
+        C_QUAL_SLOTS * 32 - 1 downto 0) :=
+        rea_reset_cfg_flat_slot0(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_VAL_FLAT : std_logic_vector(
+        C_QUAL_SLOTS * 32 - 1 downto 0) :=
+        rea_reset_flat_word0(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS * 32, G_RESET_QUAL_VAL);
+    constant C_RESET_COND_VALID : std_logic_vector(G_TRIG_CONDS - 1 downto 0) :=
+        rea_expand_slot0_valid(G_ARM_AT_RESET, G_TRIG_CONDS, G_RESET_COND_CFG);
+    constant C_RESET_COND_OPS : std_logic_vector(G_TRIG_CONDS * 4 - 1 downto 0) :=
+        rea_expand_slot0_ops(G_ARM_AT_RESET, G_TRIG_CONDS, G_RESET_COND_CFG);
+    constant C_RESET_COND_MASKS : std_logic_vector(
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_masks(
+            G_ARM_AT_RESET, G_TRIG_CONDS, G_SAMPLE_W, G_RESET_COND_CFG);
+    constant C_RESET_COND_VALUES : std_logic_vector(
+        G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_values(
+            G_ARM_AT_RESET, G_TRIG_CONDS, G_SAMPLE_W,
+            G_RESET_COND_CFG, G_RESET_COND_VAL);
+    constant C_RESET_QUAL_VALID : std_logic_vector(C_QUAL_SLOTS - 1 downto 0) :=
+        rea_expand_slot0_valid(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_OPS : std_logic_vector(C_QUAL_SLOTS * 4 - 1 downto 0) :=
+        rea_expand_slot0_ops(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_MASKS : std_logic_vector(
+        C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_masks(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS,
+            G_SAMPLE_W, G_RESET_QUAL_CFG);
+    constant C_RESET_QUAL_VALUES : std_logic_vector(
+        C_QUAL_SLOTS * G_SAMPLE_W - 1 downto 0) :=
+        rea_expand_slot0_values(
+            G_ARM_AT_RESET and G_QUAL_CONDS > 0, C_QUAL_SLOTS,
+            G_SAMPLE_W, G_RESET_QUAL_CFG, G_RESET_QUAL_VAL);
 
     -- ── Storage for RW registers ─────────────────────────────────
-    signal pretrig_r    : std_logic_vector(31 downto 0) := (others => '0');
-    signal posttrig_r   : std_logic_vector(31 downto 0) := (others => '0');
-    signal trig_mode_r  : std_logic_vector(31 downto 0) := (others => '0');
+    signal pretrig_r    : std_logic_vector(31 downto 0) := C_RESET_PRETRIG;
+    signal posttrig_r   : std_logic_vector(31 downto 0) := C_RESET_POSTTRIG;
+    signal trig_mode_r  : std_logic_vector(31 downto 0) := C_RESET_TRIG_MODE;
     -- RTL-P2.658(b): banked trigger value/mask. trig_words(G_SAMPLE_W) =
     -- ceil(W/32) 32-bit words held in a flat vector; the JTAG datapath
     -- pages through them via trig_word_sel_r (0x2C). For G_SAMPLE_W<=32
     -- there is exactly one word and trig_word_sel_r stays 0, so the
     -- 0x24/0x28 register behaviour is byte-identical to the legacy path.
-    constant C_TRIG_WORDS : positive := trig_words(G_SAMPLE_W);
     signal trig_value_flat : std_logic_vector(C_TRIG_WORDS * 32 - 1 downto 0)
-                                 := (others => '0');
+                                 := C_RESET_TRIG_VALUE_FLAT;
     signal trig_mask_flat  : std_logic_vector(C_TRIG_WORDS * 32 - 1 downto 0)
-                                 := (others => '0');
+                                 := C_RESET_TRIG_MASK_FLAT;
     signal trig_word_sel_r : unsigned(7 downto 0) := (others => '0');
     -- REA-P3.7: sequencer stage value/mask, banked like trig_value/mask
     -- (C_TRIG_WORDS words per stage, paged by trig_word_sel_r), and each
     -- stage's 16-bit count_target (SEQ_CFG[15:0]).
-    constant C_SEQ_STAGES : positive := max_nat(1, G_TRIG_STAGES);
     signal seq_value_flat : std_logic_vector(
         C_SEQ_STAGES * C_TRIG_WORDS * 32 - 1 downto 0) := (others => '0');
     signal seq_mask_flat  : std_logic_vector(
@@ -218,7 +305,7 @@ architecture rtl of rr_rea_regbank is
     signal selftest_seed_r  : std_logic_vector(31 downto 0) := (others => '0');
     signal chan_sel_r   : std_logic_vector(31 downto 0) := (others => '0');
     -- REA-P2.23: DECIM is 24-bit (bits 31:24 read 0 and are not stored).
-    signal decim_r      : std_logic_vector(23 downto 0) := (others => '0');
+    signal decim_r      : std_logic_vector(23 downto 0) := C_RESET_DECIM;
     -- RTL-P2.837: write-side source storage. Resets to 0 so the low
     -- G_NUM_SOURCE bits (source_o) power up holding the gated DUT signal
     -- in its safe/inactive state until the host writes SOURCE (0x3C).
@@ -230,18 +317,17 @@ architecture rtl of rr_rea_regbank is
     -- compare value (right-aligned in the field). Expanded combinationally
     -- below into the full-width cond_*_out the FSM consumes.
     signal cond_cfg_flat : std_logic_vector(G_TRIG_CONDS * 32 - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_COND_CFG_FLAT;
     signal cond_val_flat : std_logic_vector(G_TRIG_CONDS * 32 - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_COND_VAL_FLAT;
     signal cond_sel_r    : unsigned(7 downto 0) := (others => '0');
 
     -- ── REA-P2.7 storage-qualifier storage (same compact slot encoding) ──
-    constant C_QUAL_SLOTS : positive := max_nat(1, G_QUAL_CONDS);
-    signal qual_mode_r   : std_logic_vector(31 downto 0) := (others => '0');
+    signal qual_mode_r   : std_logic_vector(31 downto 0) := C_RESET_QUAL_MODE;
     signal qual_cfg_flat : std_logic_vector(C_QUAL_SLOTS * 32 - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_CFG_FLAT;
     signal qual_val_flat : std_logic_vector(C_QUAL_SLOTS * 32 - 1 downto 0)
-                               := (others => '0');
+                               := C_RESET_QUAL_VAL_FLAT;
     -- REA-P2.10: combinational expansion, registered by p_expand_reg.
     signal cond_masks_c  : std_logic_vector(G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
     signal cond_values_c : std_logic_vector(G_TRIG_CONDS * G_SAMPLE_W - 1 downto 0);
@@ -501,14 +587,14 @@ begin
     p_expand_reg : process (jtag_clk_i, jtag_rst_i)
     begin
         if jtag_rst_i = '1' then
-            cond_masks_o  <= (others => '0');
-            cond_values_o <= (others => '0');
-            cond_ops_o    <= (others => '0');
-            cond_valid_o  <= (others => '0');
-            qual_masks_o  <= (others => '0');
-            qual_values_o <= (others => '0');
-            qual_ops_o    <= (others => '0');
-            qual_valid_o  <= (others => '0');
+            cond_masks_o  <= C_RESET_COND_MASKS;
+            cond_values_o <= C_RESET_COND_VALUES;
+            cond_ops_o    <= C_RESET_COND_OPS;
+            cond_valid_o  <= C_RESET_COND_VALID;
+            qual_masks_o  <= C_RESET_QUAL_MASKS;
+            qual_values_o <= C_RESET_QUAL_VALUES;
+            qual_ops_o    <= C_RESET_QUAL_OPS;
+            qual_valid_o  <= C_RESET_QUAL_VALID;
         elsif rising_edge(jtag_clk_i) then
             cond_masks_o  <= cond_masks_c;
             cond_values_o <= cond_values_c;
@@ -525,11 +611,11 @@ begin
     process (jtag_clk_i, jtag_rst_i)
     begin
         if jtag_rst_i = '1' then
-            pretrig_r      <= (others => '0');
-            posttrig_r     <= (others => '0');
-            trig_mode_r    <= (others => '0');
-            trig_value_flat <= (others => '0');
-            trig_mask_flat  <= (others => '0');
+            pretrig_r      <= C_RESET_PRETRIG;
+            posttrig_r     <= C_RESET_POSTTRIG;
+            trig_mode_r    <= C_RESET_TRIG_MODE;
+            trig_value_flat <= C_RESET_TRIG_VALUE_FLAT;
+            trig_mask_flat  <= C_RESET_TRIG_MASK_FLAT;
             trig_word_sel_r <= (others => '0');
             seq_value_flat  <= (others => '0');
             seq_mask_flat   <= (others => '0');
@@ -538,15 +624,15 @@ begin
             data_plane_sel_r <= '0';
             selftest_ctrl_r <= '0';
             selftest_seed_r <= (others => '0');
-            cond_cfg_flat  <= (others => '0');
-            cond_val_flat  <= (others => '0');
+            cond_cfg_flat  <= C_RESET_COND_CFG_FLAT;
+            cond_val_flat  <= C_RESET_COND_VAL_FLAT;
             cond_sel_r     <= (others => '0');
-            qual_mode_r    <= (others => '0');
-            qual_cfg_flat  <= (others => '0');
-            qual_val_flat  <= (others => '0');
+            qual_mode_r    <= C_RESET_QUAL_MODE;
+            qual_cfg_flat  <= C_RESET_QUAL_CFG_FLAT;
+            qual_val_flat  <= C_RESET_QUAL_VAL_FLAT;
             qual_sel_r     <= (others => '0');
             chan_sel_r     <= (others => '0');
-            decim_r        <= (others => '0');
+            decim_r        <= C_RESET_DECIM;
             source_r       <= (others => '0');
             arm_toggle_r   <= '0';
             reset_toggle_r <= '0';
@@ -748,6 +834,7 @@ begin
         status(C_STATUS_BIT_SELFTEST_MODE)    := selftest_mode_i;
         status(C_STATUS_BIT_SELFTEST_REFUSED) := selftest_refused_i;
         status(C_STATUS_BIT_FORCED)           := forced_i;
+        status(C_STATUS_BIT_ARMED_AT_RESET)   := armed_at_reset_i;
 
         spr := (others => '0');
         spr(C_PTR_W - 1 downto 0) := start_ptr_i;

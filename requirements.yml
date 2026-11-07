@@ -178,7 +178,7 @@ functional_contract:
     spec: [{ doc: SPEC.md, clause: "SW Interface Contract (frozen)" }]
     desc: >-
       VERSION (0x00, RO) SHALL read the exact current feature-tier magic
-      0x52454111 (v0.17, REA-P2.28 CTRL[2] force-trigger and STATUS[9] forced; v0.15 added the REA-P3.7 sequencer register window, v0.13 TRIG_LATENCY, v0.11 storage qualification). The value is a protocol discriminator, not an
+      0x52454113 (v0.19, REA-P2.32 G_ARM_AT_RESET and STATUS[10] armed_at_reset; v0.17 added REA-P2.28 CTRL[2] force-trigger and STATUS[9] forced, v0.15 the REA-P3.7 sequencer register window, v0.13 TRIG_LATENCY, v0.11 storage qualification). The value is a protocol discriminator, not an
       inferred string or a mutable register. The tier byte is ODD by
       permanent contract (REA-REQ-806) — the one-read odd-VERSION probe
       is how a wide-readback miscompile is detected (RTL-P1.96).
@@ -834,8 +834,8 @@ functional_contract:
       FEATURES[19] (readback_integrity) is derived from the same elaboration
       constant (C_HAS_READBACK_INTEGRITY) whose generate produces the sweep
       logic — never hand-set — preserving the generic-derived fingerprint
-      invariant. VERSION reads the current tier magic (0x52454111 since
-      REA-P2.28); the tier byte is
+      invariant. VERSION reads the current tier magic (0x52454113 since
+      REA-P2.32); the tier byte is
       ODD (structural test: VERSION bit0 = 1, permanent contract for the
       odd-VERSION acceptance probe).
   - id: REA-REQ-807
@@ -845,6 +845,8 @@ functional_contract:
       CAPTURE_EPOCH (0xEC) increments on every accepted arm, accepted
       selftest fill, soft reset, and sweep/fill abort — and on NOTHING else
       (a completed sweep, a JTAG read, or a refused fill do not change it).
+      sample_rst_i resets it to 0, or to 1 on a G_ARM_AT_RESET = true build,
+      whose reset arm is its first accepted arm (REA-P2.32, REA-REQ-977).
       The host's anti-tear anchor: epoch equality across a window read plus
       crc_valid proves the buffer and CRC belong to one generation.
     formal:
@@ -1376,7 +1378,7 @@ functional_contract:
       dropped and such a page reads 0. FEATURES[22] SHALL read 1 exactly when
       G_QUAL_CONDS > 0 and FEATURES[27:24] SHALL read G_QUAL_CONDS (both
       derived from the generic, never hand-set). VERSION SHALL read the current tier
-      magic (0x52454111 since REA-P2.28; tier byte stays odd, REA-REQ-806).
+      magic (0x52454113 since REA-P2.32; tier byte stays odd, REA-REQ-806).
   - id: REA-REQ-959
     kind: behavioral
     spec: [{ doc: SPEC.md, clause: "Storage qualification (REA-P2.7)" }]
@@ -1497,7 +1499,7 @@ functional_contract:
       rr_rea_intel SHALL pass G_DR_GUARD to rr_rea_top, and FEATURES[31]
       SHALL read 1 iff the register door is the guarded JTAG DR (G_DR_GUARD
       and G_REG_IFACE = "jtag"), else 0. Read through the wrapper with
-      50-bit guarded frames, VERSION SHALL read exactly 0x52454111, and an
+      50-bit guarded frames, VERSION SHALL read exactly 0x52454113, and an
       odd value written to a RW register SHALL read back exactly.
   - id: REA-REQ-970
     kind: behavioral
@@ -1549,8 +1551,8 @@ functional_contract:
       CTRL bit[2] and 0 after a capture triggered by the pattern; arm and soft
       reset SHALL clear it. A forced trigger SHALL NOT signal trigger_o (no
       FSM pulse, no rr_rea_top toggle). VERSION
-      SHALL read 0x52454111 (v0.17), the tier that advertises the bit, since
-      FEATURES has no free bit.
+      SHALL read the current tier magic (0x52454113 since REA-P2.32; introduced
+      in v0.17), since FEATURES has no free bit.
 
   # ── REA-P2.29 cross-core trigger ports (trigger_i, trigger_pulse_o) ───
   - id: REA-REQ-975
@@ -1581,3 +1583,49 @@ functional_contract:
       trigger_i SHALL NOT pulse it. trigger_o SHALL stay the toggle that
       rr_rea_trig_xbar consumes. Every vendor wrapper SHALL expose
       trigger_pulse_o driven by rr_rea_top's trigger_pulse_o.
+
+  # ── REA-P2.32 boot-time reset-armed capture (G_ARM_AT_RESET, STATUS[10], v0.19) ──
+  - id: REA-REQ-977
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Boot-time capture (`G_ARM_AT_RESET`, `STATUS` bit[10], REA-P2.32)" }]
+    desc: >-
+      With G_ARM_AT_RESET = true, rr_rea_capture_fsm and rr_rea_regbank SHALL
+      leave reset ARMED with the synthesis-time G_RESET_PRETRIG, G_RESET_POSTTRIG,
+      G_RESET_TRIG_MODE, G_RESET_TRIG_VALUE, G_RESET_TRIG_MASK, G_RESET_DECIM,
+      G_RESET_COND_CFG, G_RESET_COND_VAL, G_RESET_QUAL_MODE, G_RESET_QUAL_CFG
+      and G_RESET_QUAL_VAL configuration in place, without requiring any TCK
+      clock edge or host write. When the configured event arrives after
+      sample_rst_i deasserts, the core SHALL trigger, collect G_RESET_POSTTRIG
+      samples, freeze the window (STATUS triggered|done) and compute its
+      readback CRCs. A host that attaches afterward with NO register write
+      SHALL read the frozen window (PRETRIG, POSTTRIG, CAPTURE_LEN, START_PTR,
+      PRETRIG_VALID, DATA_BASE, CRC_SAMPLE, CRC_TS, CAPTURE_EPOCH) holding the
+      boot transition, with CAPTURE_EPOCH = 1: the reset arm is the build's
+      first accepted arm, so CAPTURE_EPOCH SHALL read 1 from sample_rst_i
+      deassertion, the boot capture completing SHALL NOT move it, and the
+      first host arm SHALL move it to 2 (REA-REQ-807). With G_ARM_AT_RESET =
+      false (the default), every G_RESET_* generic SHALL be ignored, even when
+      non-zero, and the core SHALL leave reset disarmed and zeroed,
+      bit-identical to pre-P2.32 behaviour: STATUS = 0, CAPTURE_EPOCH = 0,
+      every register a G_RESET_* would load at its pre-P2.32 reset value, the
+      G_RESET_TRIG_VALUE pattern SHALL NOT fire the core, and a host-armed
+      capture SHALL behave as before.
+  - id: REA-REQ-978
+    kind: behavioral
+    spec: [{ doc: SPEC.md, clause: "Boot-time capture (`G_ARM_AT_RESET`, `STATUS` bit[10], REA-P2.32)" }]
+    desc: >-
+      STATUS[10] (armed_at_reset, driven by armed_at_reset_o) SHALL read 1 from
+      sample_rst_i reset deassertion when G_ARM_AT_RESET = true (both while
+      armed waiting and after the boot capture finishes), and 0 when
+      G_ARM_AT_RESET = false; a host CTRL reset (bit[1]) or CTRL arm (bit[0])
+      SHALL clear it, and a subsequent host arm SHALL capture using the
+      host-written registers. While STATUS[10] is 1 or a capture is
+      armed/triggered, a selftest fill (SELFTEST_CTRL) SHALL be refused
+      (STATUS[7] = 1) so an attaching host's selftest path cannot overwrite the
+      boot capture before it is read or explicitly reset; armed_at_reset is
+      itself a refusal input of the fill FSM, so the refusal does not depend on
+      the capture FSM's armed/triggered state. After the CTRL[1] that clears
+      STATUS[10], the next selftest fill SHALL be accepted. Every vendor wrapper
+      (rr_rea_xilinx7, rr_rea_intel, rr_rea_microchip / rr_rea_jtag_microchip)
+      SHALL pass G_ARM_AT_RESET and the G_RESET_* generics through to
+      rr_rea_top. VERSION SHALL read 0x52454113 (v0.19).

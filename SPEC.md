@@ -1,4 +1,4 @@
-# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.17)
+# `rr_rea` — RouteRTL Embedded Analyzer (REA) Spec (register map v0.19)
 
 ## What it is
 Architected vendor-neutral on-chip logic analyzer IP, JTAG-attached. Ships three vendor JTAG wrappers: Xilinx 7-series (`rr_rea_jtag_xilinx7`, BSCANE2-based), Intel/Altera (`rr_rea_jtag_intel`, `sld_virtual_jtag`-based) and Microchip PolarFire / PolarFire SoC (`rr_rea_jtag_microchip`, UJTAG-based, since 1.6.0) — selected per-vendor by `ip.yml` `synthesis.sources_per_vendor`. Agilex-family parts auto-route the host transport to QuartusStpJtagd (RTL-P3.747); Arria 10 / Stratix 10 / Cyclone V use the openocd vjtag transport. PolarFire parts use an OpenOCD bridge on the embedded FlashPro5 (RTL-P2.1279). **Frozen 49-bit DR JTAG register interface** at the on-chip layer; on the host side, routertl ships its own first-party client (`REAClient`) that uses the vendored transport for JTAG plumbing only. The seam is clear: routertl owns the capture protocol + register map; the vendored transport owns the JTAG transport layer.
@@ -162,9 +162,9 @@ processes (REA-P2.24, REA-REQ-010).
 
 | Offset | R/W | Name        | Notes |
 |-------:|:---:|:------------|:------|
-| `0x00` | RO  | VERSION     | Magic `0x52454111` ('REA' + v0.17 tier: CTRL[2] force-trigger and STATUS[9] forced (REA-P2.28), after the v0.15 multi-stage sequencer's SEQ window and FEATURES[30:28] depth (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
+| `0x00` | RO  | VERSION     | Magic `0x52454113` ('REA' + v0.19 tier: `G_ARM_AT_RESET` + `G_RESET_*` boot-time armed capture and `STATUS[10]` `armed_at_reset` (REA-P2.32), after v0.17 CTRL[2] force-trigger and STATUS[9] forced (REA-P2.28), the v0.15 multi-stage sequencer's SEQ window and FEATURES[30:28] depth (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification; minor tracks features so the host refuses, not silently degrades). Tier byte is ODD by permanent contract. |
 | `0x04` | WO  | CTRL        | bit[0]=arm_toggle, bit[1]=reset_toggle, bit[2]=force_trig_toggle (v0.17, REA-P2.28: an armed core triggers on the sample present when the command lands; no-op when idle, triggered or done) |
-| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused, [8]=reserved 0 (host in-reset, RTL-P2.1377), [9]=forced (v0.17, REA-P2.28: this capture's trigger came from CTRL[2], not the pattern; cleared by arm and soft reset) |
+| `0x08` | RO  | STATUS      | bit[0]=armed, [1]=triggered, [2]=done, [3]=overflow, [4]=crc_valid, [5]=selftest_busy, [6]=selftest_mode, [7]=selftest_refused, [8]=reserved 0 (host in-reset, RTL-P2.1377), [9]=forced (v0.17, REA-P2.28: this capture's trigger came from CTRL[2], not the pattern; cleared by arm and soft reset), [10]=armed_at_reset (v0.19, REA-P2.32: core came out of reset armed via `G_ARM_AT_RESET`; sticky across the boot capture until cleared by a host CTRL[0] arm or CTRL[1] soft reset) |
 | `0x0C` | RO  | SAMPLE_W    | Synth-time generic |
 | `0x10` | RO  | DEPTH       | Synth-time generic |
 | `0x14` | RW  | PRETRIG     | Pretrigger sample count |
@@ -201,7 +201,7 @@ processes (REA-P2.24, REA-REQ-010).
 | `0x0040` | RW | SEQ_BASE    | Sequencer window 0x40..0x9F (decodes nothing when `G_TRIG_STAGES = 0`, the default): stage K at `0x40 + 20*K` for K < `G_TRIG_STAGES` — +0 `SEQ_CFG` (count_target [15:0]), +4 `SEQ_VALUE`, +8 `SEQ_MASK` (both paged by `TRIG_WORD_SEL`), +0x0C/+0x10 reserved (REA-P3.7, REA-REQ-607) |
 | `0x100`+ | RO | DATA_BASE  | DEPTH addresses; each returns word `DATA_WORD_SEL` from `DATA_PLANE_SEL` |
 
-`VERSION` is the exact 32-bit protocol magic `0x52454111`. `CAPTURE_LEN`
+`VERSION` is the exact 32-bit protocol magic `0x52454113`. `CAPTURE_LEN`
 updates directly from the configured registers as `PRETRIG + POSTTRIG + 1`
 using 32-bit unsigned arithmetic; the host may read it before arm or done.
 `TIMESTAMP_W` reports the exact synth-time generic. In v0.7 a nonzero value is
@@ -353,7 +353,7 @@ sequencer (REA-P3.7)".
 
 ### Identity / content fingerprint (`FEATURES` 0xD0, `BUILD_ID` 0xD4, RTL-P3.1198)
 
-`VERSION` (0x00) is a **hand-set magic** (`0x52454111` at the v0.17 tier). Its minor
+`VERSION` (0x00) is a **hand-set magic** (`0x52454113` at the v0.19 tier). Its minor
 byte is bumped by hand when the feature tier changes, so a diverged fork — even one
 that dropped a fix or rewrote the capture FSM — copies the magic verbatim and reports
 as canonical.
@@ -526,7 +526,7 @@ through `rr_rea_pulse_xfer` like ARM and RESET.
   wins). Arm and soft reset clear it. A forced trigger does not pulse
   `trigger_o`: it is a host command, not a probe event (REA-REQ-974).
 - **Discovery.** `FEATURES` has no free bit, so a host uses the bit only on a
-  core whose `VERSION` is at least `0x52454111` (v0.17). On an older core the
+  core whose `VERSION` is at least `0x52454111` (v0.17). On an older core the <!-- rea-magic:historical -->
   write is dropped and the core keeps waiting.
 - **Order.** Arm first. The host should see `STATUS[0]` armed before it
   forces: a force that reaches the core before the arm is ignored.
@@ -592,6 +592,79 @@ core, and `trigger_o` was only ever a toggle. Verified on nvc:
 clocks, through the xbar), and the per-wrapper port checks in
 `test_rea_wrapper_generics_{xilinx7,intel}_p3_6` and
 `test_rea_wrapper_cross_trigger_microchip_p2_29`. Not yet seen on silicon.
+
+### Boot-time reset-armed capture (`G_ARM_AT_RESET`, `STATUS` bit[10], REA-P2.32)
+
+Normally `rr_rea_capture_fsm` leaves `sample_rst_i` disarmed (`STATUS[0] = 0`)
+and waits for a host `CTRL` arm write over JTAG or AXI4-Lite. A boot-time event
+— a reset sequencer, PLL lock, DDR calibration edge, or first configuration bus
+transaction that finishes before the host attaches — is therefore gone before
+`rr ila capture` can arm the core.
+
+Setting `G_ARM_AT_RESET => true` (default `false`, so every existing build is
+bit-identical) on `rr_rea_capture_fsm`, `rr_rea_regbank`, `rr_rea_top` or any
+vendor wrapper (`rr_rea_xilinx7`, `rr_rea_intel`, `rr_rea_microchip`,
+`rr_rea_jtag_microchip`) brings the core out of `sample_rst_i` **already
+armed** (`STATUS[0] = 1`, `STATUS[10] = 1`) with the synthesis-time reset
+configuration:
+
+| Generic | Type | Default | Reset register / field when `G_ARM_AT_RESET = true` |
+|---|---|---|---|
+| `G_ARM_AT_RESET` | boolean | `false` | Arms on `sample_rst_i` deassertion and sets `STATUS[10]` (`armed_at_reset`) |
+| `G_RESET_PRETRIG` | natural | `0` | `PRETRIG` (0x14) and FSM pre-trigger depth |
+| `G_RESET_POSTTRIG` | natural | `0` | `POSTTRIG` (0x18) and FSM post-trigger depth |
+| `G_RESET_TRIG_MODE` | natural | `0` | `TRIG_MODE` (0x20) |
+| `G_RESET_TRIG_VALUE` | natural | `0` | `TRIG_VALUE` word 0 (0x24; upper words 0) |
+| `G_RESET_TRIG_MASK` | natural | `0` | `TRIG_MASK` word 0 (0x28; upper words 0) |
+| `G_RESET_DECIM` | natural | `0` | `DECIM` (0xB0, low 24 bits) |
+| `G_RESET_COND_CFG` | natural | `0` | Comparator slot 0 `COND_CFG` bits `[30:0]`; non-zero sets `valid` (`[31] = '1'`) |
+| `G_RESET_COND_VAL` | natural | `0` | Comparator slot 0 `COND_VAL` (slots `1..G_TRIG_CONDS-1` reset to 0) |
+| `G_RESET_QUAL_MODE` | natural | `0` | `QUAL_MODE` (0xB4, bits `[1:0]`, when `G_QUAL_CONDS > 0`) |
+| `G_RESET_QUAL_CFG` | natural | `0` | Qualifier slot 0 `QUAL_CFG` bits `[30:0]`; non-zero sets `valid` (`[31] = '1'`, when `G_QUAL_CONDS > 0`) |
+| `G_RESET_QUAL_VAL` | natural | `0` | Qualifier slot 0 `QUAL_VAL` (when `G_QUAL_CONDS > 0`) |
+
+- **Zero host writes to capture.** When the boot transition matches the reset
+  trigger configuration after `sample_rst_i` deasserts, the FSM triggers, fills
+  `G_RESET_POSTTRIG` post-trigger samples, freezes the DPRAM (`STATUS[2:0] =
+  "110"`), and triggers the readback-integrity CRC sweep (`STATUS[4] = 1`,
+  `CRC_SAMPLE`, `CRC_TS`, `CAPTURE_EPOCH = 1`). When the host later attaches, it
+  reads the frozen window through the standard `START_PTR` / `CAPTURE_LEN` /
+  `PRETRIG_VALID` / `DATA_BASE` (or AXI-Stream) path without issuing any `CTRL`
+  write (REA-REQ-977).
+- **`CAPTURE_EPOCH` starts at 1.** The reset arm is the build's first accepted
+  arm, so `rr_rea_trust_core` (generic `G_ARM_AT_RESET`) loads `CAPTURE_EPOCH`
+  with 1 on `sample_rst_i`, not 0. The boot capture completing does not move it;
+  the first host arm moves it to 2 (REA-REQ-807). With `G_ARM_AT_RESET = false`
+  it resets to 0, as before.
+- **Register-bank mirror.** `rr_rea_regbank` initializes `PRETRIG`, `POSTTRIG`,
+  `CAPTURE_LEN`, `TRIG_MODE`, `TRIG_VALUE`, `TRIG_MASK`, `DECIM`, slot 0 of
+  `COND_CFG`/`COND_VAL`, and (when `G_QUAL_CONDS > 0`) `QUAL_MODE` and slot 0 of
+  `QUAL_CFG`/`QUAL_VAL` to the same `G_RESET_*` values on reset, so a host
+  attaching after boot reads the exact window geometry and trigger configuration
+  that framed the capture, and the CDC lines hold matching quasi-static values.
+- **`STATUS[10]` (`armed_at_reset`) and selftest protection.** `STATUS[10]`
+  asserts out of `sample_rst_i` when `G_ARM_AT_RESET = true` and stays `1` while
+  the core waits for the boot event and after the boot capture completes
+  (`done = 1`). `rr_rea_top` drives the fill FSM's refusal input with
+  `armed OR armed_at_reset`, and the FSM also refuses while `triggered`, so
+  `rr_rea_fill_fsm` refuses any `SELFTEST_CTRL` fill toggle (`STATUS[7] = 1`,
+  `selftest_refused`) both while the reset-armed core is waiting and while it
+  holds the completed boot capture, preventing `rr ila selftest` from
+  clobbering the boot window before it is read. A host `CTRL[1]` soft reset or
+  `CTRL[0]` re-arm clears `STATUS[10]` and transitions the core to normal
+  host-controlled operation; after `CTRL[1]` the next selftest fill is
+  accepted (REA-REQ-978).
+- **`G_ARM_AT_RESET = false` ignores every `G_RESET_*`**, even non-zero ones:
+  `STATUS = 0`, `CAPTURE_EPOCH = 0`, every register a `G_RESET_*` would load at
+  its pre-P2.32 reset value, and the reset trigger pattern does not fire the
+  core (REA-REQ-977, `test_rea_arm_at_reset_false_ignores_reset_generics_p2_32`).
+- **Host side is not in this package.** Today `rr ila capture` always arms the
+  core, which discards a boot capture. The `rr ila` debug-descriptor key for
+  these generics and a capture mode that reads the frozen window without
+  re-arming are routertl RTL-P2.2187, which depends on this change. Until it
+  lands, read a boot capture with register reads only (no `CTRL` write).
+- **Discovery.** Runtime feature tier `VERSION` is `0x52454113` (v0.19,
+  `rea_regbank.yml` `0.15.0`, `ip.yml` `1.15.0`).
 
 ### Write-side source (`SOURCE` 0x3C, RTL-P2.837)
 

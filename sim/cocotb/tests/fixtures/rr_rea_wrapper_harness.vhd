@@ -25,7 +25,20 @@ entity rr_rea_wrapper_harness is
         G_TRIG_STAGES : natural  := 0;
         -- REA-P2.20: passed to rr_rea_intel only (the guarded DR is an
         -- Intel-wrapper option today).
-        G_DR_GUARD    : boolean  := false
+        G_DR_GUARD    : boolean  := false;
+        -- REA-P2.32: boot-time reset-armed capture generics.
+        G_ARM_AT_RESET     : boolean := false;
+        G_RESET_PRETRIG    : natural := 0;
+        G_RESET_POSTTRIG   : natural := 0;
+        G_RESET_TRIG_MODE  : natural := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK  : natural := 0;
+        G_RESET_DECIM      : natural := 0;
+        G_RESET_COND_CFG   : natural := 0;
+        G_RESET_COND_VAL   : natural := 0;
+        G_RESET_QUAL_MODE  : natural := 0;
+        G_RESET_QUAL_CFG   : natural := 0;
+        G_RESET_QUAL_VAL   : natural := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -62,12 +75,24 @@ begin
     g_xilinx7 : if G_VENDOR = "xilinx7" generate
         u_dut : entity work.rr_rea_xilinx7
             generic map (
-                G_SAMPLE_W    => G_SAMPLE_W,
-                G_DEPTH       => G_DEPTH,
-                G_TIMESTAMP_W => G_TIMESTAMP_W,
-                G_QUAL_CONDS  => G_QUAL_CONDS,
-                G_TRIG_CONDS  => G_TRIG_CONDS,
-                G_TRIG_STAGES => G_TRIG_STAGES
+                G_SAMPLE_W         => G_SAMPLE_W,
+                G_DEPTH            => G_DEPTH,
+                G_TIMESTAMP_W      => G_TIMESTAMP_W,
+                G_QUAL_CONDS       => G_QUAL_CONDS,
+                G_TRIG_CONDS       => G_TRIG_CONDS,
+                G_TRIG_STAGES      => G_TRIG_STAGES,
+                G_ARM_AT_RESET     => G_ARM_AT_RESET,
+                G_RESET_PRETRIG    => G_RESET_PRETRIG,
+                G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+                G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+                G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+                G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+                G_RESET_DECIM      => G_RESET_DECIM,
+                G_RESET_COND_CFG   => G_RESET_COND_CFG,
+                G_RESET_COND_VAL   => G_RESET_COND_VAL,
+                G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+                G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+                G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
             )
             port map (
                 sample_clk_i  => sample_clk_i,
@@ -84,13 +109,25 @@ begin
     g_intel : if G_VENDOR = "intel" generate
         u_dut : entity work.rr_rea_intel
             generic map (
-                G_SAMPLE_W    => G_SAMPLE_W,
-                G_DEPTH       => G_DEPTH,
-                G_TIMESTAMP_W => G_TIMESTAMP_W,
-                G_QUAL_CONDS  => G_QUAL_CONDS,
-                G_TRIG_CONDS  => G_TRIG_CONDS,
-                G_TRIG_STAGES => G_TRIG_STAGES,
-                G_DR_GUARD    => G_DR_GUARD
+                G_SAMPLE_W         => G_SAMPLE_W,
+                G_DEPTH            => G_DEPTH,
+                G_TIMESTAMP_W      => G_TIMESTAMP_W,
+                G_QUAL_CONDS       => G_QUAL_CONDS,
+                G_TRIG_CONDS       => G_TRIG_CONDS,
+                G_TRIG_STAGES      => G_TRIG_STAGES,
+                G_DR_GUARD         => G_DR_GUARD,
+                G_ARM_AT_RESET     => G_ARM_AT_RESET,
+                G_RESET_PRETRIG    => G_RESET_PRETRIG,
+                G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+                G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+                G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+                G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+                G_RESET_DECIM      => G_RESET_DECIM,
+                G_RESET_COND_CFG   => G_RESET_COND_CFG,
+                G_RESET_COND_VAL   => G_RESET_COND_VAL,
+                G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+                G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+                G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
             )
             port map (
                 sample_clk_i  => sample_clk_i,

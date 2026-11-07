@@ -87,7 +87,10 @@ package rr_rea_pkg is
     -- v0.17 (REA-P2.28) adds CTRL[2] force-trigger and STATUS[9] forced: a
     -- register semantic changed and FEATURES has no free bit to advertise it,
     -- so the tier moves to the next ODD minor (REA-REQ-913, REA-REQ-806).
-    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454111";
+    -- v0.19 (REA-P2.32) adds G_ARM_AT_RESET + G_RESET_* synthesis defaults and
+    -- STATUS[10] armed_at_reset: the core can come out of reset ARMED and capture
+    -- a boot-time transition before the host attaches; next ODD minor again.
+    constant C_REA_VERSION : std_logic_vector(31 downto 0) := x"52454113";
 
     -- ── JTAG register map (host SW contract — DO NOT renumber) ───
     constant C_ADDR_VERSION     : unsigned(15 downto 0) := C_REGBANK_ADDR_VERSION;
@@ -278,7 +281,7 @@ package rr_rea_pkg is
     -- (Vivado ILA "Run Trigger Immediate"); PRETRIG/POSTTRIG still frame the
     -- window. Idle, triggered or done: a no-op. STATUS[9] tells the host the
     -- capture was forced. No FEATURES bit is free, so a host gates it on
-    -- VERSION >= 0x52454111.
+    -- VERSION >= 0x52454111.  -- rea-magic:historical
     constant C_CTRL_BIT_FORCE_TRIG : natural := 2;
 
     -- ── STATUS register bit assignments ──────────────────────────
@@ -294,6 +297,9 @@ package rr_rea_pkg is
     -- REA-P2.28: this capture's trigger came from C_CTRL_BIT_FORCE_TRIG, not
     -- the trigger pattern. Sticky until the next arm or soft reset.
     constant C_STATUS_BIT_FORCED           : natural := 9;
+    -- REA-P2.32 (v0.19): core came out of reset armed (G_ARM_AT_RESET = true).
+    -- Sticky across the boot capture until a host CTRL arm or CTRL reset clears it.
+    constant C_STATUS_BIT_ARMED_AT_RESET   : natural := 10;
 
     -- ── TRIG_MODE values ─────────────────────────────────────────
     constant C_TRIG_MODE_VALUE_MATCH : std_logic_vector(31 downto 0) := x"00000001";
@@ -424,6 +430,66 @@ package rr_rea_pkg is
     -- Number of 32-bit words needed to hold a w-bit value: ceil(w/32).
     function trig_words(w : positive) return positive;
 
+    -- REA-P2.32: pure helpers for synthesis-time reset-armed configuration
+    -- (G_ARM_AT_RESET = true). When arm_at_reset is false, every helper returns
+    -- all zeros so default builds stay bit-identical to pre-P2.32.
+    function rea_bool_to_sl(b : boolean) return std_logic;
+
+    function rea_reset_pf_thr_m1(
+        exact_count : boolean;
+        thr         : unsigned
+    ) return unsigned;
+
+    function rea_reset_pf_thr_low(
+        exact_count : boolean;
+        thr         : unsigned;
+        pf_k        : positive
+    ) return unsigned;
+
+    function rea_reset_u32(
+        arm_at_reset : boolean;
+        val_word     : natural
+    ) return std_logic_vector;
+
+    function rea_reset_flat_word0(
+        arm_at_reset : boolean;
+        total_w      : positive;
+        word0        : natural
+    ) return std_logic_vector;
+
+    function rea_reset_cfg_flat_slot0(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector;
+
+    function rea_expand_slot0_valid(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector;
+
+    function rea_expand_slot0_ops(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector;
+
+    function rea_expand_slot0_masks(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        sample_w     : positive;
+        cfg_31       : natural
+    ) return std_logic_vector;
+
+    function rea_expand_slot0_values(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        sample_w     : positive;
+        cfg_31       : natural;
+        val_word     : natural
+    ) return std_logic_vector;
+
 end package;
 
 package body rr_rea_pkg is
@@ -491,6 +557,180 @@ package body rr_rea_pkg is
     function trig_words(w : positive) return positive is
     begin
         return (w + C_TRIG_WORD_W - 1) / C_TRIG_WORD_W;
+    end function;
+
+    function rea_bool_to_sl(b : boolean) return std_logic is
+    begin
+        if b then
+            return '1';
+        end if;
+        return '0';
+    end function;
+
+    function rea_reset_pf_thr_m1(
+        exact_count : boolean;
+        thr         : unsigned
+    ) return unsigned is
+        variable res_v : unsigned(thr'length - 1 downto 0) := (others => '0');
+    begin
+        if exact_count then
+            res_v := thr;
+        elsif thr /= 0 then
+            res_v := thr - 1;
+        end if;
+        return res_v;
+    end function;
+
+    function rea_reset_pf_thr_low(
+        exact_count : boolean;
+        thr         : unsigned;
+        pf_k        : positive
+    ) return unsigned is
+    begin
+        if exact_count then
+            return resize(thr, pf_k) + 1;
+        end if;
+        return resize(thr, pf_k);
+    end function;
+
+    function rea_reset_u32(
+        arm_at_reset : boolean;
+        val_word     : natural
+    ) return std_logic_vector is
+        variable res_v : std_logic_vector(31 downto 0) := (others => '0');
+    begin
+        if arm_at_reset then
+            res_v := std_logic_vector(to_unsigned(val_word, 32));
+        end if;
+        return res_v;
+    end function;
+
+    function rea_reset_flat_word0(
+        arm_at_reset : boolean;
+        total_w      : positive;
+        word0        : natural
+    ) return std_logic_vector is
+        variable res_v  : std_logic_vector(total_w - 1 downto 0) := (others => '0');
+        variable word_v : std_logic_vector(31 downto 0);
+    begin
+        if arm_at_reset then
+            word_v := std_logic_vector(to_unsigned(word0, 32));
+            if total_w >= 32 then
+                res_v(31 downto 0) := word_v;
+            else
+                res_v(total_w - 1 downto 0) := word_v(total_w - 1 downto 0);
+            end if;
+        end if;
+        return res_v;
+    end function;
+
+    function rea_reset_cfg_flat_slot0(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector is
+        variable res_v : std_logic_vector(num_slots * 32 - 1 downto 0) := (others => '0');
+    begin
+        if arm_at_reset and cfg_31 > 0 then
+            res_v(31)          := '1';
+            res_v(30 downto 0) := std_logic_vector(to_unsigned(cfg_31, 31));
+        end if;
+        return res_v;
+    end function;
+
+    function rea_expand_slot0_valid(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector is
+        variable res_v : std_logic_vector(num_slots - 1 downto 0) := (others => '0');
+    begin
+        if arm_at_reset and cfg_31 > 0 then
+            res_v(0) := '1';
+        end if;
+        return res_v;
+    end function;
+
+    function rea_expand_slot0_ops(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        cfg_31       : natural
+    ) return std_logic_vector is
+        variable res_v  : std_logic_vector(num_slots * C_TRIG_OP_WIDTH - 1 downto 0) := (others => '0');
+        variable cfg_v  : std_logic_vector(31 downto 0) := (others => '0');
+    begin
+        if arm_at_reset and cfg_31 > 0 then
+            cfg_v(30 downto 0) := std_logic_vector(to_unsigned(cfg_31, 31));
+            res_v(C_TRIG_OP_WIDTH - 1 downto 0) :=
+                cfg_v(C_COND_OP_LSB + C_TRIG_OP_WIDTH - 1 downto C_COND_OP_LSB);
+        end if;
+        return res_v;
+    end function;
+
+    function rea_expand_slot0_masks(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        sample_w     : positive;
+        cfg_31       : natural
+    ) return std_logic_vector is
+        variable res_v  : std_logic_vector(num_slots * sample_w - 1 downto 0) := (others => '0');
+        variable cfg_v  : std_logic_vector(31 downto 0) := (others => '0');
+        variable wid_v  : natural;
+        variable lsb_v  : natural;
+        variable ones_v : unsigned(sample_w - 1 downto 0) := (others => '1');
+        variable lowm_v : unsigned(sample_w - 1 downto 0) := (others => '0');
+    begin
+        if arm_at_reset and cfg_31 > 0 then
+            cfg_v(30 downto 0) := std_logic_vector(to_unsigned(cfg_31, 31));
+            wid_v := to_integer(unsigned(cfg_v(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)));
+            lsb_v := to_integer(unsigned(
+                cfg_v(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB) &
+                cfg_v(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
+            if wid_v = 0 then
+                lowm_v := (others => '0');
+            elsif wid_v >= sample_w then
+                lowm_v := ones_v;
+            else
+                lowm_v := shift_right(ones_v, sample_w - wid_v);
+            end if;
+            res_v(sample_w - 1 downto 0) := std_logic_vector(shift_left(lowm_v, lsb_v));
+        end if;
+        return res_v;
+    end function;
+
+    function rea_expand_slot0_values(
+        arm_at_reset : boolean;
+        num_slots    : positive;
+        sample_w     : positive;
+        cfg_31       : natural;
+        val_word     : natural
+    ) return std_logic_vector is
+        variable res_v  : std_logic_vector(num_slots * sample_w - 1 downto 0) := (others => '0');
+        variable cfg_v  : std_logic_vector(31 downto 0) := (others => '0');
+        variable val_v  : unsigned(31 downto 0);
+        variable wid_v  : natural;
+        variable lsb_v  : natural;
+        variable ones_v : unsigned(sample_w - 1 downto 0) := (others => '1');
+        variable lowm_v : unsigned(sample_w - 1 downto 0) := (others => '0');
+    begin
+        if arm_at_reset and cfg_31 > 0 then
+            cfg_v(30 downto 0) := std_logic_vector(to_unsigned(cfg_31, 31));
+            val_v := to_unsigned(val_word, 32);
+            wid_v := to_integer(unsigned(cfg_v(C_COND_WIDTH_LSB + 7 downto C_COND_WIDTH_LSB)));
+            lsb_v := to_integer(unsigned(
+                cfg_v(C_COND_LSB_HI_LSB + 2 downto C_COND_LSB_HI_LSB) &
+                cfg_v(C_COND_LSB_LSB + 7 downto C_COND_LSB_LSB)));
+            if wid_v = 0 then
+                lowm_v := (others => '0');
+            elsif wid_v >= sample_w then
+                lowm_v := ones_v;
+            else
+                lowm_v := shift_right(ones_v, sample_w - wid_v);
+            end if;
+            res_v(sample_w - 1 downto 0) := std_logic_vector(shift_left(
+                resize(val_v, sample_w) and lowm_v, lsb_v));
+        end if;
+        return res_v;
     end function;
 
 end package body;

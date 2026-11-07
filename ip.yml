@@ -1,9 +1,11 @@
 # rr_rea - RouteRTL Embedded Analyzer (REA)
-# On-chip protocol tier v0.17 (VERSION magic 0x52454111): CTRL[2] force-trigger and STATUS[9]
-# forced (REA-P2.28), after the v0.15 multi-stage trigger sequencer
-# (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage qualification
-# (REA-P2.7) on top of the aligned per-sample timestamp plane (DATA_PLANE_SEL,
-# RTL-T2.123), the v0.8 readback-integrity trust tier and PRETRIG_VALID.
+# On-chip protocol tier v0.19 (VERSION magic 0x52454113): G_ARM_AT_RESET + G_RESET_*
+# boot-time armed capture and STATUS[10] armed_at_reset (REA-P2.32), after v0.17
+# CTRL[2] force-trigger and STATUS[9] forced (REA-P2.28), the v0.15 multi-stage
+# trigger sequencer (REA-P3.7), v0.13 TRIG_LATENCY (REA-T2.6) and v0.11 storage
+# qualification (REA-P2.7) on top of the aligned per-sample timestamp plane
+# (DATA_PLANE_SEL, RTL-T2.123), the v0.8 readback-integrity trust tier and
+# PRETRIG_VALID.
 #
 # First-party on-chip logic analyzer IP. THIS repo (github.com/djmazure/rr-rea)
 # is the PUBLIC home of the routertl/rea package: `rr pkg publish` runs from
@@ -13,9 +15,26 @@
 # THREE INDEPENDENT VERSION SURFACES — they do NOT have to agree, and briefly
 # agreeing on 0.9.0 (RTL-P2.1106) was a coincidence of values, not a contract:
 #
-#   version: below        the PACKAGE version the registry pins   -> 1.14.1
-#   rea_regbank.yml       the REGISTER MAP version                -> 0.14.0
-#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454111
+#   version: below        the PACKAGE version the registry pins   -> 1.15.0
+#   rea_regbank.yml       the REGISTER MAP version                -> 0.15.0
+#   C_REA_VERSION         the on-chip RUNTIME FEATURE TIER        -> 0x52454113
+#
+# 1.15.0 (REA-P2.32) is a MINOR: G_ARM_AT_RESET (default false = existing
+# builds bit-identical) and the G_RESET_* configuration generics on
+# rr_rea_capture_fsm, rr_rea_regbank, rr_rea_top and every vendor wrapper bring
+# the core out of sample_rst_i already ARMED with a synthesis-time window,
+# trigger, decimation and qualifier configuration, so a boot-time transition
+# before the host attaches is captured and held in the frozen window.
+# STATUS[10] (armed_at_reset) tells the host the core came out of reset armed
+# (sticky across the boot capture until a host CTRL[0] arm or CTRL[1] reset
+# clears it), and the selftest fill FSM refuses a fill while STATUS[10] is set
+# (armed_at_reset is a refusal input of its own) or the capture is armed or
+# triggered. The boot capture is CAPTURE_EPOCH 1: rr_rea_trust_core resets the
+# epoch to 1 on such a build, since the reset arm is its first accepted arm.
+# The rr ila host surface (descriptor key, read without re-arm) is routertl
+# RTL-P2.2187. Runtime tier 0x52454111 ->  # rea-magic:historical
+# 0x52454113 (REA-REQ-913, tier byte stays odd, REA-REQ-806) and register map
+# 0.14.0 -> 0.15.0. Existing instantiations elaborate unchanged.
 #
 # 1.14.1 (REA-P1.4) is a PATCH, constraints only: rr_rea_scoped.sdc bounds the
 # skew across each multi-bit rr_rea_sync_word word (set_max_skew, 0.8 x the
@@ -29,7 +48,7 @@
 # 1-cycle pulse). Before this rr_rea_top had no trigger_i, so the FSM's input
 # sat at '0' and rr_rea_trig_xbar could trigger no core, though the cross-core
 # trigger was advertised. trigger_o stays the toggle the xbar consumes. No
-# register-map or runtime-tier change (VERSION stays 0x52454111): the ports are
+# register-map or runtime-tier change (VERSION stays 0x52454111): the ports are  # rea-magic:historical
 # not host-visible. Existing instantiations elaborate unchanged.
 #
 # 1.13.0 (REA-P2.28) is a MINOR: CTRL bit[2] (C_CTRL_BIT_FORCE_TRIG) forces the
@@ -42,7 +61,7 @@
 # no decimation or qualification: it subtracted the comparator pipeline depth,
 # so a capture triggered soon after the arm under-reported its pre-trigger
 # cells. FEATURES has no free bit, so the runtime tier moves 0x5245410F ->  # rea-magic:historical
-# 0x52454111 (REA-REQ-913, tier byte stays odd, REA-REQ-806) and the register
+# 0x52454111 (REA-REQ-913, tier byte stays odd, REA-REQ-806) and the register  # rea-magic:historical
 # map 0.13.0 -> 0.14.0. Existing instantiations elaborate unchanged.
 #
 # 1.12.3 (REA-P2.26) is a PATCH: annotates rr_rea_sync_word s1/s2 with the inline
@@ -290,7 +309,7 @@
 
 name: rea
 namespace: routertl
-version: 1.14.1
+version: 1.15.0
 description: RouteRTL Embedded Analyzer JTAG logic analyzer IP.
 license: MIT
 library: rr_rea

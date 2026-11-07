@@ -55,7 +55,20 @@ entity rr_rea_microchip is
         G_QUAL_CONDS  : natural  := 0;
         G_TRIG_CONDS  : positive := 4;
         -- REA-P3.7: trigger-sequencer depth 0..4 (default 0 = no sequencer).
-        G_TRIG_STAGES : natural  := 0
+        G_TRIG_STAGES : natural  := 0;
+        -- REA-P2.32: boot-time reset-armed capture generics, passed to rr_rea_top.
+        G_ARM_AT_RESET     : boolean := false;
+        G_RESET_PRETRIG    : natural := 0;
+        G_RESET_POSTTRIG   : natural := 0;
+        G_RESET_TRIG_MODE  : natural := 0;
+        G_RESET_TRIG_VALUE : natural := 0;
+        G_RESET_TRIG_MASK  : natural := 0;
+        G_RESET_DECIM      : natural := 0;
+        G_RESET_COND_CFG   : natural := 0;
+        G_RESET_COND_VAL   : natural := 0;
+        G_RESET_QUAL_MODE  : natural := 0;
+        G_RESET_QUAL_CFG   : natural := 0;
+        G_RESET_QUAL_VAL   : natural := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -102,14 +115,26 @@ architecture rtl of rr_rea_microchip is
 
     component rr_rea_top is
         generic (
-            G_SAMPLE_W    : positive := 12;
-            G_DEPTH       : positive := 4096;
-            G_TIMESTAMP_W : natural  := 32;
-            G_NUM_CHAN    : positive := 1;
-            G_TRIG_CONDS  : positive := 4;
-            G_NUM_SOURCE  : positive := 1;
-            G_QUAL_CONDS  : natural  := 0;
-            G_TRIG_STAGES : natural  := 0
+            G_SAMPLE_W         : positive := 12;
+            G_DEPTH            : positive := 4096;
+            G_TIMESTAMP_W      : natural  := 32;
+            G_NUM_CHAN         : positive := 1;
+            G_TRIG_CONDS       : positive := 4;
+            G_NUM_SOURCE       : positive := 1;
+            G_QUAL_CONDS       : natural  := 0;
+            G_TRIG_STAGES      : natural  := 0;
+            G_ARM_AT_RESET     : boolean  := false;
+            G_RESET_PRETRIG    : natural  := 0;
+            G_RESET_POSTTRIG   : natural  := 0;
+            G_RESET_TRIG_MODE  : natural  := 0;
+            G_RESET_TRIG_VALUE : natural  := 0;
+            G_RESET_TRIG_MASK  : natural  := 0;
+            G_RESET_DECIM      : natural  := 0;
+            G_RESET_COND_CFG   : natural  := 0;
+            G_RESET_COND_VAL   : natural  := 0;
+            G_RESET_QUAL_MODE  : natural  := 0;
+            G_RESET_QUAL_CFG   : natural  := 0;
+            G_RESET_QUAL_VAL   : natural  := 0
         );
         port (
             sample_clk_i  : in  std_logic;
@@ -192,14 +217,26 @@ begin
 
     u_top : rr_rea_top
         generic map (
-            G_SAMPLE_W    => G_SAMPLE_W,
-            G_DEPTH       => G_DEPTH,
-            G_TIMESTAMP_W => G_TIMESTAMP_W,
-            G_NUM_CHAN    => G_NUM_CHAN,
-            G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES
+            G_SAMPLE_W         => G_SAMPLE_W,
+            G_DEPTH            => G_DEPTH,
+            G_TIMESTAMP_W      => G_TIMESTAMP_W,
+            G_NUM_CHAN         => G_NUM_CHAN,
+            G_TRIG_CONDS       => G_TRIG_CONDS,
+            G_NUM_SOURCE       => G_NUM_SOURCE,
+            G_QUAL_CONDS       => G_QUAL_CONDS,
+            G_TRIG_STAGES      => G_TRIG_STAGES,
+            G_ARM_AT_RESET     => G_ARM_AT_RESET,
+            G_RESET_PRETRIG    => G_RESET_PRETRIG,
+            G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+            G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+            G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+            G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+            G_RESET_DECIM      => G_RESET_DECIM,
+            G_RESET_COND_CFG   => G_RESET_COND_CFG,
+            G_RESET_COND_VAL   => G_RESET_COND_VAL,
+            G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+            G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+            G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
         )
         port map (
             sample_clk_i  => sample_clk_i,
@@ -228,15 +265,27 @@ library ieee;
 -- Drop-in entity alias matching the filename convention (rr_rea_jtag_microchip)
 entity rr_rea_jtag_microchip is
     generic (
-        G_SAMPLE_W    : positive := 12;
-        G_DEPTH       : positive := 4096;
-        G_TIMESTAMP_W : natural  := 32;
-        G_NUM_CHAN    : positive := 1;
-        G_NUM_SOURCE  : positive := 1;
-        G_CTRL_CHAIN  : integer  := 1;
-        G_QUAL_CONDS  : natural  := 0;
-        G_TRIG_CONDS  : positive := 4;
-        G_TRIG_STAGES : natural  := 0
+        G_SAMPLE_W         : positive := 12;
+        G_DEPTH            : positive := 4096;
+        G_TIMESTAMP_W      : natural  := 32;
+        G_NUM_CHAN         : positive := 1;
+        G_NUM_SOURCE       : positive := 1;
+        G_CTRL_CHAIN       : integer  := 1;
+        G_QUAL_CONDS       : natural  := 0;
+        G_TRIG_CONDS       : positive := 4;
+        G_TRIG_STAGES      : natural  := 0;
+        G_ARM_AT_RESET     : boolean  := false;
+        G_RESET_PRETRIG    : natural  := 0;
+        G_RESET_POSTTRIG   : natural  := 0;
+        G_RESET_TRIG_MODE  : natural  := 0;
+        G_RESET_TRIG_VALUE : natural  := 0;
+        G_RESET_TRIG_MASK  : natural  := 0;
+        G_RESET_DECIM      : natural  := 0;
+        G_RESET_COND_CFG   : natural  := 0;
+        G_RESET_COND_VAL   : natural  := 0;
+        G_RESET_QUAL_MODE  : natural  := 0;
+        G_RESET_QUAL_CFG   : natural  := 0;
+        G_RESET_QUAL_VAL   : natural  := 0
     );
     port (
         sample_clk_i  : in  std_logic;
@@ -264,15 +313,27 @@ architecture rtl of rr_rea_jtag_microchip is
 begin
     u_impl : entity work.rr_rea_microchip
         generic map (
-            G_SAMPLE_W    => G_SAMPLE_W,
-            G_DEPTH       => G_DEPTH,
-            G_TIMESTAMP_W => G_TIMESTAMP_W,
-            G_NUM_CHAN    => G_NUM_CHAN,
-            G_NUM_SOURCE  => G_NUM_SOURCE,
-            G_CTRL_CHAIN  => G_CTRL_CHAIN,
-            G_QUAL_CONDS  => G_QUAL_CONDS,
-            G_TRIG_CONDS  => G_TRIG_CONDS,
-            G_TRIG_STAGES => G_TRIG_STAGES
+            G_SAMPLE_W         => G_SAMPLE_W,
+            G_DEPTH            => G_DEPTH,
+            G_TIMESTAMP_W      => G_TIMESTAMP_W,
+            G_NUM_CHAN         => G_NUM_CHAN,
+            G_NUM_SOURCE       => G_NUM_SOURCE,
+            G_CTRL_CHAIN       => G_CTRL_CHAIN,
+            G_QUAL_CONDS       => G_QUAL_CONDS,
+            G_TRIG_CONDS       => G_TRIG_CONDS,
+            G_TRIG_STAGES      => G_TRIG_STAGES,
+            G_ARM_AT_RESET     => G_ARM_AT_RESET,
+            G_RESET_PRETRIG    => G_RESET_PRETRIG,
+            G_RESET_POSTTRIG   => G_RESET_POSTTRIG,
+            G_RESET_TRIG_MODE  => G_RESET_TRIG_MODE,
+            G_RESET_TRIG_VALUE => G_RESET_TRIG_VALUE,
+            G_RESET_TRIG_MASK  => G_RESET_TRIG_MASK,
+            G_RESET_DECIM      => G_RESET_DECIM,
+            G_RESET_COND_CFG   => G_RESET_COND_CFG,
+            G_RESET_COND_VAL   => G_RESET_COND_VAL,
+            G_RESET_QUAL_MODE  => G_RESET_QUAL_MODE,
+            G_RESET_QUAL_CFG   => G_RESET_QUAL_CFG,
+            G_RESET_QUAL_VAL   => G_RESET_QUAL_VAL
         )
         port map (
             sample_clk_i  => sample_clk_i,
